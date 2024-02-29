@@ -20,13 +20,13 @@ This script assumes control of the PIXOO64 display while it’s in use and a tra
   
 **Prerequisites:**
 
-1. **DIVOOM PIXOO64:** [https://divoom.com/](https://divoom.com/)
+1. **DIVOOM PIXOO64:** [https://divoom.com/pixoo64](https://divoom.com/)
 2. **Home Assistant:** [https://www.home-assistant.io/blog/2017/07/25/introducing-hassio/](https://www.home-assistant.io/blog/2017/07/25/introducing-hassio/) (with add-on functionality)
 3. **AppDaemon:** [https://appdaemon.readthedocs.io/](https://appdaemon.readthedocs.io/) (Home Assistant add-on)
 
 **Installation and Configuration:**
 
-1. Create a Toggle Helper in Home Assistant. For example `input_boolean.pixoo64_album_art` can be used to control when the script runs
+1. Create a Toggle Helper in Home Assistant. For example `input_boolean.pixoo64_album_art` can be used to control when the script runs.
 2. Install **AppDaemon** from the Home Assistant add-on store.
 3. On Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
 ```yaml
