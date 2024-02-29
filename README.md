@@ -2,6 +2,7 @@
 This script automatically displays the album cover art of the currently playing song on the PIXOO64. It also creates a new sensor entity to store values that can be used in your automations. For instance, it can show the title and artist name in Latin letters only on the screen, and use colors for the font and background based on the dominant color from the album art.
 
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
+![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
 
 ## Prerequisites
 1. DIVOOM PIXOO64 - https://divoom.com/products/pixoo-64
