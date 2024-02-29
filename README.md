@@ -205,8 +205,7 @@ media_picture_gif_base64: >-
 font_color: "#000000"
 font_color_alternative: "#2b2c31"
 background_color_brightness: 209
-background_color: "#d4d3ce"
-background_color_rgb:
+background_color:
   - 212
   - 211
   - 206
