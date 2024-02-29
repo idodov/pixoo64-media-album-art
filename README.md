@@ -20,7 +20,7 @@ This script assumes control of the PIXOO64 display while it’s in use and a tra
   
 **Prerequisites:**
 
-1. **DIVOOM PIXOO64:** [https://divoom.com/pixoo64](https://divoom.com/)
+1. **DIVOOM PIXOO64:** [https://divoom.com](https://divoom.com/pixoo64)
 2. **Home Assistant:** [https://www.home-assistant.io/blog/2017/07/25/introducing-hassio/](https://www.home-assistant.io/blog/2017/07/25/introducing-hassio/) (with add-on functionality)
 3. **AppDaemon:** [https://appdaemon.readthedocs.io/](https://appdaemon.readthedocs.io/) (Home Assistant add-on)
 
