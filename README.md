@@ -11,9 +11,10 @@
 
 **Functional Advantages:**
 
-- **Extracted Artist and Title Information:** The script extracts the artist name and song title, enabling you to utilize this information in automations for personalized notifications or custom displays.
 - **Sensor Data Storage:** All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily accessible for further automation possibilities.
-- **Clean and Consistent Titles:** Normalize titles and artist names for easier integration with automations and consistent display regardless of regional characters or symbols. This ensures seamless use of extracted data in automations and avoids inconsistencies in visual representations. **Example:** Original Title: "Beyoncé" (with accent) - Normalized Title: "Beyonce" (accent removed).
+- **Clean and Consistent Titles:** Normalize titles and artist names for easier integration with automations and consistent display regardless of regional characters or symbols. This ensures seamless use of extracted data in automations and avoids inconsistencies in visual representations.
+  - Original Title: "Beyoncé" (with accent)
+  - Normalized Title: "Beyonce" (accent removed)
   
 **Prerequisites:**
 
