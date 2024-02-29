@@ -4,6 +4,8 @@
 
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
 
+This script assumes control of the PIXOO64 display while it’s in use and a track is playing. To exit this ‘mode’, you’ll need to change the PIXOO channel either through the Divoom app or the API. This is why the script relies on an input_boolean entity that you’ll need to create in advance. You can toggle this entity when you want the album art to be displayed automatically. Meaning that when the toggle is activated and the script is running, the PIXOO display will turn on each time you play a music track. If the music is paused, the PIXOO screen will turn off. Upon turning on the display, the most recent album cover art will be shown. To switch to other channels, such as the visualizer, clock, or custom channels, you’ll need to make the change through the Divoom app or API.
+
 **Visual Enhancements:**
 
 - **Eye-catching Cover Art:** Witness the album art of your favorite songs come to life on your PIXOO64, adding a visual dimension to your listening experience.
@@ -24,8 +26,8 @@
 
 **Installation and Configuration:**
 
-1. Install **AppDaemon** from the Home Assistant add-on store.
-2. Within the AppDaemon configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
+1. Create a Toggle Helper in Home Assistant. For example `input_boolean.pixoo64_album_art` can be used to control when the script runs
+2. Install **AppDaemon** from the Home Assistant add-on store.page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
 
 ```yaml
 # appdaemon.yaml
@@ -41,7 +43,7 @@ Before saving the code, make sure to adjust it to your personal needs.
 
 | Parameter | Description | Example |
 |---|---|---|
-| **TOGGLE** | Primary toggle sensor triggering the script. It’s advisable to set up this sensor as a helper beforehand. This way, Home Assistant will retain its state even after a system restart. | `input_boolean.pixoo64_album_art` |
+| **TOGGLE** | Primary toggle sensor triggering the script | `input_boolean.pixoo64_album_art` |
 | **MEDIA_PLAYER** | Media Player entity name in Home Assistant | `media_player.era300` |
 | **SENSOR** | Sensor to store data | `sensor.pixoo64_media_data` |
 | **HA_URL** | Home Assistant local URL | `http://homeassistant.local:8123` |
@@ -60,14 +62,14 @@ from appdaemon.plugins.hass import hassapi as hass
 from unidecode import unidecode
 
 #-- Update to your own values
-TOGGLE = "input_boolean.pixoo64_album_art"
-MEDIA_PLAYER = "media_player.era300"
-SENSOR = "sensor.pixoo64_era300"
+TOGGLE = "input_boolean.pixoo64_album_art" # CREATE IT AS A HELPER ENTITY BEFORE!!
+MEDIA_PLAYER = "media_player.era300" # Name of your speaker
+SENSOR = "sensor.pixoo64_era300" # Name of the sensor to store the data
 HA_URL = "http://homeassistant.local:8123"
-URL = "http://192.168.86.221:80/post"
+URL = "http://192.168.86.21:80/post" # Pixoo64 URL
 # ---------------
 IMAGE_SIZE = 64
-BLID = 10
+BLID = 10 # To exlude the blid, chage to 1 (not 0)
 LOWER_PART_CROP = (BLID, int((IMAGE_SIZE/3)*2)-BLID, IMAGE_SIZE-BLID, IMAGE_SIZE-BLID)
 BRIGHTNESS_THRESHOLD = 128
 HEADERS = {"Content-Type": "application/json; charset=utf-8"}
@@ -76,9 +78,15 @@ class Pixoo(hass.Hass):
     def initialize(self):
         self.listen_state(self.update_attributes, MEDIA_PLAYER, attribute='media_title')
         self.listen_state(self.update_attributes, MEDIA_PLAYER)
-
+        
     def update_attributes(self, entity, attribute, old, new, kwargs):
-        input_boolean = self.get_state(TOGGLE)
+        try:
+            input_boolean = self.get_state(TOGGLE)
+        except Exception as e:
+            self.log(f"Error getting state for {TOGGLE}: {e}. Will create a new entity")
+            self.set_state(TOGGLE, state="on", attributes={"friendly_name": "Pixoo64 Album Art"})
+            input_boolean = "on"
+    
         media_state = self.get_state(MEDIA_PLAYER)
         
         if media_state in ["off", "idle", "pause"]:
@@ -111,7 +119,15 @@ class Pixoo(hass.Hass):
                         "background_color_rgb": background_color_rgb
                     }
                     self.set_state(SENSOR, state="on", attributes=new_attributes)
+            else:
+                payload = {"Command":"Draw/CommandList", "CommandList":[
+                    {"Command": "Draw/ResetHttpGifId"},
+                    {"Command":"Channel/OnOffScreen", "OnOff":0} ]}
+                response = requests.post(URL, headers=HEADERS, data=json.dumps(payload))
 
+                if response.status_code != 200:
+                    self.log(f"Failed to send REST command with image data: {response.content}")
+                    
     def process_picture(self, picture):
         gif_base64 = ""  
         font_color = ""  
