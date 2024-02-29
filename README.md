@@ -13,7 +13,8 @@
 
 - **Extracted Artist and Title Information:** The script extracts the artist name and song title, enabling you to utilize this information in automations for personalized notifications or custom displays.
 - **Sensor Data Storage:** All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily accessible for further automation possibilities.
-
+- **Clean and Consistent Titles:** Normalize titles and artist names for easier integration with automations and consistent display regardless of regional characters or symbols. This ensures seamless use of extracted data in automations and avoids inconsistencies in visual representations. **Example:** Original Title: "Beyoncé" (with accent) - Normalized Title: "Beyonce" (accent removed).
+  
 **Prerequisites:**
 
 1. **DIVOOM PIXOO64:** [https://divoom.com/](https://divoom.com/)
@@ -212,7 +213,23 @@ ____________
 
 ![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
 _____________
-Here’s an example of the sensor attributes:
+
+## Sensor Attribues
+The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assistant. It’s designed to store useful picture data from the album cover art of the currently playing song. This includes the artist’s name, the title of the media, the base64 encoded GIF of the media picture, and color information such as the color of the font and the background. This sensor allows for dynamic visual experiences and automation possibilities based on the music being played.
+| Attribute | Description |
+|---|---|
+| **artist** | The original name of the artist |
+| **normalized_artist** | The artist's name in Latin letters |
+| **media_title** | The original title of the media |
+| **normalized_title** | The media title in Latin letters |
+| **media_picture_gif_base64** | The base64 encoded GIF of the media picture |
+| **font_color** | The color of the font |
+| **font_color_alternative** | An alternative color for the font |
+| **background_color_brightness** | The brightness level of the background color |
+| **background_color** | The color of the background |
+| **background_color_rgb** | The RGB values of the background color |
+
+Here’s an example of the sensor values:
 ```yaml
 artist: Ivar Bjørnson & Einar Selvik
 normalized_artist: Ivar Bjornson & Einar Selvik
