@@ -1,18 +1,32 @@
-# PIXOO64 Media Album Art Display
-This script automatically displays the album cover art of the currently playing song on the PIXOO64. It also creates a new sensor entity to store values that can be used in your automations. For instance, it can show the title and artist name in Latin letters only on the screen, and use colors for the font and background based on the dominant color from the album art.
+## PIXOO64 Media Album Art Display: Enhance Your Music Experience
+
+**This script automatically transforms your PIXOO64 into a vibrant canvas for your currently playing music. It extracts and displays the album cover art, along with extracting valuable data like artist name and dominant color, which can be used for further automation in your Home Assistant environment.**
 
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
-![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
 
-## Prerequisites
-1. DIVOOM PIXOO64 - https://divoom.com/products/pixoo-64
-2. Home Assistant (with add-ons)
-3. AppDaemon (add-on)
+**Visual Enhancements:**
 
-## Installation 
-1. Install **AppDaemon** from the add-on store.
-2. Add the **requests**, **numpy pillow**, and **unidecode** packages on the AppDaemon configuration page.
+- **Eye-catching Cover Art:** Witness the album art of your favorite songs come to life on your PIXOO64, adding a visual dimension to your listening experience.
+- **Dynamic Color Integration:** The dominant color from the album art is used to set the font and background colors on the PIXOO64, creating a cohesive and aesthetically pleasing display.
+
+**Functional Advantages:**
+
+- **Extracted Artist and Title Information:** The script extracts the artist name and song title, enabling you to utilize this information in automations for personalized notifications or custom displays.
+- **Sensor Data Storage:** All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily accessible for further automation possibilities.
+
+**Prerequisites:**
+
+1. **DIVOOM PIXOO64:** [https://divoom.com/](https://divoom.com/)
+2. **Home Assistant:** [https://www.home-assistant.io/blog/2017/07/25/introducing-hassio/](https://www.home-assistant.io/blog/2017/07/25/introducing-hassio/) (with add-on functionality)
+3. **AppDaemon:** [https://appdaemon.readthedocs.io/](https://appdaemon.readthedocs.io/) (Home Assistant add-on)
+
+**Installation and Configuration:**
+
+1. Install **AppDaemon** from the Home Assistant add-on store.
+2. Within the AppDaemon configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
+
 ```yaml
+# appdaemon.yaml
 system_packages: []
 python_packages:
   - requests
@@ -20,12 +34,17 @@ python_packages:
   - unidecode
 init_commands: []
 ```
-3. In the AppDaemon app directory (addons_config/appdaemon/apps), create a file named pixoo.py (using the VSCode add-on) and paste the code into it. Before saving the code, make sure to adjust it to your personal needs.
-* **TOGGLE** = Refers to the primary toggle sensor that triggers the script when it’s turned on. An example of this could be `input_boolean.pixoo64_album_art`. It’s advisable to set up this sensor as a helper beforehand. This way, Home Assistant will retain its state even after a system restart.
-* **MEDIA_PLAYER** = Your Media Player entity name in Home Assistant. For example: `media_player.era300`
-* **SENSOR** = The name of the sensor to store the data. For example:`sensor.pixoo64_media_data`
-* **HA_URL** = Home Assistant local URL. For example: `http://homeassistant.local:8123`
-* **URL** = PIXOO64 full URL. For example: `http://192.168.86.221:80/post`
+3. In the AppDaemon app directory (addons_config/appdaemon/apps), create a file named **pixoo.py** (using the VSCode or File Editor add-on) and paste the code into it. 
+Before saving the code, make sure to adjust it to your personal needs.
+
+| Parameter | Description | Example |
+|---|---|---|
+| **TOGGLE** | Primary toggle sensor triggering the script. It’s advisable to set up this sensor as a helper beforehand. This way, Home Assistant will retain its state even after a system restart. | `input_boolean.pixoo64_album_art` |
+| **MEDIA_PLAYER** | Media Player entity name in Home Assistant | `media_player.era300` |
+| **SENSOR** | Sensor to store data | `sensor.pixoo64_media_data` |
+| **HA_URL** | Home Assistant local URL | `http://homeassistant.local:8123` |
+| **URL** | PIXOO64 full URL | `http://192.168.86.221:80/post` |
+
 ```py
 import re
 import base64
@@ -43,10 +62,10 @@ TOGGLE = "input_boolean.pixoo64_album_art"
 MEDIA_PLAYER = "media_player.era300"
 SENSOR = "sensor.pixoo64_era300"
 HA_URL = "http://homeassistant.local:8123"
-URL = "http://192.168.86.21:80/post"
+URL = "http://192.168.86.221:80/post"
 # ---------------
 IMAGE_SIZE = 64
-BLID = 10 # to exlude album art borders. use 1 if you want to include the borders
+BLID = 10
 LOWER_PART_CROP = (BLID, int((IMAGE_SIZE/3)*2)-BLID, IMAGE_SIZE-BLID, IMAGE_SIZE-BLID)
 BRIGHTNESS_THRESHOLD = 128
 HEADERS = {"Content-Type": "application/json; charset=utf-8"}
@@ -54,6 +73,7 @@ HEADERS = {"Content-Type": "application/json; charset=utf-8"}
 class Pixoo(hass.Hass):
     def initialize(self):
         self.listen_state(self.update_attributes, MEDIA_PLAYER, attribute='media_title')
+        self.listen_state(self.update_attributes, MEDIA_PLAYER)
 
     def update_attributes(self, entity, attribute, old, new, kwargs):
         input_boolean = self.get_state(TOGGLE)
@@ -63,8 +83,7 @@ class Pixoo(hass.Hass):
             self.set_state(SENSOR, state="off")
 
         if input_boolean == "on":
-            retries = 10
-            while retries > 0:
+            if media_state in ["playing", "on"]:  # Check for playing state
                 new = self.get_state(MEDIA_PLAYER, attribute="media_title")
                 if new:  # Check if new is not None
                     title = new
@@ -76,7 +95,7 @@ class Pixoo(hass.Hass):
                         artist = ""
                         normalized_artist = ""
                     picture = self.get_state(MEDIA_PLAYER, attribute="entity_picture")
-                    gif_base64, font_color, recommended_font_color, brightness, background_color = self.process_picture(picture)
+                    gif_base64, font_color, recommended_font_color, brightness, background_color, background_color_rgb = self.process_picture(picture)
                     new_attributes = {
                         "artist": artist,
                         "normalized_artist": normalized_artist, 
@@ -86,16 +105,10 @@ class Pixoo(hass.Hass):
                         "font_color": font_color,
                         "font_color_alternative": recommended_font_color,
                         "background_color_brightness": brightness,
-                        "background_color": background_color
+                        "background_color": background_color,
+                        "background_color_rgb": background_color_rgb
                     }
                     self.set_state(SENSOR, state="on", attributes=new_attributes)
-                    break
-                else:
-                    self.log("Media title is None. Retrying...")
-                    retries -= 1
-                    time.sleep(1)  # Wait for a second before retrying
-            if retries == 0:
-                self.log("Media title is None. Skipping update after 10 retries.")
 
     def process_picture(self, picture):
         gif_base64 = ""  
@@ -106,10 +119,10 @@ class Pixoo(hass.Hass):
         if picture is not None:
             try:
                 img = self.get_image(picture)
-                gif_base64, font_color, recommended_font_color, brightness, background_color = self.process_image(img)
+                gif_base64, font_color, recommended_font_color, brightness, background_color, background_color_rgb = self.process_image(img)
             except Exception as e:
                 self.log(f"Error processing image: {e}")
-        return gif_base64, font_color, recommended_font_color, brightness, background_color
+        return gif_base64, font_color, recommended_font_color, brightness, background_color, background_color_rgb
 
     def get_image(self, picture):
         try:
@@ -134,7 +147,8 @@ class Pixoo(hass.Hass):
         font_color = "#FFFFFF" if brightness < BRIGHTNESS_THRESHOLD else "#000000"
         opposite_color = tuple(255 - i for i in most_common_color)
         recommended_font_color = '#%02x%02x%02x' % opposite_color
-        background_color = most_common_color
+        background_color_rgb = most_common_color
+        background_color = '#%02x%02x%02x' % most_common_color
 
         # Calculate contrast ratio
         l1 = self.luminance(*most_common_color)
@@ -161,7 +175,7 @@ class Pixoo(hass.Hass):
         if response.status_code != 200:
             self.log(f"Failed to send REST command with image data: {response.content}")
 
-        return gif_base64, font_color, recommended_font_color, brightness, background_color
+        return gif_base64, font_color, recommended_font_color, brightness, background_color, background_color_rgb
 
     def ensure_rgb(self, img):
         if img.mode != "RGB":
@@ -187,14 +201,17 @@ class Pixoo(hass.Hass):
     def contrast_ratio(self, l1, l2):
         return (l1 + 0.05) / (l2 + 0.05) if l1 > l2 else (l2 + 0.05) / (l1 + 0.05)
 ```
-4. Open app.yaml file from the AppDaemon directory and add this code:
+4. Open **app.yaml** file from the AppDaemon directory and add this code:
 ```yaml
 pixoo:
   module: pixoo
   class: Pixoo
 ```
+____________
 **You’re all set! The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
 
+![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
+_____________
 Here’s an example of the sensor attributes:
 ```yaml
 artist: Ivar Bjørnson & Einar Selvik
@@ -206,7 +223,8 @@ media_picture_gif_base64: >-
 font_color: "#000000"
 font_color_alternative: "#2b2c31"
 background_color_brightness: 209
-background_color:
+background_color: "#d4d3ce"
+background_color_rgb:
   - 212
   - 211
   - 206
