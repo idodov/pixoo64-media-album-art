@@ -1,5 +1,4 @@
 ## PIXOO64 Media Album Art Display: Enhance Your Music Experience
-
 **This script automatically transforms your PIXOO64 into a vibrant canvas for your currently playing music. It extracts and displays the album cover art, along with extracting valuable data like artist name and dominant color, which can be used for further automation in your Home Assistant environment.**
 
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
@@ -226,6 +225,8 @@ pixoo:
 ```
 ____________
 **You’re all set! The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
+
+![צילום מסך 2024-02-29 230356](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/54546384-70c1-4c18-ba1e-aaeb91ac11ec)
 
 ![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
 _____________
