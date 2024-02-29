@@ -1,8 +1,10 @@
 # PIXOO64 Media Album Art Display
 This script automatically displays the album cover art of the currently playing song on the PIXOO64. It also creates a new sensor entity to store values that can be used in your automations. For instance, it can show the title and artist name in Latin letters only on the screen, and use colors for the font and background based on the dominant color from the album art.
 
+![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
+
 ## Prerequisites
-1. DIVOOM PIXOO64
+1. DIVOOM PIXOO64 - https://divoom.com/products/pixoo-64
 2. Home Assistant (with add-ons)
 3. AppDaemon (add-on)
 
@@ -18,11 +20,11 @@ python_packages:
 init_commands: []
 ```
 3. In the AppDaemon app directory (addons_config/appdaemon/apps), create a file named pixoo.py (using the VSCode add-on) and paste the code into it. Before saving the code, make sure to adjust it to your personal needs.
-* **TOGGLE** refers to the primary toggle sensor that triggers the script when it’s turned on. An example of this could be “input_boolean.pixoo64_album_art”. It’s advisable to set up this sensor as a helper beforehand. This way, Home Assistant will retain its state even after a system restart.
-* **MEDIA_PLAYER** = Your Media Player entity name in Home Assistant. For example: “media_player.era300”
-* **SENSOR** = The name of the sensor to store the data. For example: “sensor.pixoo64_media_data”
-* **HA_URL** = Home Assistant local URL. For example: “http://homeassistant.local:8123”
-* **URL** = PIXOO64 full URL. For example: “http://192.168.86.221:80/post”
+* **TOGGLE** = Refers to the primary toggle sensor that triggers the script when it’s turned on. An example of this could be `input_boolean.pixoo64_album_art`. It’s advisable to set up this sensor as a helper beforehand. This way, Home Assistant will retain its state even after a system restart.
+* **MEDIA_PLAYER** = Your Media Player entity name in Home Assistant. For example: `media_player.era300`
+* **SENSOR** = The name of the sensor to store the data. For example:`sensor.pixoo64_media_data`
+* **HA_URL** = Home Assistant local URL. For example: `http://homeassistant.local:8123`
+* **URL** = PIXOO64 full URL. For example: `http://192.168.86.221:80/post`
 ```py
 import re
 import base64
