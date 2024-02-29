@@ -40,6 +40,7 @@ init_commands: []
 ```
 4. In the AppDaemon app directory (addons_config/appdaemon/apps), create a file named **pixoo.py** (using the VSCode or File Editor add-on) and paste the code into it. 
 Before saving the code, make sure to adjust it to your personal needs.
+
 | Parameter | Description | Example |
 |---|---|---|
 | **TOGGLE** | Primary toggle sensor triggering the script | `input_boolean.pixoo64_album_art` |
@@ -230,6 +231,7 @@ ____________
 _____________
 ## Sensor Attribues
 The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assistant. It’s designed to store useful picture data from the album cover art of the currently playing song. This includes the artist’s name, the title of the media, the base64 encoded GIF of the media picture, and color information such as the color of the font and the background. This sensor allows for dynamic visual experiences and automation possibilities based on the music being played.
+
 | Attribute | Description |
 |---|---|
 | **artist** | The original name of the artist |
@@ -242,6 +244,7 @@ The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assi
 | **background_color_brightness** | The brightness level of the background color |
 | **background_color** | The color of the background |
 | **background_color_rgb** | The RGB values of the background color |
+
 Here’s an example of the sensor values:
 ```yaml
 artist: Ivar Bjørnson & Einar Selvik
