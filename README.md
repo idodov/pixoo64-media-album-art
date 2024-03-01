@@ -283,7 +283,6 @@ The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assi
 | **background_color_rgb** | The RGB values of the background color (lower part) |
 | **color_alternative** |  The most common color of the background |
 | **color_alternative_rgb** | The RGB values of the most common background color |
-color_alternative_rgb
 
 Here’s an example of the sensor values:
 ```yaml
