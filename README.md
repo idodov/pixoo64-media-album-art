@@ -45,7 +45,7 @@ Before saving the code, make sure to adjust it to your personal needs.
 | **SHOW_TEXT** | Display the artist name and title. Change to `False` not to display the media info | `SHOW_TEXT = True` |
 | **TOGGLE** | Primary toggle sensor name that triggering the script. Please create it as a helper in Home Assistant UI interface | `input_boolean.pixoo64_album_art` |
 | **MEDIA_PLAYER** | Media Player entity name in Home Assistant | `media_player.era300` |
-| **SENSOR** | Sensor to store data | `sensor.pixoo64_media_data` |
+| **SENSOR** | Sensor name to store data. No need to create it in advance | `sensor.pixoo64_media_data` |
 | **HA_URL** | Home Assistant local URL | `http://homeassistant.local:8123` |
 | **URL** | PIXOO64 full URL | `http://192.168.86.21:80/post` |
 ```py
