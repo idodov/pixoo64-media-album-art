@@ -47,8 +47,7 @@ Before saving the code, make sure to adjust it to your personal needs.
 | **SENSOR** | Sensor name to store data. No need to create it in advance | `sensor.pixoo64_media_data` |
 | **HA_URL** | Home Assistant local URL | `http://homeassistant.local:8123` |
 | **URL** | PIXOO64 full URL | `http://192.168.86.21:80/post` |
-```py
-import re
+```pyimport re
 import base64
 import requests
 import json
@@ -62,7 +61,7 @@ from unidecode import unidecode
 
 #-- Update to your own values
 SHOW_TEXT = True 
-FULL_CONTROL = True 
+FULL_CONTROL = False 
 
 TOGGLE = "input_boolean.pixoo64_album_art" # CREATE IT AS A HELPER ENTITY BEFORE!!
 MEDIA_PLAYER = "media_player.era300" # Name of your speaker
@@ -97,7 +96,7 @@ class Pixoo(hass.Hass):
 
         if input_boolean == "on":
             payload = '{ "Command" : "Channel/GetIndex" }'
-            response = requests.request("POST", url, headers=HEADERS, data=payload)
+            response = requests.request("POST", URL, headers=HEADERS, data=payload)
             response_data = json.loads(response.text)
             select_index = response_data.get('SelectIndex', None)
             
