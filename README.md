@@ -3,8 +3,6 @@
 
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
 
-This script assumes control of the PIXOO64 display while it’s in use and a track is playing. To exit this ‘mode’, you’ll need to change the PIXOO channel either through the Divoom app or the API. This is why the script relies on an input_boolean entity that you’ll need to create in advance. You can toggle this entity when you want the album art to be displayed automatically. Meaning that when the toggle is activated and the script is running, the PIXOO display will turn on each time you play a music track. If the music is paused, the PIXOO screen will turn off. Upon turning on the display, the most recent album cover art will be shown. To switch to other channels, such as the visualizer, clock, or custom channels, you’ll need to make the change through the Divoom app or API.
-
 **Visual Enhancements:**
 
 - **Eye-catching Cover Art:** Witness the album art of your favorite songs come to life on your PIXOO64, adding a visual dimension to your listening experience.
@@ -43,6 +41,7 @@ Before saving the code, make sure to adjust it to your personal needs.
 | Parameter | Description | Example |
 |---|---|---|
 | **SHOW_TEXT** | Display the artist name and title. Change to `False` not to display the media info | `SHOW_TEXT = True` |
+| **FULL_CONTROL** | This script assumes control of the PIXOO64 display while it’s in use and a track is playing. If `True` then the display will turn off when music paused. If `False` it display the previous channel (clock, visualizer, exc.) | `FULL_CONTROL = False` |
 | **TOGGLE** | Primary toggle sensor name that triggering the script. Please create it as a helper in Home Assistant UI interface | `input_boolean.pixoo64_album_art` |
 | **MEDIA_PLAYER** | Media Player entity name in Home Assistant | `media_player.era300` |
 | **SENSOR** | Sensor name to store data. No need to create it in advance | `sensor.pixoo64_media_data` |
@@ -52,6 +51,7 @@ Before saving the code, make sure to adjust it to your personal needs.
 import re
 import base64
 import requests
+import json
 import time
 from collections import Counter
 from io import BytesIO
@@ -61,11 +61,12 @@ from appdaemon.plugins.hass import hassapi as hass
 from unidecode import unidecode
 
 #-- Update to your own values
-SHOW_TEXT = True # Change to False to not display artist name and title
+SHOW_TEXT = True 
+FULL_CONTROL = True 
 
-TOGGLE = "input_boolean.pixoo64_album_art" # CREATE IT AS A HELPER ENTITY BEFORE SAVING THE SCRIPT!!
+TOGGLE = "input_boolean.pixoo64_album_art" # CREATE IT AS A HELPER ENTITY BEFORE!!
 MEDIA_PLAYER = "media_player.era300" # Name of your speaker
-SENSOR = "sensor.pixoo64_era300" # Name of the sensor to store the data
+SENSOR = "sensor.pixoo64_media_data" # Name of the sensor to store the data
 
 HA_URL = "http://homeassistant.local:8123"
 URL = "http://192.168.86.21:80/post" # Pixoo64 URL
@@ -95,6 +96,11 @@ class Pixoo(hass.Hass):
             self.set_state(SENSOR, state="off")
 
         if input_boolean == "on":
+            payload = '{ "Command" : "Channel/GetIndex" }'
+            response = requests.request("POST", url, headers=HEADERS, data=payload)
+            response_data = json.loads(response.text)
+            select_index = response_data.get('SelectIndex', None)
+            
             if media_state in ["playing", "on"]:  # Check for playing state
                 new = self.get_state(MEDIA_PLAYER, attribute="media_title")
                 if new:  # Check if new is not None
@@ -142,12 +148,20 @@ class Pixoo(hass.Hass):
 
                         if response.status_code != 200:
                             self.log(f"Failed to send REST command with image data: {response.content}")
-
             else:
-                payload = {"Command":"Draw/CommandList", "CommandList":[
+                if FULL_CONTROL:
+                    payload = {"Command":"Draw/CommandList", "CommandList":[
                     {"Command":"Draw/ClearHttpText"},
                     {"Command": "Draw/ResetHttpGifId"},
-                    {"Command":"Channel/OnOffScreen", "OnOff":0} ]}
+                    {"Command":"Channel/OnOffScreen", "OnOff":0} 
+                   ]}
+                else:
+                    payload = {"Command":"Draw/CommandList", "CommandList":[
+                    {"Command":"Draw/ClearHttpText"},
+                    {"Command": "Draw/ResetHttpGifId"},
+                    {"Command":"Channel/SetIndex", "SelectIndex": 4 },
+                    {"Command":"Channel/SetIndex", "SelectIndex": select_index }
+                   ]}
                 response = requests.post(URL, headers=HEADERS, data=json.dumps(payload))
 
                 if response.status_code != 200:
@@ -259,6 +273,7 @@ pixoo:
   module: pixoo
   class: Pixoo
 ```
+5. Restart AppDaemon
 ____________
 **You’re all set! The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
 
@@ -279,7 +294,7 @@ The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assi
 | **font_color** | The color of the font |
 | **font_color_alternative** | An alternative color for the font |
 | **background_color_brightness** | The brightness level of the background color |
-| **background_color** | The color of the lopwer part in background |
+| **background_color** | The color of the lower part in background |
 | **background_color_rgb** | The RGB values of the background color (lower part) |
 | **color_alternative** |  The most common color of the background |
 | **color_alternative_rgb** | The RGB values of the most common background color |
