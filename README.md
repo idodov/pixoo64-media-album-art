@@ -1,12 +1,10 @@
 ## DIVOOM PIXOO64 Media Album Art Display: Enhance Your Music Experience
 **This script automatically transforms yourDIVOOM PIXOO64 into a vibrant canvas for your currently playing music. It extracts and displays the album cover art, along with extracting valuable data like artist name and dominant color, which can be used for further automation in your Home Assistant environment.**
 
-
 **Demo video:**
 
 [<img src="https://img.youtube.com/vi/BAnTLevTY5o/0.jpg" width="600" height="300"
 />](https://www.youtube.com/embed/BAnTLevTY5o)
-
 
 **Examples:**
 
