@@ -66,8 +66,8 @@ from appdaemon.plugins.hass import hassapi as hass
 from unidecode import unidecode
 
 #-- Update to your own values
-SHOW_TEXT = True 
-FULL_CONTROL = False 
+SHOW_TEXT = False 
+FULL_CONTROL = True 
 
 TOGGLE = "input_boolean.pixoo64_album_art" # CREATE IT AS A HELPER ENTITY BEFORE!!
 MEDIA_PLAYER = "media_player.era300" # Name of your speaker
@@ -76,8 +76,9 @@ SENSOR = "sensor.pixoo64_media_data" # Name of the sensor to store the data
 HA_URL = "http://homeassistant.local:8123"
 URL = "http://192.168.86.21:80/post" # Pixoo64 URL
 # ---------------
+FONT = 2
 IMAGE_SIZE = 64 
-LOWER_PART_CROP = (5, int((IMAGE_SIZE/4)*3), IMAGE_SIZE-5, IMAGE_SIZE-5)
+LOWER_PART_CROP = (3, int((IMAGE_SIZE/4)*3), IMAGE_SIZE-3, IMAGE_SIZE-3)
 FULL_IMG = (1, IMAGE_SIZE, IMAGE_SIZE, IMAGE_SIZE)
 BRIGHTNESS_THRESHOLD = 128
 HEADERS = {"Content-Type": "application/json; charset=utf-8"}
@@ -94,21 +95,17 @@ class Pixoo(hass.Hass):
             self.log(f"Error getting state for {TOGGLE}: {e}. Will create a new entity")
             self.set_state(TOGGLE, state="on", attributes={"friendly_name": "Pixoo64 Album Art"})
             input_boolean = "on"
-    
         media_state = self.get_state(MEDIA_PLAYER)
-        
         if media_state in ["off", "idle", "pause"]:
             self.set_state(SENSOR, state="off")
-
         if input_boolean == "on":
             payload = '{ "Command" : "Channel/GetIndex" }'
             response = requests.request("POST", URL, headers=HEADERS, data=payload)
             response_data = json.loads(response.text)
             select_index = response_data.get('SelectIndex', None)
-            
             if media_state in ["playing", "on"]:  # Check for playing state
                 new = self.get_state(MEDIA_PLAYER, attribute="media_title")
-                if new:  # Check if new is not None
+                if new != "TV" and new is not None:
                     title = new
                     normalized_title = unidecode(new)
                     artist = self.get_state(MEDIA_PLAYER, attribute="media_artist")
@@ -133,8 +130,18 @@ class Pixoo(hass.Hass):
                         "background_color_rgb": background_color_rgb,
                         "recommended_font_color_rgb": recommended_font_color_rgb,
                         "color_alternative": most_common_color_alternative_rgb,
-                        
-                    }
+                        }
+                    payload = {"Command":"Draw/CommandList", "CommandList":[
+                        {"Command":"Channel/OnOffScreen", "OnOff":1},
+                        {"Command": "Draw/ResetHttpGifId"},
+                        {"Command": "Draw/SendHttpGif",
+                            "PicNum": 1,
+                            "PicWidth": 64,
+                            "PicOffset": 0,
+                            "PicID": 0,
+                            "PicSpeed": 1000,
+                            "PicData": gif_base64 }]}
+                    self.send_pixoo(payload)
                     self.set_state(SENSOR, state="on", attributes=new_attributes)
                     if SHOW_TEXT:
                         payload = {"Command":"Draw/SendHttpText",
@@ -142,36 +149,37 @@ class Pixoo(hass.Hass):
                             "x":0,
                             "y":48,
                             "dir":0,
-                            "font":2,
+                            "font":FONT,
                             "TextWidth":64,
                             "speed":80,
                             "TextString": normalized_artist + " - " + normalized_title + "             ",
-                            "color":recommended_font_color,
+                            "color": recommended_font_color,
                             "align":1}
-
-                        response = requests.post(URL, headers=HEADERS, data=json.dumps(payload))
-
-                        if response.status_code != 200:
-                            self.log(f"Failed to send REST command with image data: {response.content}")
+                        self.send_pixoo(payload)
+                else:
+                    payload = {"Command":"Draw/CommandList", "CommandList":[
+                        {"Command":"Draw/ClearHttpText"},
+                        {"Command": "Draw/ResetHttpGifId"},
+                        {"Command":"Channel/SetIndex", "SelectIndex": 4 },
+                        {"Command":"Channel/SetIndex", "SelectIndex": 2 }
+                        ]}
+                    self.send_pixoo(payload)
             else:
                 if FULL_CONTROL:
                     payload = {"Command":"Draw/CommandList", "CommandList":[
-                    {"Command":"Draw/ClearHttpText"},
-                    {"Command": "Draw/ResetHttpGifId"},
-                    {"Command":"Channel/OnOffScreen", "OnOff":0} 
-                   ]}
+                        {"Command":"Draw/ClearHttpText"},
+                        {"Command": "Draw/ResetHttpGifId"},
+                        {"Command":"Channel/OnOffScreen", "OnOff":0} 
+                        ]}
                 else:
                     payload = {"Command":"Draw/CommandList", "CommandList":[
-                    {"Command":"Draw/ClearHttpText"},
-                    {"Command": "Draw/ResetHttpGifId"},
-                    {"Command":"Channel/SetIndex", "SelectIndex": 4 },
-                    {"Command":"Channel/SetIndex", "SelectIndex": select_index }
-                   ]}
-                response = requests.post(URL, headers=HEADERS, data=json.dumps(payload))
+                        {"Command":"Draw/ClearHttpText"},
+                        {"Command": "Draw/ResetHttpGifId"},
+                        {"Command":"Channel/SetIndex", "SelectIndex": 4 },
+                        {"Command":"Channel/SetIndex", "SelectIndex": select_index }
+                        ]}
+                self.send_pixoo(payload)
 
-                if response.status_code != 200:
-                    self.log(f"Failed to send REST command with image data: {response.content}")
-                    
     def process_picture(self, picture):
         gif_base64 = ""  
         font_color = ""  
@@ -213,41 +221,35 @@ class Pixoo(hass.Hass):
         most_common_color_alternative_rgb = Counter(full_img.getdata()).most_common(1)[0][0]
         most_common_color_alternative = '#%02x%02x%02x' % most_common_color_alternative_rgb
         brightness = int(sum(most_common_color) / 3)
-        font_color = "#FFFFFF" if brightness < BRIGHTNESS_THRESHOLD else "#000000"
+        most_common_colors = [item[0] for item in Counter(lower_part.getdata()).most_common(10)]
+        candidate_colors = [(0, 255, 0), (255, 0, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255), (255, 0, 255)]
+        for color in candidate_colors:
+            if color not in most_common_colors:
+                font_color = '#%02x%02x%02x' % color
+                break
+        #font_color = "#FFFFFF" if brightness < BRIGHTNESS_THRESHOLD else "#000000"
         opposite_color = tuple(255 - i for i in most_common_color)
         recommended_font_color = '#%02x%02x%02x' % opposite_color
         background_color_rgb = most_common_color
         background_color = '#%02x%02x%02x' % most_common_color
         recommended_font_color_rgb = opposite_color
-        
+
         # Calculate contrast ratio
         l1 = self.luminance(*most_common_color)
         l2 = self.luminance(*opposite_color)
         ratio = self.contrast_ratio(l1, l2)
 
         # Adjust recommended_font_color if contrast ratio is less than 4.5
-        if ratio < 4.5:
+        if ratio < 2.5:
             # If brightness is high, use black; otherwise, use white
             recommended_font_color = "#000000" if brightness > 128 else "#FFFFFF"
-        
-        payload = {"Command":"Draw/CommandList", "CommandList":[
-            {"Command":"Channel/OnOffScreen", "OnOff":1},
-            {"Command": "Draw/ResetHttpGifId"},
-            {"Command": "Draw/SendHttpGif",
-                "PicNum": 1,
-                "PicWidth": 64,
-                "PicOffset": 0,
-                "PicID": 0,
-                "PicSpeed": 1000,
-                "PicData": gif_base64 }]}
-            
-        response = requests.post(URL, headers=HEADERS, data=json.dumps(payload))
-
-        if response.status_code != 200:
-            self.log(f"Failed to send REST command with image data: {response.content}")
-
         return gif_base64, font_color, recommended_font_color, brightness, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative, most_common_color_alternative_rgb
 
+    def send_pixoo(self, payload_command):
+        response = requests.post(URL, headers=HEADERS, data=json.dumps(payload_command))
+        if response.status_code != 200:
+            self.log(f"Failed to send REST: {response.content}")
+    
     def ensure_rgb(self, img):
         if img.mode != "RGB":
             img = img.convert("RGB")
