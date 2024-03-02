@@ -3,8 +3,7 @@
 
 **Demo video:**
 
-[<img src="https://img.youtube.com/vi/BAnTLevTY5o/0.jpg" width="600" height="300"
-/>](https://www.youtube.com/embed/BAnTLevTY5o)
+https://github.com/idodov/pixoo64-media-album-art/assets/19820046/05731164-851a-4a35-9e6a-79198c37b909
 
 **Examples:**
 
