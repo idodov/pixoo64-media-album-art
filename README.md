@@ -38,8 +38,8 @@ homeassistant:
     - http://192.168.86.202:8123 # your home assistant ip
     - http://homeassistant.local:8123
 ```  
-4. Install **AppDaemon** from the Home Assistant add-on store.
-5. On Appdeamon Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
+3. Install **AppDaemon** from the Home Assistant add-on store.
+4. On Appdeamon Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
 ```yaml
 # appdaemon.yaml
 system_packages: []
@@ -284,13 +284,13 @@ class Pixoo(hass.Hass):
     def contrast_ratio(self, l1, l2):
         return (l1 + 0.05) / (l2 + 0.05) if l1 > l2 else (l2 + 0.05) / (l1 + 0.05)
 ```
-4. Open **app.yaml** file from the AppDaemon directory and add this code:
+6. Open **app.yaml** file from the AppDaemon directory and add this code:
 ```yaml
 pixoo:
   module: pixoo
   class: Pixoo
 ```
-6. Restart AppDaemon
+7. Restart AppDaemon
 ____________
 **You’re all set! The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
 
