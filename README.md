@@ -17,9 +17,9 @@ https://github.com/idodov/pixoo64-media-album-art/assets/19820046/05731164-851a-
 **Functional Advantages:**
 
 - **Sensor Data Storage:** All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily accessible for further automation possibilities.
-- **Clean and Consistent Titles:** Normalize titles and artist names for easier integration with automations and consistent display regardless of regional characters or symbols. This ensures seamless use of extracted data in automations and avoids inconsistencies in visual representations.
-  - Original Title: "Beyoncé" (with accent)
-  - Normalized Title: "Beyonce" (accent removed)
+- **Clean and Consistent Titles:** Normalize titles and artist names for easier integration with automations and consistent display regardless of regional characters or symbols. This ensures seamless use of extracted data in automations and avoids inconsistencies in visual representations. Example:
+  - Original Artist: "Beyoncé" *(with accent)*
+  - Normalized Artist: "Beyonce" *(accent removed)*
   
 **Prerequisites:**
 
@@ -284,8 +284,9 @@ class Pixoo(hass.Hass):
     def contrast_ratio(self, l1, l2):
         return (l1 + 0.05) / (l2 + 0.05) if l1 > l2 else (l2 + 0.05) / (l1 + 0.05)
 ```
-6. Open **app.yaml** file from the AppDaemon directory and add this code:
+6. Open **apps.yaml** file from the AppDaemon directory and add this code:
 ```yaml
+#apps.yaml
 pixoo:
   module: pixoo
   class: Pixoo
