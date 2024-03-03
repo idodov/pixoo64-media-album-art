@@ -30,8 +30,16 @@ https://github.com/idodov/pixoo64-media-album-art/assets/19820046/05731164-851a-
 **Installation and Configuration:**
 
 1. Create a Toggle Helper in Home Assistant. For example `input_boolean.pixoo64_album_art` can be used to control when the script runs.
-2. Install **AppDaemon** from the Home Assistant add-on store.
-3. On Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
+2. Make sure that home assistant configuration.yaml allowed external urls
+```yaml
+#configuration.yaml
+homeassistant:
+  allowlist_external_urls:
+    - http://192.168.86.202:8123 # your home assistant ip
+    - http://homeassistant.local:8123
+```  
+4. Install **AppDaemon** from the Home Assistant add-on store.
+5. On Appdeamon Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
 ```yaml
 # appdaemon.yaml
 system_packages: []
@@ -41,7 +49,7 @@ python_packages:
   - unidecode
 init_commands: []
 ```
-4. In the AppDaemon app directory (addons_config/appdaemon/apps), create a file named **pixoo.py** (using the VSCode or File Editor add-on) and paste the code into it. 
+5. In the AppDaemon app directory (addons_config/appdaemon/apps), create a file named **pixoo.py** (using the VSCode or File Editor add-on) and paste the code into it. 
 Before saving the code, make sure to adjust it to your personal needs.
 
 | Parameter | Description | Example |
@@ -282,7 +290,7 @@ pixoo:
   module: pixoo
   class: Pixoo
 ```
-5. Restart AppDaemon
+6. Restart AppDaemon
 ____________
 **You’re all set! The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
 
