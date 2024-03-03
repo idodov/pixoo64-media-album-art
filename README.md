@@ -346,8 +346,7 @@ color_alternative: "#c6b984"
 ```
 Arabic Title:
 ```yaml
-artist: Tamer Nafar & Yacoub Alatrash
-normalized_artist: Tamer Nafar & Yacoub Alatrash
+....
 media_title: آمين
 normalized_title: amyn
 ....
