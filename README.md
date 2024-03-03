@@ -39,7 +39,7 @@ homeassistant:
     - http://homeassistant.local:8123
 ```  
 3. Install **AppDaemon** from the Home Assistant add-on store.
-4. On Appdeamon Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
+4. On Appdaemon Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
 ```yaml
 # appdaemon.yaml
 system_packages: []
