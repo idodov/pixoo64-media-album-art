@@ -30,7 +30,7 @@ https://github.com/idodov/pixoo64-media-album-art/assets/19820046/05731164-851a-
 **Installation and Configuration:**
 
 1. Create a Toggle Helper in Home Assistant. For example `input_boolean.pixoo64_album_art` can be used to control when the script runs.
-2. Make sure that home assistant configuration.yaml allowed external urls
+2. Make sure that home assistant configuration.yaml allowed external urls.
 ```yaml
 #configuration.yaml
 homeassistant:
