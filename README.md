@@ -77,7 +77,7 @@ from appdaemon.plugins.hass import hassapi as hass
 from unidecode import unidecode
 
 #-- Update to your own values
-SHOW_TEXT = False # will not show artist and title. change to True if you wish to see the media info
+SHOW_TEXT = True # will show artist and title. change to False if you wish not to see the media info
 FULL_CONTROL = True 
 
 TOGGLE = "input_boolean.pixoo64_album_art" # CREATE IT AS A HELPER ENTITY BEFORE!!
