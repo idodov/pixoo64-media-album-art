@@ -68,6 +68,7 @@ import base64
 import requests
 import json
 import time
+import zlib
 from collections import Counter
 from io import BytesIO
 from PIL import Image
@@ -76,8 +77,8 @@ from appdaemon.plugins.hass import hassapi as hass
 from unidecode import unidecode
 
 #-- Update to your own values
-SHOW_TEXT = True 
-FULL_CONTROL = False 
+SHOW_TEXT = False 
+FULL_CONTROL = True 
 
 TOGGLE = "input_boolean.pixoo64_album_art" # CREATE IT AS A HELPER ENTITY BEFORE!!
 MEDIA_PLAYER = "media_player.era300" # Name of your speaker
@@ -92,6 +93,7 @@ LOWER_PART_CROP = (3, int((IMAGE_SIZE/4)*3), IMAGE_SIZE-3, IMAGE_SIZE-3)
 FULL_IMG = (1, IMAGE_SIZE, IMAGE_SIZE, IMAGE_SIZE)
 BRIGHTNESS_THRESHOLD = 128
 HEADERS = {"Content-Type": "application/json; charset=utf-8"}
+NO_IMAGE = b"x\x9c\xed\xd3K\x0e\xc3 \x0c\x05\xc0#q\x86\xdc\xffR\xed\xa6RU\x81?\xd0EZ\xcdl\x92 d?\x87\xe4\xba\x00\x00\x00\x00\x00\x00\xf8W\xe3\xa9\xba>\xdetjvzD\xeb\x95\x1cc!\xab\xd5\x9d!\xab\x99\xf5\xc8\xfaV\xdfM'WT/\xaasz~\xdf\x9a\xbf\xd2\xef\xae\xf3G\xd7J\x9e\xa8_w\xcfj\x7f\xe5\xbe\xd2kw\xfe\x9d\xe7\xcf\xefh,\xccrV\xb2v\xe6\xac\xd6\x8c\xe6\x8frW\xfa\x9d\x9c\xff*\xdb]\xcf\x7f\xb6~:\xffkm7K\xb6\xb7r\xdf\xe9\xdb\xc9U\xa9\x1f\xadW\xfe\xa7,\xd3\xe9\xfcY\x8e\xd9?\xd4}'\x00\x00\x00\x00\x00\x00\x00\xbf\xe2\x01\xb1:\x16y"
 
 class Pixoo(hass.Hass):
     def initialize(self):
@@ -191,7 +193,7 @@ class Pixoo(hass.Hass):
                 self.send_pixoo(payload)
 
     def process_picture(self, picture):
-        gif_base64 = ""  
+        gif_base64 = zlib.decompress(NO_IMAGE).decode()
         font_color = ""  
         recommended_font_color = "" 
         background_color = ""
