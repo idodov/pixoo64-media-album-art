@@ -77,7 +77,7 @@ from appdaemon.plugins.hass import hassapi as hass
 from unidecode import unidecode
 
 #-- Update to your own values
-SHOW_TEXT = False 
+SHOW_TEXT = False # will not show artist and title. change to True if you wish to see the media info
 FULL_CONTROL = True 
 
 TOGGLE = "input_boolean.pixoo64_album_art" # CREATE IT AS A HELPER ENTITY BEFORE!!
@@ -193,21 +193,21 @@ class Pixoo(hass.Hass):
                 self.send_pixoo(payload)
 
     def process_picture(self, picture):
-        gif_base64 = zlib.decompress(NO_IMAGE).decode()
-        font_color = ""  
-        recommended_font_color = "" 
-        background_color = ""
-        background_color_rgb = ""
-        recommended_font_color_rgb = ""
-        most_common_color_alternative_rgb = ''
-        most_common_color_alternative = ""
-        brightness = 0
         if picture is not None:
             try:
                 img = self.get_image(picture)
                 gif_base64, font_color, recommended_font_color, brightness, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative  = self.process_image(img)
             except Exception as e:
-                self.log(f"Error processing image: {e}")
+                self.log(f"Error processing image. Using defualt values: {e}")
+                gif_base64 = zlib.decompress(NO_IMAGE).decode()
+                font_color = "#FFFFFF"  
+                recommended_font_color = "#FFFFFF" 
+                background_color = "#000000"
+                background_color_rgb = "#000000"
+                recommended_font_color_rgb = "#FFFFFF"
+                most_common_color_alternative_rgb = "#000000"
+                most_common_color_alternative = "#000000"
+                brightness = 0
         return gif_base64, font_color, recommended_font_color, brightness, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
 
     def get_image(self, picture):
@@ -285,13 +285,7 @@ class Pixoo(hass.Hass):
 
     def contrast_ratio(self, l1, l2):
         return (l1 + 0.05) / (l2 + 0.05) if l1 > l2 else (l2 + 0.05) / (l1 + 0.05)
-```
-6. Open **apps.yaml** file from the AppDaemon directory and add this code:
-```yaml
-#apps.yaml
-pixoo:
-  module: pixoo
-  class: Pixoo
+
 ```
 7. Restart AppDaemon
 ____________
