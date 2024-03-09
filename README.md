@@ -15,7 +15,7 @@ https://github.com/idodov/pixoo64-media-album-art/assets/19820046/05731164-851a-
 - **Dynamic Color Integration:** The dominant color from the album art is used to set the font and background colors on the PIXOO64, creating a cohesive and aesthetically pleasing display.
 
 **Functional Advantages:**
-- **Crop Image:** Eliminate any present borders from the picture.
+- **Crop Image:** Eliminate any present borders from the picture
 - **Enhancer Image:** Boost the vibrancy of the image’s colors by 50%
 - **Sensor Data Storage:** All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily accessible for further automation possibilities.
 - **Clean and Consistent Titles:** Normalize titles and artist names for easier integration with automations and consistent display regardless of regional characters or symbols. This ensures seamless use of extracted data in automations and avoids inconsistencies in visual representations. Example:
