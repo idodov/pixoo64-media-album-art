@@ -240,10 +240,12 @@ class Pixoo(hass.Hass):
                 x_min, y_min = coords.min(axis=0)
                 x_max, y_max = coords.max(axis=0) + 1
                 width, height = x_max - x_min, y_max - y_min
-                if width > height:
-                    y_max = y_min + width
-                else:
-                    x_max = x_min + height
+                max_size = max(width, height)
+                x_center, y_center = (x_min + x_max) // 2, (y_min + y_max) // 2
+                x_min = max(0, x_center - max_size // 2)
+                y_min = max(0, y_center - max_size // 2)
+                x_max = min(np_image.shape[0], x_min + max_size)
+                y_max = min(np_image.shape[1], y_min + max_size)
                 img = img.crop((y_min, x_min, y_max, x_max))
             if ENHANCER_IMG:
                 enhancer = ImageEnhance.Contrast(img)
