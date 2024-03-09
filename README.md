@@ -61,8 +61,8 @@ Before saving the code, make sure to adjust it to your personal needs.
 | **SENSOR** | Sensor name to store data. No need to create it in advance | `sensor.pixoo64_media_data` |
 | **HA_URL** | Home Assistant local URL | `http://homeassistant.local:8123` |
 | **URL** | PIXOO64 full URL | `http://192.168.86.21:80/post` |
-| **CROP_BORDERS** | Crop the borderlines if exist  | `CROP_BORDERS = False` |
-| **ENHANCER_IMG** | Enhance the colors in the picture by 50% | `ENHANCER_IMG = True` |
+| **CROP_BORDERS** | Remove existing borderlines from the image | `CROP_BORDERS = False` |
+| **ENHANCER_IMG** | Increase the color intensity in the image by 50% | `ENHANCER_IMG = True` |
 | **NO_IMAGE** | Default image to be displayed when the cover art is unavailable | `NO_IMAGE = b"x\x9c\xed\...` |
 | **TV_ICON** | Default image to be displayed when broadcasting sound from TV | `TV_ICON = b"x\x9c\xed\...` |
 ```py
