@@ -27,6 +27,16 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.listen_state(self.update_attributes, MEDIA_PLAYER)
         
     def update_attributes(self, entity, attribute, old, new, kwargs):
+        SHOW_TEXT = self.args["SHOW_TEXT"]
+        FONT = self.args["FONT"]
+        FULL_CONTROL = self.args["FULL_CONTROL"]
+        TOGGLE = self.args["TOGGLE"]
+        MEDIA_PLAYER = self.args["MEDIA_PLAYER"]
+        SENSOR = self.args["SENSOR"]
+        HA_URL = self.args["HA_URL"]
+        URL = self.args["URL"]
+        CROP_BORDERS = self.args["CROP_BORDERS"]
+        ENHANCER_IMG = self.args["ENHANCER_IMG"]
         try:
             input_boolean = self.get_state(TOGGLE)
         except Exception as e:
