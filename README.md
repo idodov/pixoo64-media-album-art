@@ -59,7 +59,7 @@ appdaemon:
 ```
 6. In Home Assistant, go to **HACS > Automation**. If the option does not exist, you need to go to **Settings > Integrations > HACS > Configure**. Choose Enable **AppDaemon apps discovery & tracking** and return to the main HACS screen and choose Automation. http://homeassistant.local:8123/hacs/automation
 7. Enter the **Custom Repositories page** and add `https://github.com/idodov/pixoo64-media-album-art/` as **Automation**.
-8. On the HACS Automation screen, search and find from the list **PIXOO64 Media Album Art** and **Download** it.
+8. On the **HACS Automation screen**, press **+**, find **PIXOO64 Media Album Art** and **Download** it.
 9. Open `/homeassistant/appdaemon/apps/apps.yaml` and add this code, **after you have changed the settings** as described:
 
 | Parameter | Description | Example |
