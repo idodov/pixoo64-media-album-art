@@ -317,14 +317,13 @@ class Pixoo(hass.Hass):
 
 
 ```
-6. Open `/appdaemon/apps/apps.yaml` and paste the code. Before saving the code:
+6. Open `/appdaemon/apps/apps.yaml` and paste the code:
 ```yaml
 #appdaemon/apps/apps.yaml
 pixoo:
   module: pixoo
   class: Pixoo
 ```
-
 ____________
 **You’re all set! The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
 
