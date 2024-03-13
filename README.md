@@ -1,38 +1,37 @@
-## DIVOOM PIXOO64 Media Album Art Display: Enhance Your Music Experience
-**This script automatically transforms DIVOOM PIXOO64 into a vibrant canvas for your currently playing music. It extracts and displays the album cover art, along with extracting valuable data like artist name and dominant color, which can be used for further automation in your Home Assistant environment.**
+# DIVOOM PIXOO64 Media Album Art Display: Elevate Your Musical Journey
 
-**Demo video:**
+Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music with this script. It automatically fetches and displays the album cover art of the currently playing track, enhancing your musical experience. Additionally, it extracts valuable data such as the artist's name and the dominant color from the album art, which can be utilized for further automation in your Home Assistant environment.
 
-https://github.com/idodov/pixoo64-media-album-art/assets/19820046/05731164-851a-4a35-9e6a-79198c37b909
-
-**Examples:**
+## Demo Video
+[Watch the demo video here](https://youtu.be/BAnTLevTY5o)
+## Examples
 
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
 
-**Visual Enhancements:**
+## Features
 
-- **Eye-catching Cover Art:** Witness the album art of your favorite songs come to life on your PIXOO64, adding a visual dimension to your listening experience.
-- **Dynamic Color Integration:** The dominant color from the album art is used to set the font and background colors on the PIXOO64, creating a cohesive and aesthetically pleasing display.
+### Visual Enhancements
 
-**Functional Advantages:**
-- **Crop Image:** Remove any existing borders from the image. Certain album cover art may have borders or a minimalist background with centralized elements. However, resizing the album art to fit the pixel display might result in an unappealing view if the subject of the picture is small. To circumvent this, the script examines the image for any surrounding borders and trims them. Consequently, the user can view the album cover art in greater detail.
-- **Enhancer Image:** Boost the vibrancy of the image’s colors by 50%
-- **Sensor Data Storage:** All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily accessible for further automation possibilities.
-- **Clean and Consistent Titles:** Normalize titles and artist names for easier integration with automations and consistent display regardless of regional characters or symbols. This ensures seamless use of extracted data in automations and avoids inconsistencies in visual representations. For example:
-  - Original Artist: "Beyoncé" *(with accent)*
-  - Normalized Artist: "Beyonce" *(accent removed)*
-  
-**Prerequisites:**
+- **Vibrant Cover Art Display**: Experience your favorite songs in a new light as their album art comes alive on your PIXOO64, adding a visual element to your auditory journey.
+- **Dynamic Color Integration**: The dominant color from the album art is used to set the font and background colors on the PIXOO64, creating a harmonious and visually appealing display.
 
-1. **DIVOOM PIXOO64:** [https://divoom.com](https://divoom.com)
-2. **Home Assistant:** [https://www.home-assistant.io/blog/2017/07/25/introducing-hassio/](https://www.home-assistant.io/blog/2017/07/25/introducing-hassio/) (with add-on functionality)
-3. **AppDaemon:** [https://appdaemon.readthedocs.io/](https://appdaemon.readthedocs.io/) (Home Assistant add-on)
+### Functional Advantages
 
-## Installation and Configuration:
+- **Image Cropping**: The script removes any existing borders from the image for a better viewing experience. This is particularly useful for album arts that have borders or a minimalist background with centralized elements. By trimming the borders, the script ensures that the main subject of the picture is not too small and provides a more detailed view of the album art.
+- **Image Enhancer**: Amplify the color vibrancy of the image by 50% for a more striking display.
+- **Sensor Data Storage**: All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily available for further automation possibilities.
+- **Title Normalization**: The script normalizes titles and artist names for easier integration with automations and consistent display, regardless of regional characters or symbols. For instance, the artist name "Beyoncé" (with accent) would be normalized to "Beyonce" (accent removed).
 
-1. Create a **Toggle Helper** in Home Assistant. For example `input_boolean.pixoo64_album_art` can be used to control when the script runs.
+## Prerequisites
+
+1. DIVOOM PIXOO64
+2. Home Assistant (with add-on functionality)
+3. AppDaemon (Home Assistant add-on)
+
+## Installation and Configuration
+1. Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs.
 2. Install **AppDaemon** from the Home Assistant add-on store.
-3. On Appdaemon Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
+3. On the AppDaemon Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
 ```yaml
 # appdaemon.yaml
 system_packages: []
@@ -42,17 +41,20 @@ python_packages:
   - unidecode
 init_commands: []
 ```
-4. In AppDaemon, make sure you define the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` 
+4. In AppDaemon, ensure you define the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`.
 ```yaml
 ---
 secrets: /homeassistant/secrets.yaml
 appdaemon:
   app_dir: /homeassistant/appdaemon/apps/
 ```
-5. In Home Assistant, go to **HACS > Automation**. If the option does not exist, you need to go to **Settings > Integrations > HACS > Configure**. Choose Enable **AppDaemon apps discovery & tracking** and return to the main HACS screen and choose Automation. http://homeassistant.local:8123/hacs/automation
-6. Enter the **Custom Repositories page** and add `https://github.com/idodov/pixoo64-media-album-art/` as **Automation**.
-7. Return to **HACS Automation screen**, press **+**, find **PIXOO64 Media Album Art** and **Download** it.
-8. Open `/homeassistant/appdaemon/apps/apps.yaml` and add this code, **after you have changed the settings** as described:
+5. **Manual Download** - Download the Python file from this link: ```https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py```. Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step.
+6. **HACS Download**
+   * In Home Assistant, navigate to `HACS > Automation`. If this option is not available, go to `Settings > Integrations > HACS > Configure` and enable `AppDaemon apps discovery & tracking`. After enabling, return to the main HACS screen and select `Automation`.
+   * Navigate to the `Custom Repositories` page and add the following repository as `Automation`: ```https://github.com/idodov/pixoo64-media-album-art/```.
+   * Return to the `HACS Automation` screen, press the `+` button, search for `PIXOO64 Media Album Art`, and click on `Download`.
+_________
+**Final step:** Open `/homeassistant/appdaemon/apps/apps.yaml` and add this code, **save it only after you have changed the settings** as described:
 
 | Parameter | Description | Example |
 |---|---|---|
