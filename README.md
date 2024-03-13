@@ -58,16 +58,16 @@ _________
 
 | Parameter | Description | Example |
 |---|---|---|
-| **show_text** | Display the artist name and title. Change to `False` not to display the media info | `SHOW_TEXT = True` |
-| **font** | The device is compatible with 8 different fonts, which are numbered from 0 to 7 | `FONT = 2` |
-| **full_control** | This script assumes control of the PIXOO64 display while it’s in use and a track is playing. If `True` then the display will turn off when music paused. If `False` it display the previous channel (clock, visualizer, exc.) | `FULL_CONTROL = True` |
-| **toggle** | Primary toggle sensor name that triggering the script. Please create it as a helper in Home Assistant UI interface | `input_boolean.pixoo64_album_art` |
-| **media_player** | Media Player entity name in Home Assistant | `media_player.era300` |
-| **pixoo_sensor** | Sensor name to store data. No need to create it in advance | `sensor.pixoo64_media_data` |
-| **ha_url** | Home Assistant local URL | `http://homeassistant.local:8123` |
-| **url** | PIXOO64 full URL | `http://192.168.86.21:80/post` |
-| **crop_borders** | This feature ensures the removal of existing borderlines from the image, particularly for album arts that contain single-color borders. In instances where the main picture within the border appears small and potentially distorted on the screen, this could detract from the user experience. Therefore, this feature enhances the viewing experience by zooming in and cropping out the borders | `CROP_BORDERS = False` |
-| **enhancer_img** | Increase the color intensity in the image by 50% | `ENHANCER_IMG = True` |
+| `show_text` | Display the artist name and title. Change to `True` to display the media info | `show_text = False` |
+| `font` | The device is compatible with 8 different fonts, which are numbered from 0 to 7 | `font = 2` |
+| `full_control` | This script assumes control of the PIXOO64 display while it’s in use and a track is playing. If `True` then the display will turn off when music paused. If `False` it display the previous channel (clock, visualizer, exc.) | `full_control = True` |
+| `toggle` | Primary toggle sensor name that triggering the script. Please create it as a helper in Home Assistant UI interface | `input_boolean.pixoo64_album_art` |
+| `media_player` | Media Player entity name in Home Assistant | `media_player.era300` |
+| `pixoo_sensor` | Sensor name to store data. No need to create it in advance | `sensor.pixoo64_media_data` |
+| `ha_url` | Home Assistant local URL | `http://homeassistant.local:8123` |
+| `url` | PIXOO64 full URL | `http://192.168.86.21:80/post` |
+| `crop_borders` | This feature ensures the removal of existing borderlines from the image, particularly for album arts that contain single-color borders. In instances where the main picture within the border appears small and potentially distorted on the screen, this could detract from the user experience. Therefore, this feature enhances the viewing experience by zooming in and cropping out the borders | `crop_borders = False` |
+| `enhancer_img` | Increase the color intensity in the image by 50% | `enhancer_img = True` |
 
 ```yaml
 #apps.yaml
