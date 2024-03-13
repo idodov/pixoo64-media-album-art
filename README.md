@@ -30,17 +30,9 @@ https://github.com/idodov/pixoo64-media-album-art/assets/19820046/05731164-851a-
 
 ## Installation and Configuration:
 
-1. Create a Toggle Helper in Home Assistant. For example `input_boolean.pixoo64_album_art` can be used to control when the script runs.
-2. Make sure that home assistant configuration.yaml allowed external urls.
-```yaml
-#configuration.yaml
-homeassistant:
-  allowlist_external_urls:
-    - http://192.168.86.202:8123 # your home assistant ip
-    - http://homeassistant.local:8123
-```  
-3. Install **AppDaemon** from the Home Assistant add-on store.
-4. On Appdaemon Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
+1. Create a **Toggle Helper** in Home Assistant. For example `input_boolean.pixoo64_album_art` can be used to control when the script runs.
+2. Install **AppDaemon** from the Home Assistant add-on store.
+3. On Appdaemon Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
 ```yaml
 # appdaemon.yaml
 system_packages: []
@@ -50,17 +42,17 @@ python_packages:
   - unidecode
 init_commands: []
 ```
-5. In AppDaemon, make sure you define the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` 
+4. In AppDaemon, make sure you define the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` 
 ```yaml
 ---
 secrets: /homeassistant/secrets.yaml
 appdaemon:
   app_dir: /homeassistant/appdaemon/apps/
 ```
-6. In Home Assistant, go to **HACS > Automation**. If the option does not exist, you need to go to **Settings > Integrations > HACS > Configure**. Choose Enable **AppDaemon apps discovery & tracking** and return to the main HACS screen and choose Automation. http://homeassistant.local:8123/hacs/automation
-7. Enter the **Custom Repositories page** and add `https://github.com/idodov/pixoo64-media-album-art/` as **Automation**.
-8. On the **HACS Automation screen**, press **+**, find **PIXOO64 Media Album Art** and **Download** it.
-9. Open `/homeassistant/appdaemon/apps/apps.yaml` and add this code, **after you have changed the settings** as described:
+5. In Home Assistant, go to **HACS > Automation**. If the option does not exist, you need to go to **Settings > Integrations > HACS > Configure**. Choose Enable **AppDaemon apps discovery & tracking** and return to the main HACS screen and choose Automation. http://homeassistant.local:8123/hacs/automation
+6. Enter the **Custom Repositories page** and add `https://github.com/idodov/pixoo64-media-album-art/` as **Automation**.
+7. Return to **HACS Automation screen**, press **+**, find **PIXOO64 Media Album Art** and **Download** it.
+8. Open `/homeassistant/appdaemon/apps/apps.yaml` and add this code, **after you have changed the settings** as described:
 
 | Parameter | Description | Example |
 |---|---|---|
