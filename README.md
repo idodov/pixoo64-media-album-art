@@ -18,7 +18,7 @@ Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music wit
 ### Functional Advantages
 
 - **Image Cropping**: The script removes any existing borders from the image for a better viewing experience. This is particularly useful for album arts that have borders or a minimalist background with centralized elements. By trimming the borders, the script ensures that the main subject of the picture is not too small and provides a more detailed view of the album art.
-- **Image Enhancer**: Amplify the color vibrancy of the image by 50% for a more striking display.
+- **Image Enhancer**: Amplify the color vibrancy of the image for a more striking display.
 - **Sensor Data Storage**: All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily available for further automation possibilities.
 - **Title Normalization**: The script normalizes titles and artist names for easier integration with automations and consistent display, regardless of regional characters or symbols. For instance, the artist name "Beyoncé" (with accent) would be normalized to "Beyonce" (accent removed).
 
@@ -41,50 +41,54 @@ python_packages:
   - unidecode
 init_commands: []
 ```
-4. In AppDaemon, ensure you define the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`.
+4. In AppDaemon, ensure you define the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`
 ```yaml
 ---
 secrets: /homeassistant/secrets.yaml
 appdaemon:
   app_dir: /homeassistant/appdaemon/apps/
 ```
-5. **Manual Download** - Download the Python file from this link: ``https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py``. Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step.
-6. **HACS Download** - In Home Assistant, navigate to `HACS > Automation`.
+5. **Manual Download** - Download the Python file from this link: ``https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py``. Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step
+6. **HACS Download** - In Home Assistant, navigate to `HACS > Automation`
    * If this option is not available, go to `Settings > Integrations > HACS > Configure` and enable `AppDaemon apps discovery & tracking`.
-   * After enabling, return to the main HACS screen and select `Automation`.
+   * After enabling, return to the main HACS screen and select `Automation`
 7. Navigate to the `Custom Repositories` page and add the following repository as `Automation`: ``https://github.com/idodov/pixoo64-media-album-art/``
-8. Return to the `HACS Automation` screen, press the `+` button, search for `PIXOO64 Media Album Art`, and click on `Download`.
+8. Return to the `HACS Automation` screen, press the `+` button, search for `PIXOO64 Media Album Art`, and click on `Download`
 _________
 **Final step:** Open `/homeassistant/appdaemon/apps/apps.yaml` and add this code, **save it only after you have changed the settings** as described:
 
 | Parameter | Description | Example |
 |---|---|---|
-| `show_text` | Display the artist name and title. Change to `True` to display the media info | `show_text = False` |
-| `font` | The device is compatible with 8 different fonts, which are numbered from 0 to 7 | `font = 2` |
-| `full_control` | This script assumes control of the PIXOO64 display while it’s in use and a track is playing. If `True` then the display will turn off when music paused. If `False` it display the previous channel (clock, visualizer, exc.) | `full_control = True` |
-| `toggle` | Primary toggle sensor name that triggering the script. Please create it as a helper in Home Assistant UI interface | `input_boolean.pixoo64_album_art` |
 | `media_player` | Media Player entity name in Home Assistant | `media_player.era300` |
+| `toggle` | Primary toggle sensor name that triggering the script. *Please establish it as a helper within the Home Assistant User Interface, as Home Assistant will not retain the sensor’s last state after a restart. Ensure that the helper sensor is created prior to executing the script for the first time.* | `input_boolean.pixoo64_album_art` |
 | `pixoo_sensor` | Sensor name to store data. No need to create it in advance | `sensor.pixoo64_media_data` |
 | `ha_url` | Home Assistant local URL | `http://homeassistant.local:8123` |
 | `url` | PIXOO64 full URL | `http://192.168.86.21:80/post` |
+| `show_text` | Display the artist name and title | `show_text = True` |
+| `text_background` | Adjust the brightness of the lower section of the image to enhance the visibility of the text | `text_background = True` |
+| `font` | The device is compatible with 8 different fonts, which are numbered from 0 to 7 | `font = 2` |
+| `full_control` | This script assumes control of the PIXOO64 display while it’s in use and a track is playing. If `True` then the display will turn off when music paused. If `False` it display the previous channel (clock, visualizer, exc.) | `full_control = True` |
 | `crop_borders` | This feature ensures the removal of existing borderlines from the image, particularly for album arts that contain single-color borders. In instances where the main picture within the border appears small and potentially distorted on the screen, this could detract from the user experience. Therefore, this feature enhances the viewing experience by zooming in and cropping out the borders | `crop_borders = False` |
-| `enhancer_img` | Increase the color intensity in the image by 50% | `enhancer_img = True` |
+| `enhancer_img` | Change the color intensity in the image | `enhancer_img = True` |
+| `enhancer` | Adjust the contrast enhancer value within a range of 0.0 to 2.0, where a value of 1.0 implies no modification to the image | `enhancer = 1.5` |
 
 ```yaml
 #apps.yaml
 pixoo64_media_album_art:
   module: pixoo64_media_album_art
   class: Pixoo64_Media_Album_Art
-  show_text: False
-  font: 2
-  full_control: True
-  toggle: "input_boolean.pixoo64_album_art"
   media_player: "media_player.era300"
+  toggle: "input_boolean.pixoo64_album_art"
   pixoo_sensor: "sensor.pixoo64_media_data"
   ha_url: "http://homeassistant.local:8123"
   url: "http://192.168.86.21:80/post"
+  show_text: True
+  text_background: True
+  font: 2
+  full_control: True
   crop_borders: True
   enhancer_img: False
+  enhancer: 1.5
 ```
 ____________
 **You’re all set! The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
