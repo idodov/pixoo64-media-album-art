@@ -19,7 +19,7 @@ TV_ICON = b'x\x9c\xed\x9a\xd9\x92\xab8\xb6\x86\x1f\x88\x0b\x06\x03\x86Ka\x063\x9
 # ---------------
 IMAGE_SIZE = 64
 LOWER_PART_CROP = (3, int((IMAGE_SIZE/4)*3), IMAGE_SIZE-3, IMAGE_SIZE-3)
-FULL_IMG = (1, IMAGE_SIZE, IMAGE_SIZE, IMAGE_SIZE)
+FULL_IMG = (0, IMAGE_SIZE, IMAGE_SIZE, IMAGE_SIZE)
 BRIGHTNESS_THRESHOLD = 128
 HEADERS = {"Content-Type": "application/json; charset=utf-8"}
 
@@ -35,6 +35,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.URL = self.args["url"]
         self.CROP_BORDERS = self.args["crop_borders"]
         self.ENHANCER_IMG = self.args["enhancer_img"]
+        self.ENHANCER = self.args["enhancer"]
+        self.TEXT_BG = self.args["text_background"]
         
         self.listen_state(self.update_attributes, self.MEDIA_PLAYER, attribute='media_title')
         self.listen_state(self.update_attributes, self.MEDIA_PLAYER)
@@ -103,7 +105,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                             "font": self.FONT,
                             "TextWidth": 64,
                             "speed": 80,
-                            "TextString": normalized_artist + " - " + normalized_title + "             ",
+                            "TextString": normalized_artist + " - " + normalized_title + "                       ",
                             "color": recommended_font_color,
                             "align": 1}
                         self.send_pixoo(payload)
@@ -177,9 +179,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 x_max = min(np_image.shape[0], x_min + max_size)
                 y_max = min(np_image.shape[1], y_min + max_size)
                 img = img.crop((y_min, x_min, y_max, x_max))
+
             if self.ENHANCER_IMG:
                 enhancer = ImageEnhance.Contrast(img)
-                img = enhancer.enhance(1.5)
+                img = enhancer.enhance(self.ENHANCER)
+            
             img.thumbnail((IMAGE_SIZE, IMAGE_SIZE), Image.Resampling.LANCZOS)
             return img
         except UnidentifiedImageError:
@@ -188,10 +192,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     def process_image(self, img):
         img = self.ensure_rgb(img)
-        pixels = self.get_pixels(img)
-        b64 = base64.b64encode(bytearray(pixels))
-        gif_base64 = b64.decode("utf-8")
-        full_img = img
+        full_img = img        
         lower_part = img.crop(LOWER_PART_CROP)
         lower_part = self.ensure_rgb(lower_part)
         most_common_color = Counter(lower_part.getdata()).most_common(1)[0][0]
@@ -219,6 +220,25 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if ratio < 2.5:
             # If brightness is high, use black; otherwise, use white
             recommended_font_color = "#000000" if brightness > 128 else "#FFFFFF"
+
+        if self.TEXT_BG and self.SHOW_TEXT:
+            lpc = (0,48,64,64)
+            lower_part_img = img.crop(lpc)
+            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
+            normalized = brightness / 255
+            if normalized <= 0.5:
+                output_value = 0.2 + normalized * 0.6
+            else:
+                output_value = 1.5 + (normalized - 0.5) * 0.6
+            output_value = "{:.1f}".format(output_value)
+            output_value = float(output_value)
+            lower_part_img = enhancer_lp.enhance(output_value)
+            img.paste(lower_part_img, lpc)
+
+        pixels = self.get_pixels(img)
+        b64 = base64.b64encode(bytearray(pixels))
+        gif_base64 = b64.decode("utf-8")
+        
         return gif_base64, font_color, recommended_font_color, brightness, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative, most_common_color_alternative_rgb
 
     def send_pixoo(self, payload_command):
