@@ -4,14 +4,14 @@ Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music wit
 ## Examples
 #### [Watch the demo video here](https://youtu.be/BAnTLevTY5o)
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
+> [!NOTE]
+> The following music services have been tested: Apple Music, Spotify, Tidal, YouTube Music, MixCloud, and Sonos Radio.
 ## Features & Functional Advantages
 - **Image Cropping**: The script removes any existing borders from the image for a better viewing experience. This is particularly useful for album arts that have borders or a minimalist background with centralized elements. By trimming the borders, the script ensures that the main subject of the picture is not too small and provides a more detailed view of the album art.
 - **Image Enhancer**: Amplify the color vibrancy of the image for a more striking display.
 - **Sensor Data Storage**: All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily available for further automation possibilities.
 - **Title Normalization**: The script normalizes titles and artist names for easier integration with automations and consistent display, regardless of regional characters or symbols. For instance, the artist name "Beyoncé" (with accent) would be normalized to "Beyonce" (accent removed).
 - **Dynamic Color Integration**: The dominant color from the album art is used to set the font and background colors on the PIXOO64, creating a harmonious and visually appealing display.
-> [!NOTE]
-> The following music services have been tested: Apple Music, Spotify, Tidal, YouTube Music, MixCloud, and Sonos Radio.
 ## Prerequisites
 1. [DIVOOM PIXOO64](https://www.aliexpress.com/item/1005003116676867.html)
 2. Home Assistant (with add-on functionality)
@@ -31,7 +31,8 @@ python_packages:
 init_commands: []
 ```
 ### Manual Download
-Download the Python file from [This Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py). Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step
+1. Download the Python file from [This Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py).
+2. Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step
 ### HACS Download
 1. In Home Assistant: Navigate to `HACS > Automation`
    * If this option is not available, go to `Settings > Integrations > HACS > Configure` and enable `AppDaemon apps discovery & tracking`. After enabling, return to the main HACS screen and select `Automation`
