@@ -23,9 +23,9 @@ Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music wit
 > [!TIP]
 > Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs. Establish it as a helper within the Home Assistant User Interface, as Home Assistant will not retain the sensor’s last state after a restart. Ensure that the helper sensor is created prior to executing the script for the first time.
 1. Install **AppDaemon** from the Home Assistant add-on store.
-2. On the AppDaemon Configuration page, install the **requests**, **numpy pillow**, and **unidecode** Python packages.
+2. On the AppDaemon [Configuration page](http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config), install the **requests**, **numpy pillow**, and **unidecode** Python packages.
 ```yaml
-# appdaemon.yaml
+# http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config
 system_packages: []
 python_packages:
   - requests
@@ -34,7 +34,7 @@ python_packages:
 init_commands: []
 ```
 ### Manual Download
-Download the Python file from [This Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py): ``https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/``. Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step
+Download the Python file from [This Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py). Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step
 ### HACS Download
 In Home Assistant:
 1. Navigate to `HACS > Automation`
@@ -45,6 +45,7 @@ In Home Assistant:
 > In AppDaemon, make sure to specify the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`.
 > Also, remember to transfer all files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`.
 ```yaml
+#/addon_configs/a0d7b954_appdaemon/appdaemon.yaml
 ---
 secrets: /homeassistant/secrets.yaml
 appdaemon:
