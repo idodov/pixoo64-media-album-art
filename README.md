@@ -2,7 +2,9 @@
 
 Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music with this script. It automatically fetches and displays the album cover art of the currently playing track, enhancing your musical experience. Additionally, it extracts valuable data such as the artist's name and the dominant color from the album art, which can be utilized for further automation in your Home Assistant environment.
 ## Examples
-#### [Watch the demo video here](https://youtu.be/zlPBoNftYGo)
+### Watch the demo video here](https://youtu.be/zlPBoNftYGo)
+[![VIDEO DEMO](https://img.youtube.com/vi/zlPBoNftYGo/0.jpg)](https://www.youtube.com/watch?v=zlPBoNftYGo)
+
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
 > [!NOTE]
 > The following music services have been tested: Apple Music, Spotify, Tidal, YouTube Music, MixCloud, and Sonos Radio.
