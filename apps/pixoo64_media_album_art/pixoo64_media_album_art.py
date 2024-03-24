@@ -25,19 +25,20 @@ HEADERS = {"Content-Type": "application/json; charset=utf-8"}
 
 class Pixoo64_Media_Album_Art(hass.Hass):
     def initialize(self):
-        self.MEDIA_PLAYER = self.args["media_player"]
-        self.SHOW_TEXT = self.args["show_text"]
-        self.FONT = self.args["font"]
-        self.FULL_CONTROL = self.args["full_control"]
-        self.TOGGLE = self.args["toggle"]
-        self.SENSOR = self.args["pixoo_sensor"]
-        self.HA_URL = self.args["ha_url"]
-        self.URL = self.args["url"]
-        self.CROP_BORDERS = self.args["crop_borders"]
-        self.ENHANCER_IMG = self.args["enhancer_img"]
-        self.ENHANCER = self.args["enhancer"]
-        self.TEXT_BG = self.args["text_background"]
-        
+        self.MEDIA_PLAYER = self.args.get("media_player", "media_player.era300")
+        self.SHOW_TEXT = self.args.get("show_text", False)
+        self.FONT = self.args.get("font", 2)
+        self.FULL_CONTROL = self.args.get("full_control", True)
+        self.TOGGLE = self.args.get("toggle", "input_boolean.pixoo64_album_art")
+        self.SENSOR = self.args.get("pixoo_sensor", "sensor.pixoo64_media_data")
+        self.HA_URL = self.args.get("ha_url", "http://homeassistant.local:8123")
+        self.URL = self.args.get("url", "192.168.86.21:80/post")
+        self.CROP_BORDERS = self.args.get("crop_borders", True)
+        self.TOLERANCE = self.args.get("tolerance", 100)
+        self.ENHANCER_IMG = self.args.get("enhancer_img", False)
+        self.ENHANCER = self.args.get("enhancer", 1.5)
+        self.TEXT_BG = self.args.get("text_background", True)
+
         self.listen_state(self.update_attributes, self.MEDIA_PLAYER, attribute='media_title')
         self.listen_state(self.update_attributes, self.MEDIA_PLAYER)
         
@@ -45,7 +46,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         try:
             input_boolean = self.get_state(self.TOGGLE)
         except Exception as e:
-            self.log(f"Error getting state for {self.TOGGLE}: {e}. Will create a new entity")
+            self.log(f"Error getting state for {self.TOGGLE}: {e}. Please create it in HA configuration.yaml")
             self.set_state(self.TOGGLE, state="on", attributes={"friendly_name": "Pixoo64 Album Art"})
             input_boolean = "on"
         media_state = self.get_state(self.MEDIA_PLAYER)
@@ -162,12 +163,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             img = img.convert("RGB")
             if self.CROP_BORDERS:
                 np_image = np.array(img)
-                tolerance = 30
                 edge_pixels = np.concatenate([np_image[0, :], np_image[-1, :], np_image[:, 0], np_image[:, -1]])
                 colors, counts = np.unique(edge_pixels, axis=0, return_counts=True)
                 border_color = colors[counts.argmax()]
                 dists = np.linalg.norm(np_image - border_color, axis=2)
-                mask = dists < tolerance
+                mask = dists < self.TOLERANCE
                 coords = np.argwhere(mask == False)
                 x_min, y_min = coords.min(axis=0)
                 x_max, y_max = coords.max(axis=0) + 1
@@ -178,6 +178,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 y_min = max(0, y_center - max_size // 2)
                 x_max = min(np_image.shape[0], x_min + max_size)
                 y_max = min(np_image.shape[1], y_min + max_size)
+                if x_max - x_min < max_size:
+                    x_min = x_max - max_size
+                if y_max - y_min < max_size:
+                    y_min = y_max - max_size
                 img = img.crop((y_min, x_min, y_max, x_max))
 
             if self.ENHANCER_IMG:
@@ -185,6 +189,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 img = enhancer.enhance(self.ENHANCER)
             
             img.thumbnail((IMAGE_SIZE, IMAGE_SIZE), Image.Resampling.LANCZOS)
+
             return img
         except UnidentifiedImageError:
             self.log("Unable to identify image file.")
