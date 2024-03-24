@@ -58,16 +58,17 @@ Open `/appdaemon/apps/apps.yaml` and add this code:
 pixoo64_media_album_art:
   module: pixoo64_media_album_art
   class: Pixoo64_Media_Album_Art
-  media_player: "media_player.era300"
+  media_player: "media_player.era300" # Change to your speaker name in HA
   toggle: "input_boolean.pixoo64_album_art"
   pixoo_sensor: "sensor.pixoo64_media_data"
   ha_url: "http://homeassistant.local:8123"
-  url: "http://192.168.86.21:80/post"
+  url: "http://192.168.86.21:80/post" # Pixoo64 full post URL
   show_text: True
   text_background: True
   font: 2
   full_control: True
   crop_borders: True
+  tolerance: 100
   enhancer_img: False
   enhancer: 1.5
 ```
@@ -86,6 +87,7 @@ pixoo64_media_album_art:
 | `font` | The device is compatible with 8 different fonts, which are numbered from 0 to 7 | `0` to `7` |
 | `full_control` | This script assumes control of the PIXOO64 display while it’s in use and a track is playing. If `True` then the display will turn off when music paused. If `False` it display the previous channel (clock, visualizer, exc.) | `True` or `False` |
 | `crop_borders` | This feature is designed to eliminate existing borders from an image, especially for album arts that have single-color edges. When the primary image within the border appears small or potentially skewed on the screen | `True` or `False` |
+| `tolerance` | Parameter that you can adjust to fine-tune the border detection  | `100` |
 | `enhancer_img` | Change the color intensity in the image | `True` or `False` |
 | `enhancer` | Adjust the contrast enhancer value within a range of 0.0 to 2.0, where a value of 1.0 implies no modification to the image | `0.0` to `2.0`|
 ____________
