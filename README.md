@@ -1,5 +1,4 @@
 # DIVOOM PIXOO64 Media Album Art Display: Elevate Your Musical Journey
-
 Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music with this script. It automatically fetches and displays the album cover art of the currently playing track, enhancing your musical experience. Additionally, it extracts valuable data such as the artist's name and the dominant color from the album art, which can be utilized for further automation in your Home Assistant environment.
 ## Examples
 ### [Watch the demo video here](https://youtu.be/zlPBoNftYGo)
@@ -90,6 +89,15 @@ pixoo64_media_album_art:
 | `tolerance` | Parameter that you can adjust to fine-tune the border detection  | `100` |
 | `enhancer_img` | Change the color intensity in the image | `True` or `False` |
 | `enhancer` | Adjust the contrast enhancer value within a range of 0.0 to 2.0, where a value of 1.0 implies no modification to the image | `0.0` to `2.0`|
+
+> [!NOTE]
+> ### `crop_borders`
+> Given the Pixoo screen’s 64x64 pixel size, it is highly recommended to utilize the crop feature. Many album cover arts come with borders, occasionally wide ones, which can distort the display of the cover art on the screen. To rectify this, the script ensures the removal of the picture frame border. You can customize this feature by adjusting the `tolerance` value.
+> | Original | Crop |
+> |---|---|
+> | ![cover3](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/79979032-1d7e-479e-9ab8-5ab415a09670) | ![cover3_crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/e21d7a0d-9cbc-46a0-b568-d7fe3022e132) |
+> | ![cover1](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/30b746a2-fd6b-4815-b8ba-beaa2a93b761) | ![cover1_crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/0a4c98cd-45f4-4edd-a412-24bbc593501a) |
+> | ![cover2](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71fda47e-f4fe-4142-9303-16d95d2c109e) | ![cover2_crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/ad32fb20-7b94-4795-a1af-16148dac473f) |
 ____________
 ## You’re all set!
 **The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
