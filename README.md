@@ -1,4 +1,7 @@
 # DIVOOM PIXOO64 Media Album Art Display: Elevate Your Musical Journey
+> [!NOTE]
+> If you have previously installed this script, please be aware that there have been significant updates with breaking changes in the `appdaemon\apps\app.yaml` file. It strongly recommend updating your code to accommodate these changes.
+
 Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music with this script. It automatically fetches and displays the album cover art of the currently playing track, enhancing your musical experience. Additionally, it extracts valuable data such as the artist's name and the dominant color from the album art, which can be utilized for further automation in your Home Assistant environment.
 ## Examples
 ### [Watch the demo video here](https://youtu.be/zlPBoNftYGo)
@@ -12,14 +15,24 @@ Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music wit
 - **Image Enhancer**: Amplify the color vibrancy of the image for a more striking display.
 - **Sensor Data Storage**: All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily available for further automation possibilities.
 - **Title Normalization**: The script normalizes titles and artist names for easier integration with automations and consistent display, regardless of regional characters or symbols. For instance, the artist name "Beyoncé" (with accent) would be normalized to "Beyonce" (accent removed).
-- **Dynamic Color Integration**: The dominant color from the album art is used to set the font and background colors on the PIXOO64, creating a harmonious and visually appealing display.
+- **Light Dynamic Color Integration**: The dominant color from the album art is used to set the background color on any RGB light.
 ## Prerequisites
 1. [DIVOOM PIXOO64](https://www.aliexpress.com/item/1005003116676867.html)
 2. Home Assistant (with add-on functionality)
 3. AppDaemon (Home Assistant add-on)
 ## Installation
 > [!TIP]
-> Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs. Establish it as a helper within the Home Assistant User Interface, as Home Assistant will not retain the sensor’s last state after a restart. Ensure that the helper sensor is created prior to executing the script for the first time.
+> Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs. Establish it as a helper within the Home Assistant User Interface or YAML code. It’s best to do this prior to installation. Here’s how you can proceed:
+> 1. Open `configuration.yaml`.
+> 2. Add this lines and restart Home Assistant:
+> ```yaml
+> #/homeassistant/configuration.yaml
+> input_boolean:
+>   pixoo64_album_art:
+>     name: Pixoo64 Album Art
+>     icon: mdi:framed_picture 
+> ```
+> **Ensure that the helper sensor is created prior to executing the script for the first time.**
 1. Install **AppDaemon** from the Home Assistant add-on store.
 2. On the AppDaemon [Configuration page](http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config), install the **requests**, **numpy pillow**, and **unidecode** Python packages.
 ```yaml
@@ -35,69 +48,88 @@ init_commands: []
 1. Download the Python file from [This Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py).
 2. Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step
 ### HACS Download
-1. In Home Assistant: Navigate to `HACS > Automation`
-   * If this option is not available, go to `Settings > Integrations > HACS > Configure` and enable `AppDaemon apps discovery & tracking`. After enabling, return to the main HACS screen and select `Automation`
+1. In Home Assistant: Navigate to `HACS` > `Automation`
+   * If this option is not available, go to `Settings` > `Integrations` > `HACS` > `Configure` and enable `AppDaemon apps discovery & tracking`. After enabling, return to the main HACS screen and select `Automation`
 2. Navigate to the `Custom Repositories` page and add the following repository as `Automation`: `https://github.com/idodov/pixoo64-media-album-art/`
 3. Return to the `HACS Automation` screen, press the `+` button, search for `PIXOO64 Media Album Art`, and click on `Download`
 > [!IMPORTANT]  
 > In AppDaemon, make sure to specify the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`.
 > Also, remember to transfer all files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`.
-```yaml
-#/addon_configs/a0d7b954_appdaemon/appdaemon.yaml
----
-secrets: /homeassistant/secrets.yaml
-appdaemon:
-  app_dir: /homeassistant/appdaemon/apps/
-```
+> ```yaml
+> #/addon_configs/a0d7b954_appdaemon/appdaemon.yaml
+> ---
+> secrets: /homeassistant/secrets.yaml
+> appdaemon:
+>   app_dir: /homeassistant/appdaemon/apps/
+> ```
 _________
 ## Final Step - Configuration
 Open `/appdaemon/apps/apps.yaml` and add this code:
+> [!TIP]
+>  If you’re using the File Editor add-on, it’s set up by default to only allow file access to the main Home Assistant directory. However, the AppDaemon add-on files are located in the root directory. To access these files, follow these steps:
+> 1. Go to `Settings` > `Add-ons` > `File Editor` > `Configuration`
+> 2. Toggle off the `Enforce Basepath` option.
+> 3. In the File Editor, click on the arrow next to the directory name (which will be ‘homeassistant’). This should give you access to the root directory where the AppDaemon add-on files are located.
+> 
+>    ![arrow](https://github.com/idodov/RedAlert/assets/19820046/e57ea52d-d677-45b0-90c4-87723c5ddfea)
+
 ```yaml
-#apps.yaml
+# appdaemon/apps/apps.yaml
+-----
 pixoo64_media_album_art:
   module: pixoo64_media_album_art
   class: Pixoo64_Media_Album_Art
-  media_player: "media_player.era300" # Change to your speaker name in HA
-  toggle: "input_boolean.pixoo64_album_art"
-  pixoo_sensor: "sensor.pixoo64_media_data"
-  ha_url: "http://homeassistant.local:8123"
-  url: "http://192.168.86.21:80/post" # Pixoo64 full post URL
-  show_text: True
-  text_background: True
-  font: 2
-  full_control: True
-  crop_borders: True
-  tolerance: 100
-  enhancer_img: False
-  enhancer: 1.5
+  home_assistant:
+    ha_url: "http://homeassistant.local:8123"  # Home Assistant URL
+    media_player: "media_player.era300"        # Media player entity ID
+    toggle: "input_boolean.pixoo64_album_art"  # Boolean sensor to control script execution (Optional)
+    pixoo_sensor: "sensor.pixoo64_media_data"  # Sensor to store media data (Optional)
+    light: False                               # RGB light entity ID (if any) (Optional)
+  pixoo:
+    url: "http://192.168.86.21:80/post"        # Pixoo device URL
+    full_control: True                         # Control display on/off with play/pause
+    contrast: True                             # Apply 50% contrast filter
+    fail_txt: True                             # Show media info if image fails to load
+    show_text:
+      enabled: False                           # Show media info with image
+      text_background: True                    # Change background of text area
+      font: 2                                  # Pixoo internal font type (0-7)
+      color: False                             # Use alternative font color
+    crop_borders:
+      enabled: True                            # Crop image borders if present
+      extra: True                              # Apply enhanced border crop
 ```
 > [!WARNING]
 > **Only save it once you’ve made the described changes to the settings.**
 
-| Parameter | Description | Example |
-|---|---|---|
-| `media_player` | Media Player entity name in Home Assistant | `media_player.era300` |
-| `toggle` | Primary toggle sensor name that triggering the script. | `input_boolean.pixoo64_album_art` |
-| `pixoo_sensor` | Sensor name to store data. No need to create it in advance | `sensor.pixoo64_media_data` |
-| `ha_url` | Home Assistant local URL | `http://homeassistant.local:8123` |
-| `url` | PIXOO64 full URL | `http://192.168.86.21:80/post` |
-| `show_text` | Display the artist name and title | `True` or `False` |
-| `text_background` | Adjust the brightness of the lower section of the image to enhance the visibility of the text | `True` or `False` |
-| `font` | The device is compatible with 8 different fonts, which are numbered from 0 to 7 | `0` to `7` |
-| `full_control` | This script assumes control of the PIXOO64 display while it’s in use and a track is playing. If `True` then the display will turn off when music paused. If `False` it display the previous channel (clock, visualizer, exc.) | `True` or `False` |
-| `crop_borders` | This feature is designed to eliminate existing borders from an image, especially for album arts that have single-color edges. When the primary image within the border appears small or potentially skewed on the screen | `True` or `False` |
-| `tolerance` | Parameter that you can adjust to fine-tune the border detection  | `100` |
-| `enhancer_img` | Change the color intensity in the image | `True` or `False` |
-| `enhancer` | Adjust the contrast enhancer value within a range of 0.0 to 2.0, where a value of 1.0 implies no modification to the image | `0.0` to `2.0`|
+| Parameter | Description | Example Values |
+| --- | --- | --- |
+| `ha_url` | Home Assistant URL | `"http://homeassistant.local:8123"` |
+| `media_player` | Media player entity ID | `"media_player.era300"` |
+| `toggle` | Boolean sensor to control script execution (Optional) | `"input_boolean.pixoo64_album_art"` |
+| `pixoo_sensor` | Sensor to store media data (Optional) | `"sensor.pixoo64_media_data"` |
+| `light` | RGB light entity ID (if any) (Optional) | `False` or `light.rgb_light` |
+| `url` | Pixoo device URL | `"http://192.168.86.21:80/post"` |
+| `full_control` | Control display on/off with play/pause | `True` |
+| `contrast` | Apply 50% contrast filter | `True` |
+| `fail_txt` | Show media info if image fails to load | `True` |
+| `show_text - enabled` | Show media info with image | `False` |
+| `show_text - text_background` | Change background of text area | `True` |
+| `show_text - font` | Pixoo internal font type (0-7) | `2` |
+| `show_text - color` | Use alternative font color | `False` |
+| `crop_borders - enabled` | Crop image borders if present | `True` |
+| `crop_borders - extra` | Apply enhanced border crop | `True` |
 
 > [!NOTE]
+> ### `light`
+> The light feature is a built-in automation that sends a ‘turn on’ command with RGB values corresponding to the most dominant color in the image. If the image is black, white, or gray, the automation will select a soft random color.
+> 
 > ### `crop_borders`
-> Given the Pixoo screen’s 64x64 pixel size, it is highly recommended to utilize the crop feature. Many album cover arts come with borders, occasionally wide ones, which can distort the display of the cover art on the screen. To rectify this, the script ensures the removal of the picture frame border. You can customize this feature by adjusting the `tolerance` value.
-> | Original | Crop |
-> |---|---|
-> | ![cover3](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/79979032-1d7e-479e-9ab8-5ab415a09670) | ![cover3_crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/e21d7a0d-9cbc-46a0-b568-d7fe3022e132) |
-> | ![cover1](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/30b746a2-fd6b-4815-b8ba-beaa2a93b761) | ![cover1_crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/0a4c98cd-45f4-4edd-a412-24bbc593501a) |
-> | ![cover2](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71fda47e-f4fe-4142-9303-16d95d2c109e) | ![cover2_crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/ad32fb20-7b94-4795-a1af-16148dac473f) |
+> Given the Pixoo screen’s 64x64 pixel size, it is highly recommended to utilize the crop feature. Many album cover arts come with borders, occasionally wide ones, which can distort the display of the cover art on the screen. To rectify this, the script ensures the removal of the picture frame border.
+> | Original | Crop | Extra |
+> |---|---|---|
+> | ![cover2](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71fda47e-f4fe-4142-9303-16d95d2c109e) | ![cover2_crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/ad32fb20-7b94-4795-a1af-16148dac473f) | ![kb-crop_extra](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/4e6bec64-0fa3-4bb3-a863-9e1ace780b58) |
+> | ![psb-original](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/beb0d74c-5a27-4ad8-b7a8-f11f6ae8d3ea) | ![psb-crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/efc4f44a-4c7d-4aca-b1bf-a158b252b26d) | ![psb-crop_extra](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/b25cc2e7-aa22-4e73-9c7a-b30ea4ec73fb) |
 ____________
 ## You’re all set!
 **The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
