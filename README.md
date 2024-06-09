@@ -132,7 +132,7 @@ pixoo64_media_album_art:
 > | ![psb-original](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/beb0d74c-5a27-4ad8-b7a8-f11f6ae8d3ea) | ![psb-crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/efc4f44a-4c7d-4aca-b1bf-a158b252b26d) | ![psb-crop_extra](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/b25cc2e7-aa22-4e73-9c7a-b30ea4ec73fb) |
 ____________
 ## You’re all set!
-**The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
+**Make sure that `input_boolean.pixoo64_album_art` is turn on. The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
 
 ![צילום מסך 2024-02-29 230356](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/54546384-70c1-4c18-ba1e-aaeb91ac11ec)
 
