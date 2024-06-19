@@ -40,9 +40,11 @@ Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music wit
 system_packages: []
 python_packages:
   - requests
-  - numpy pillow
   - unidecode
+  - pillow
+  - numpy==1.26.4
 init_commands: []
+
 ```
 ### Manual Download
 1. Download the Python file from [This Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py).
