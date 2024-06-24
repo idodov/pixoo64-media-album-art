@@ -1,24 +1,25 @@
 # DIVOOM PIXOO64 Media Album Art Display: Elevate Your Musical Journey
-Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music with this script. It automatically fetches and displays the album cover art of the currently playing track, enhancing your musical experience. Additionally, it extracts valuable data such as the artist's name and the dominant color from the album art, which can be utilized for further automation in your Home Assistant environment.
+Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music with this script. It automatically fetches and displays the album cover art of the currently playing track, enhancing your musical experience. Additionally, it extracts valuable data such as the artist’s name and the dominant color from the album art, which can be utilized for further automation in your Home Assistant environment.
+
 The following music services have been tested: Apple Music, Spotify, Tidal, YouTube Music, MixCloud, and Sonos Radio.
 
 ## Examples
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
  
 ## Features & Functional Advantages
-- **Image Cropping**: The script removes any existing borders from the image for a better viewing experience. This is particularly useful for album arts that have borders or a minimalist background with centralized elements. By trimming the borders, the script ensures that the main subject of the picture is not too small and provides a more detailed view of the album art.
-- **Image Enhancer**: Amplify the color vibrancy of the image for a more striking display.
-- **Sensor Data Storage**: All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily available for further automation possibilities.
-- **Title Normalization**: The script normalizes titles and artist names for easier integration with automations and consistent display, regardless of regional characters or symbols. For instance, the artist name "Beyoncé" (with accent) would be normalized to "Beyonce" (accent removed).
-- **Light Dynamic Color Integration**: The dominant color from the album art is used to set the background color on any RGB light.
-- **RTL Support**: Display artist name or song title not reverce.
+- **Image Cropping:** The script removes any existing borders from the image for a better viewing experience. This is particularly useful for album art with borders or minimalist backgrounds with centralized elements. By trimming the borders, the script ensures that the main subject of the picture is not too small, providing a more detailed view of the album art.
+- **Image Enhancer:** Amplifies the color vibrancy of the image for a more striking display.
+- **Sensor Data Storage:** All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily available for further automation possibilities.
+- **RTL Support:** Ensures that the artist’s name or song title is displayed correctly in right-to-left languages.
+- **Title Normalization:** Normalizes titles and artist names for easier integration with automations and consistent display, regardless of regional characters or symbols. For instance, the artist name “Beyoncé” (with an accent) would be normalized to “Beyonce” (accent removed).
+- **Light Dynamic Color Integration:** Uses the dominant color from the album art to set the background color on any RGB light.
 ## Prerequisites
 1. [DIVOOM PIXOO64](https://www.aliexpress.com/item/1005003116676867.html)
 2. Home Assistant (with add-on functionality)
 3. AppDaemon (Home Assistant add-on)
 ## Installation
 > [!TIP]
-> Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs (means when it's on everytime the player will play a track, the album art will appear). Establish it as a helper within the Home Assistant User Interface or YAML code. It’s best to do this prior to installation. Here’s how you can proceed:
+> Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs. This means that whenever the player starts a track, the album art will appear if the toggle is on. Establish this helper within the Home Assistant User Interface or YAML code. It’s best to do this prior to installation. Here’s how you can proceed:
 > 1. Open `configuration.yaml`.
 > 2. Add this lines and restart Home Assistant:
 > ```yaml
@@ -76,7 +77,7 @@ Open `/appdaemon/apps/apps.yaml` and add this code:
 
 ```yaml
 # appdaemon/apps/apps.yaml
------
+---
 pixoo64_media_album_art:
   module: pixoo64_media_album_art
   class: Pixoo64_Media_Album_Art
@@ -137,11 +138,12 @@ pixoo64_media_album_art:
 > | ![psb-original](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/beb0d74c-5a27-4ad8-b7a8-f11f6ae8d3ea) | ![psb-crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/efc4f44a-4c7d-4aca-b1bf-a158b252b26d) | ![psb-crop_extra](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/b25cc2e7-aa22-4e73-9c7a-b30ea4ec73fb) |
 ____________
 ## You’re all set!
-**Make sure that `input_boolean.pixoo64_album_art` is turn on. The next time you play a track, the album cover art will be displayed and all the usable picture data will be stored in a new sensor.**
+**Make sure that `input_boolean.pixoo64_album_art` is turned `on`. The next time you play a track, the album cover art will be displayed, and all the usable picture data will be stored in a new sensor.**
+
 ![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
 _____________
 ## Sensor Attribues
-The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assistant. It’s designed to store useful picture data from the album cover art of the currently playing song. This includes the artist’s name, the title of the media, the base64 encoded GIF of the media picture, and color information such as the color of the font and the background. This sensor allows for dynamic visual experiences and automation possibilities based on the music being played.
+The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assistant. It’s designed to store useful picture data from the album cover art of the currently playing song. This includes the artist’s name, the title of the media and color information such as the color of the font and the background. This sensor allows for dynamic visual experiences and automation possibilities based on the music being played.
 
 | Attribute | Description |
 |---|---|
