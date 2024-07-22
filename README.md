@@ -81,27 +81,30 @@ Open `/appdaemon/apps/apps.yaml` and add this code:
 pixoo64_media_album_art:
   module: pixoo64_media_album_art
   class: Pixoo64_Media_Album_Art
-  home_assistant:
-    ha_url: "http://homeassistant.local:8123"  # Home Assistant URL
-    media_player: "media_player.era300"        # Media player entity ID
-    toggle: "input_boolean.pixoo64_album_art"  # Boolean sensor to control script execution (Optional)
-    pixoo_sensor: "sensor.pixoo64_media_data"  # Sensor to store media data (Optional)
-    light: "light.strip_stone"                 # RGB light entity ID (if any) (Optional)
-  pixoo:
-    url: "http://192.168.86.21:80/post"        # Pixoo device URL
-    full_control: True                         # Control display on/off with play/pause
-    contrast: True                             # Apply 50% contrast filter
-    fail_txt: True                             # Show media info if image fails to load
-    clock: True                                # Show clock top corner
-    clock_align: Right                         # Clock align - Left or Right
-    show_text:
-      enabled: False                           # Show media artist and title 
-      text_background: True                    # Change background color for better text display with image
-      font: 2                                  # Pixoo internal font type (0-7) for fallback text when there is no image
-      color: False                             # Use alternative font color
-    crop_borders:
-      enabled: True                            # Crop image borders if present
-      extra: True                              # Apply enhanced border crop
+    home_assistant:
+        ha_url: "http://homeassistant.local:8123"  # Home Assistant URL
+        media_player: "media_player.era300"        # Media player entity ID
+        toggle: "input_boolean.pixoo64_album_art"  # Boolean sensor to control script execution
+        pixoo_sensor: "sensor.pixoo64_media_data"  # Sensor to store media data (Optional)
+        light: "light.strip_stone"                 # RGB light entity ID (if any) (Optional)
+        hacs: True                                 # If you install this script from HACS
+    pixoo:
+        url: "http://192.168.86.21:80/post"        # Pixoo device URL
+        full_control: True                         # Control display on/off with play/pause
+        contrast: True                             # Apply 50% contrast filter
+        fail_txt: True                             # Show media info if image fails to load
+        clock: True                                # Show clock top corner
+        clock_align: Right                         # Clock align - Left or Right
+        tv_icon: True                              # Shows TV icon when playing sound from TV
+        show_text:
+            enabled: False                         # Show media artist and title 
+            clean_title: True                      # Remove "Remaster" labels, track number and file extentions from the title if any
+            text_background: True                  # Change background color or better text display with image
+            font: 2                                # Pixoo internal font type (0-7) for fallback text when there is no image
+            color: False                           # Use alternative font color
+        crop_borders:
+            enabled: True                          # Crop image borders if present
+            extra: True                            # Apply enhanced border crop
 ```
 > [!WARNING]
 > **Only save it once you’ve made the described changes to the settings.**
@@ -113,15 +116,18 @@ pixoo64_media_album_art:
 | `toggle` | Boolean sensor to control script execution (Optional) | `"input_boolean.pixoo64_album_art"` |
 | `pixoo_sensor` | Sensor to store media data (Optional) | `"sensor.pixoo64_media_data"` |
 | `light` | RGB light entity ID (if any) (Optional) | `False` or `light.rgb_light` |
+| `hacs` | True if you install this script from HACS. Used for internal directory manners in the script | `True` |
 | `url` | Pixoo device URL | `"http://192.168.86.21:80/post"` |
 | `full_control` | Control display on/off with play/pause | `True` |
 | `contrast` | Apply 50% contrast filter | `True` |
 | `fail_txt` | Show media info if image fails to load | `True` |
 | `clock` | Show a clock top corner | `False` |
 | `clock_align` | Align to clock `Left` or `Right` | `Left` |
+| `tv_icon` | Shows TV art when playing sound from TV | `True` |
 | `show_text - enabled` | Show media info with image | `False` |
+| `show_text - clean_title` | Remove "Remaster" labels, track number and file extentions from the title if any | `True` |
 | `show_text - text_background` | Change background of text area | `True` |
-| `show_text - font` | Pixoo internal font type (0-7) | `2` |
+| `show_text - font` | Pixoo internal font type (0-7). Used in fallback screen only | `2` |
 | `show_text - color` | Use alternative font color | `False` |
 | `crop_borders - enabled` | Crop image borders if present | `True` |
 | `crop_borders - extra` | Apply enhanced border crop | `True` |
