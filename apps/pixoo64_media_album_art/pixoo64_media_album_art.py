@@ -69,7 +69,7 @@ except ImportError:
     print("The 'unidecoed' module is not installed or not available. Special chars might not display")
     undicode_m = False
 try:
-    from bidi.algorithm import get_display
+    from bidi import get_display
 except ImportError:
     print("The 'bidi.algorithm' module is not installed or not available. RTL texts will display reverce")
 
