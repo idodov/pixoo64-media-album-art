@@ -257,7 +257,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         "Textheight": 16,
                         "speed": 100,
                         "align": 1,
-                        "color": font_color
+                        "color": background_color
                     }
                     moreinfo["ItemList"].append(clock_item)
 
