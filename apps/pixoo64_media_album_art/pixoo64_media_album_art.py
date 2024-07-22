@@ -69,7 +69,7 @@ except ImportError:
     print("The 'unidecoed' module is not installed or not available. Special chars might not display")
     undicode_m = False
 try:
-    from bidi import get_display
+    from bidi.algorithm import get_display
 except ImportError:
     print("The 'bidi.algorithm' module is not installed or not available. RTL texts will display reverce")
 
@@ -107,6 +107,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.CONTRAST = pixoo_args.get("contrast", False)
         self.SHOW_CLOCK = pixoo_args.get("clock", True)
         self.LOCACTION_CLOCK = pixoo_args.get("clock_align", "Left")
+        self.SHOW_TV_ICON = pixoo_args.get("tv_icon", "True")
 
         show_text_args = pixoo_args.get('show_text', {})
         self.SHOW_TEXT = show_text_args.get("enabled", False)
@@ -212,7 +213,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     payload = {"Command":"Draw/CommandList", "CommandList": payloads}
                     self.send_pixoo(payload)
             else:
-                payload = {"Command":"Draw/CommandList", "CommandList":[{"Command":"Channel/OnOffScreen", "OnOff":1},{"Command": "Draw/ResetHttpGifId"},{"Command": "Draw/SendHttpGif","PicNum": 1,"PicWidth": 64, "PicOffset": 0, "PicID": 0, "PicSpeed": 1000, "PicData": zlib.decompress(TV_ICON).decode() }]}
+                
+                if self.SHOW_TV_ICON:
+                    payload = {"Command":"Draw/CommandList", "CommandList":[{"Command":"Channel/OnOffScreen", "OnOff":1},{"Command": "Draw/ResetHttpGifId"},{"Command": "Draw/SendHttpGif","PicNum": 1,"PicWidth": 64, "PicOffset": 0, "PicID": 0, "PicSpeed": 1000, "PicData": zlib.decompress(TV_ICON).decode() }]}
+                else:
+                    payload = {"Command":"Draw/CommandList", "CommandList":[{"Command":"Draw/ClearHttpText"},{"Command": "Draw/ResetHttpGifId"},{"Command":"Channel/SetIndex", "SelectIndex": 4 },{"Command":"Channel/SetIndex", "SelectIndex": select_index }]}
+                    
                 self.send_pixoo(payload)
                 if self.LIGHT:
                     self.control_light('off')
