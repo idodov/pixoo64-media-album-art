@@ -71,7 +71,7 @@ except ImportError:
     print("The 'unidecoed' module is not installed or not available. Special chars might not display")
     undicode_m = False
 try:
-    from bidi.algorithm import get_display
+    from bidi import get_display
 except ImportError:
     print("The 'bidi.algorithm' module is not installed or not available. RTL texts will display reverce")
 
@@ -306,11 +306,19 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         
         return gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
 
+
     def get_image(self, picture):
         try:
             response = requests.get(f"{self.HA_URL}{picture}")
             img = Image.open(BytesIO(response.content))
             img = img.convert("RGB")
+            
+            # Check if the image is grayscale
+            grayscale = np.array(img)
+            if np.all(grayscale[:, :, 0] == grayscale[:, :, 1]) and np.all(grayscale[:, :, 1] == grayscale[:, :, 2]):
+                # Apply 90% contrast if the image is grayscale
+                enhancer = ImageEnhance.Contrast(img)
+                img = enhancer.enhance(1.9)  # 90% contrast
             
             if self.CROP_BORDERS:
                 temp_img = img
@@ -326,21 +334,40 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     colors, counts = np.unique(edge_pixels, axis=0, return_counts=True)
                     border_color = colors[counts.argmax()]
                     dists = np.linalg.norm(np_image - border_color, axis=2)
-                    mask = dists < 100  #TOLERANCE
+                    mask = dists < 100  # TOLERANCE
                     coords = np.argwhere(mask == False)
+
+                    if coords.size == 0:
+                        raise ValueError("No non-border pixels found")
+                    
                     x_min, y_min = coords.min(axis=0)
                     x_max, y_max = coords.max(axis=0) + 1
+
+                    # Exclude top areas with text by removing rows near the top that are too small
+                    rows_with_few_pixels = np.sum(mask[:x_min], axis=1) > 0.98 * mask.shape[1]
+                    if np.any(rows_with_few_pixels):
+                        first_valid_row = np.argmax(~rows_with_few_pixels)
+                        x_min = max(x_min, first_valid_row)
+
                     width, height = x_max - x_min, y_max - y_min
                     max_size = max(width, height)
                     x_center, y_center = (x_min + x_max) // 2, (y_min + y_max) // 2
+
+                    # Ensure the final crop size is at least 64x64
+                    if max_size < 64:
+                        max_size = 64
+
                     x_min = max(0, x_center - max_size // 2)
                     y_min = max(0, y_center - max_size // 2)
                     x_max = min(np_image.shape[0], x_min + max_size)
                     y_max = min(np_image.shape[1], y_min + max_size)
+
+                    # Adjust if the crop dimensions don't match the expected max_size
                     if x_max - x_min < max_size:
-                        x_min = x_max - max_size
+                        x_min = max(0, x_max - max_size)
                     if y_max - y_min < max_size:
-                        y_min = y_max - max_size
+                        y_min = max(0, y_max - max_size)
+
                     img = temp_img
                     img = img.crop((y_min, x_min, y_max, x_max))
                 
@@ -350,18 +377,19 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     temp_img = enhancer.enhance(2.0)
                     img = temp_img
                 
-            if self.CONTRAST:
+            if self.CONTRAST and not grayscale:
                 enhancer = ImageEnhance.Contrast(img)
-                img = enhancer.enhance(1.5) # 50% contrast
+                img = enhancer.enhance(1.5)  # 50% contrast for non-grayscale images
             
             img.thumbnail((64, 64), Image.Resampling.LANCZOS)
-            #self.save_img(img)
             return img
         
         except UnidentifiedImageError:
             self.log("Unable to identify image file.")
             self.FALLBACK = True
             return None
+
+
 
     def send_pixoo(self, payload_command):
         #print("sending to pixoo")
