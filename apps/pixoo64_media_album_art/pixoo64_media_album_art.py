@@ -377,7 +377,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     temp_img = enhancer.enhance(2.0)
                     img = temp_img
                 
-            if self.CONTRAST and not grayscale:
+            if self.CONTRAST and not grayscale.all():
                 enhancer = ImageEnhance.Contrast(img)
                 img = enhancer.enhance(1.5)  # 50% contrast for non-grayscale images
             
