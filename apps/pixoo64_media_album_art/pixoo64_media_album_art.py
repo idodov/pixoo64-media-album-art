@@ -309,7 +309,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     def get_image(self, picture):
         try:
-            response = requests.get(f"{self.HA_URL}{picture}")
+            # check if entity_picture is a local or remote resource
+            self.log(picture)
+            if picture.startswith("/"):
+                response = requests.get(f"{self.HA_URL}{picture}")
+            else:
+                response = requests.get(f"{picture}")
+
             img = Image.open(BytesIO(response.content))
             img = img.convert("RGB")
             
