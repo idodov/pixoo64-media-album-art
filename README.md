@@ -119,7 +119,7 @@ pixoo64_media_album_art:
 | `toggle` | Boolean sensor to control script execution (Optional) | `"input_boolean.pixoo64_album_art"` |
 | `pixoo_sensor` | Sensor to store media data (Optional) | `"sensor.pixoo64_media_data"` |
 | `light` | RGB light entity ID (if any) (Optional) | `False` or `light.rgb_light` |
-| `hacs` | True if you install this script from HACS. Used for internal directory manners in the script | `True` |
+| `ai_fallback` | Create alternative album art cover using the power of AI (OPENAI API). fail_txt must also be 'True'.t | `True` |
 | `url` | Pixoo device URL | `"http://192.168.86.21:80/post"` |
 | `full_control` | Control display on/off with play/pause | `True` |
 | `contrast` | Apply 50% contrast filter | `True` |
