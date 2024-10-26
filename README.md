@@ -12,6 +12,7 @@ This script also supports AI image creation using the [pollinations.ai](https://
 - **RTL Support:** Ensures that the artist’s name or song title is displayed correctly in right-to-left languages.
 - **Title Normalization:** Normalizes titles and artist names for easier integration with automations and consistent display, regardless of regional characters or symbols. For instance, the artist name “Beyoncé” (with an accent) would be normalized to “Beyonce” (accent removed).
 - **Light Dynamic Color Integration:** Uses the dominant color from the album art to set the background color on any RGB light.
+- **AI Image Support:** The script supports AI-generated images and activates on fallback when no image is associated with the music file.
 ## Prerequisites
 1. [DIVOOM PIXOO64](https://www.aliexpress.com/item/1005003116676867.html)
 2. Home Assistant (with add-on functionality)
