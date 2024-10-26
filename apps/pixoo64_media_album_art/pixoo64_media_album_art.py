@@ -25,12 +25,11 @@ pixoo64_media_album_art:
         toggle: "input_boolean.pixoo64_album_art"  # Boolean sensor to control script execution (Optional)
         pixoo_sensor: "sensor.pixoo64_media_data"  # Sensor to store media data (Optional)
         light: "light.strip_stone"                 # RGB light entity ID (if any) (Optional)
-        ai_fallback: False                         # Create alternative AI image when fallback * NEEDS OpenAI SUBSCRIPTION
+        ai_fallback: turbo                         # Create alternative AI image when fallback - use model 'flex' or 'turbo'
     pixoo:
         url: "http://192.168.86.21:80/post"        # Pixoo device URL
         full_control: True                         # Control display on/off with play/pause
         contrast: True                             # Apply 50% contrast filter
-        fail_txt: True                             # Show media info if image fails to load
         clock: True                                # Show clock top corner
         clock_align: Right                         # Clock align - Left or Right
         tv_icon: True                              # Shows TV icon when playing sound from TV
@@ -107,10 +106,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.pixoo_sensor = self.args.get('home_assistant', {}).get("pixoo_sensor", "sensor.pixoo64_media_data")
         self.light = self.args.get('home_assistant', {}).get("light", None)
         self.ai_fallback = self.args.get('home_assistant', {}).get("ai_fallback", False)
+        # ai_fallback can be: ["flux","flux-realism","flux-cablyai","flux-anime","flux-3d","any-dark","flux-pro","turbo"]
 
         self.url = self.args.get('pixoo', {}).get("url", "192.168.86.21:80/post")
         self.full_control = self.args.get('pixoo', {}).get("full_control", True)
-        self.fail_txt = self.args.get('pixoo', {}).get("fail_txt", True)
         self.contrast = self.args.get('pixoo', {}).get("contrast", False)
         self.show_clock = self.args.get('pixoo', {}).get("clock", True)
         self.clock_align = self.args.get('pixoo', {}).get("clock_align", "Left")
@@ -125,13 +124,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.crop_borders = self.args.get('pixoo', {}).get('crop_borders', {}).get("enabled", True)
         self.crop_extra = self.args.get('pixoo', {}).get('crop_borders', {}).get("extra", True)
         self.fallback = False
+        self.fail_txt = False
         self.album_name = self.get_state(self.media_player, attribute="media_album_name")
         self.listen_state(self.update_attributes, self.media_player, attribute='media_title')
         self.listen_state(self.update_attributes, self.media_player)
-        if self.ai_fallback:
-            if not self.entity_exists("input_text.ai_music"):
-                self.set_state("input_text.ai_music", state="", attributes={"min": 0, "max": 255, "mode": "text", "friendly_name": "Pixoo64 AI URL"})
-            self.listen_state(self.ai_finished, "input_text.ai_music", attribute="ai_url")
 
         if not os.path.exists(local_directory):
             os.makedirs(local_directory)
@@ -179,6 +175,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         select_index = response_data.get('SelectIndex', None)
 
         if media_state in ["playing", "on"]:  # Check for playing state
+            self.sending_ai = 0
             title = self.get_state(self.media_player, attribute="media_title")
             # Use the corrected variable name:
             title = self.clean_title(title) if self.clean_title_enabled else title
@@ -195,7 +192,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 else:
                     normalized_title = title
                     normalized_artist = artist if artist else ""
-                
+                self.ai_title = title
+                self.ai_artist = artist
                 picture = self.get_state(self.media_player, attribute="entity_picture")
                 gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
                 new_attributes = {"artist": artist,"normalized_artist": normalized_artist, "media_title": title,"normalized_title": normalized_title, "font_color": font_color, "font_color_alternative": recommended_font_color, "background_color_brightness": brightness, "background_color": background_color, "color_alternative_rgb": most_common_color_alternative, "background_color_rgb": background_color_rgb, "recommended_font_color_rgb": recommended_font_color_rgb, "color_alternative": most_common_color_alternative_rgb,}
@@ -268,7 +266,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if self.light:
                     self.control_light('off')
 
-    def process_picture(self, picture):
+    def process_picture(self, picture, timeout=30):
         font_color = recommended_font_color = recommended_font_color_rgb = "#FFFFFF"
         background_color  = most_common_color_alternative_rgb = most_common_color_alternative = "#0000FF"
         background_color_rgb = tuple(random.randint(10, 200) for _ in range(3))
@@ -324,20 +322,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self.fallback = False
 
         except Exception as e:
-            self.log(f"Error processing image. Using defualt values: {e}")
+            self.log(f"Error processing image. Will try to create AI Image: {e}")
             self.fallback = True
-            
-            if self.fail_txt:
-                gif_base64 = zlib.decompress(BLK_SCR).decode()
-                if self.ai_fallback:
-                    self.call_service("script/ai_image")
+            self.fail_txt = False
+            if self.ai_fallback:
+                gif_base64 = self.get_ai_image()
             else:
-                try:
-                    picture = TV_ICON_PATH
-                    gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
-                except Exception as e:
-                    gif_base64 = zlib.decompress(BLK_SCR).decode()
-                    print("TV Image not load")
+                gif_base64 = zlib.decompress(BLK_SCR).decode()
+                self.fail_txt = True
 
         return gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
 
@@ -349,6 +341,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             else:
                 # Otherwise, prepend ha_url
                 response = requests.get(f"{self.ha_url}{picture}")
+            
+            if response.status_code != 200:
+                return None
             img = Image.open(BytesIO(response.content))
             img = img.convert("RGB")
             
@@ -429,7 +424,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             return None
 
     def send_pixoo(self, payload_command):
-        #print("sending to pixoo")
         response = requests.post(self.url, headers=HEADERS, data=json.dumps(payload_command))
         #print(payload_command)
         if response.status_code != 200:
@@ -517,10 +511,23 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         bidi_regex = f"[{hebrew}|{arabic}|{syriac}|{thaana}|{nkoo}|{rumi}|{arabic_math}|{symbols}|{old_persian_phaistos}|{samaritan}]"
         return bool(re.search(bidi_regex, text))
 
-    def ai_finished(self, entity, attribute, old, new, kwargs):
-        picture = self.get_state("input_text.ai_music", attribute="ai_url")
-        gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
-        payload = {"Command":"Draw/CommandList", "CommandList":[{"Command":"Channel/OnOffScreen", "OnOff":1},{"Command": "Draw/ResetHttpGifId"},{"Command": "Draw/SendHttpGif", "PicNum": 1, "PicWidth": 64, "PicOffset": 0, "PicID": 0, "PicSpeed": 1000, "PicData": gif_base64 }]}
-        self.send_pixoo(payload)
+    def get_ai_image(self, timeout=30):
+        artist = self.clean_title(self.ai_artist).replace("&", "and").replace("?", "").replace('"', '')
+        title = self.clean_title(self.ai_title).replace("&", "and").replace("?", "").replace('"', '')
 
-        
+        if self.ai_fallback not in ["flux", "turbo"]:
+            self.ai_fallback = "turbo"
+        try:
+            if artist:
+                ai_url = f"https://image.pollinations.ai/prompt/8-bit pixel art style for {artist} album cover art title '{title}'. Feature the artist's likeness, captured as accurately as possible and song title vibe?model={self.ai_fallback}"
+            else:
+                ai_url = f"https://image.pollinations.ai/prompt/8-bit pixel for album cover art style, title: '{title}'. be creative?model={self.ai_fallback}"
+
+            picture = ai_url.replace(" ", "%20")
+            #print(picture)
+            gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
+            return gif_base64
+        except Exception as e:
+            gif_base64 = zlib.decompress(BLK_SCR).decode()
+            self.fail_txt = True
+            return gif_base64
