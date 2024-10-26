@@ -1,10 +1,6 @@
 # DIVOOM PIXOO64 Media Album Art Display: Elevate Your Musical Journey
 Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music with this script. It automatically fetches and displays the album cover art of the currently playing track, enhancing your musical experience. Additionally, it extracts valuable data such as the artist’s name and the dominant color from the album art, which can be utilized for further automation in your Home Assistant environment.
-This script also supports AI image creation using the OpenAI conversation image creation service. It's designed to show alternative AI-generated album cover art when no album art exists, or when using music services (like SoundCloud) where the script can't fetch the image. It also works for radio stations that don't send any picture data.
-**Using the OpenAI service incurs a cost. Each AI-generated image costs equating to around 25 images per dollar.**
-
-> [!TIP]
-> The following music services have been tested: Apple Music, Spotify, Tidal, YouTube Music, MixCloud, and Sonos Radio.
+This script also supports AI image creation using the [pollinations.ai](https://pollinations.ai/) service. It's designed to show alternative AI-generated album cover art when no album art exists, or when using music services (like SoundCloud) where the script can't fetch the image.
 
 ## Examples
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
@@ -82,20 +78,19 @@ Open `/appdaemon/apps/apps.yaml` and add this code:
 # appdaemon/apps/apps.yaml
 ---
 pixoo64_media_album_art:
-  module: pixoo64_media_album_art
-  class: Pixoo64_Media_Album_Art
+    module: pixoo64_media_album_art
+    class: Pixoo64_Media_Album_Art
     home_assistant:
         ha_url: "http://homeassistant.local:8123"  # Home Assistant URL
         media_player: "media_player.era300"        # Media player entity ID
-        toggle: "input_boolean.pixoo64_album_art"  # Boolean sensor to control script execution
+        toggle: "input_boolean.pixoo64_album_art"  # Boolean sensor to control script execution (Optional)
         pixoo_sensor: "sensor.pixoo64_media_data"  # Sensor to store media data (Optional)
         light: "light.strip_stone"                 # RGB light entity ID (if any) (Optional)
-        ai_fallback: False                         # Create alternative album art cover using the power of AI (OPENAI API). fail_txt must also be 'True'.
+        ai_fallback: turbo                         # Create alternative AI image when fallback - use model 'flex' or 'turbo'
     pixoo:
         url: "http://192.168.86.21:80/post"        # Pixoo device URL
         full_control: True                         # Control display on/off with play/pause
         contrast: True                             # Apply 50% contrast filter
-        fail_txt: True                             # Show media info if image fails to load
         clock: True                                # Show clock top corner
         clock_align: Right                         # Clock align - Left or Right
         tv_icon: True                              # Shows TV icon when playing sound from TV
@@ -119,7 +114,7 @@ pixoo64_media_album_art:
 | `toggle` | Boolean sensor to control script execution (Optional) | `"input_boolean.pixoo64_album_art"` |
 | `pixoo_sensor` | Sensor to store media data (Optional) | `"sensor.pixoo64_media_data"` |
 | `light` | RGB light entity ID (if any) (Optional) | `False` or `light.rgb_light` |
-| `ai_fallback` | Create alternative album art cover using the power of AI (OPENAI API). `fail_txt` must also be `True` | `True` |
+| `ai_fallback` | Create alternative album art cover using the power of AI. Can be  `flux` or  `turbo` | `turbo` |
 | `url` | Pixoo device URL | `"http://192.168.86.21:80/post"` |
 | `full_control` | Control display on/off with play/pause | `True` |
 | `contrast` | Apply 50% contrast filter | `True` |
@@ -201,105 +196,9 @@ normalized_title: amyn
 ....
 ```
 
-# Guide to Creating an AI Album cover art
-**How it works:** When there’s an issue loading the image, the script triggers another Home Assistant script to call the OpenAI service. This approach is necessary because the OpenAI service doesn’t send a reply outside the Home Assistant script that initiated the call. To transfer data to AppDaemon, we create an input_text helper that stores the image URL. When updated, the AppDaemon script automatically loads the image. Image generation takes around 10 seconds, during which the Pixoo64 displays the artist's name and song title.
-To activate the feture make sure the `apps.yaml` define to support `fail_txt` and `ai_fallback`, for example:
-```yaml
-#apps.yaml
-pixoo64_media_album_art:
-  module: pixoo64_media_album_art
-  class: Pixoo64_Media_Album_Art
-  home_assistant:
-    ha_url: "http://homeassistant.local:8123"
-    media_player: "media_player.era300"
-    toggle: "input_boolean.pixoo64_album_art"
-    pixoo_sensor: "sensor.pixoo64_media_data"
-    light: "light.strip_stone"
-    ai_fallback: True                           # TRUE to use AI Image fallback, FALSE just will display text 
-  pixoo:
-    url: "http://192.168.86.22:80/post"
-    full_control: True
-    contrast: False
-    fail_txt: True                              # True to show fallback text, FALSE not to show text and AI Image fallback
-    clock: False
-    clock_align: Right
-    tv_icon: False
-    show_text:
-      enabled: False
-      clean_title: True
-      text_background: False
-      font: 2
-      color: True
-    crop_borders:
-      enabled: True
-      extra: True
-```
-
-## Steps to Get Started
-
-### 1. OPENAI Integration
-
-- Install the [OPENAI Conversation](https://www.home-assistant.io/integrations/openai_conversation/) using your OPENAI API key as described on the integration page.
-
-### 2. Prepare Home Assistant
-
-- If you don't already have a `python_scripts` directory, create one in the `homeassistant/config` directory.
-
-### 3. Download the Python Script
-
-- Grab the Python file from [this repository](https://github.com/pmazz/ps_hassio_entities/tree/master/python_scripts) and place it inside the `python_scripts` directory.
-
-### 4. Update Configuration
-
-- Open `configuration.yaml` and add the following line if it doesn't already exist:
-
-  ```yaml
-  python_script:
-  ```
-
-### 5. Restart Home Assistant
-
-- Restart Home Assistant to apply the changes.
-
-### 6. Create a Custom Script
-
-Now, let's create a script that will send command to the AI agent and store the data inside a sensor attribute for easy access.
-
-- Go to Settings > Automation > Scripts and create a new script.
-- Switch to YAML mode and paste this code:
-- **CHANGE PLAYER NAME TO YOUR OWN**  `{{ state_attr('media_player.era300', 'media_artist') }}` (from era300 to your player name)!
-- Save this script in name: `ai image`
-
-  ```yaml
-  alias: ai image
-  sequence:
-    - action: openai_conversation.generate_image
-      metadata: {}
-      data:
-        size: 1024x1024
-        quality: standard
-        style: vivid
-        config_entry: 64fb0c3033b52964ff8a74d1e718056e
-        prompt: >-
-          Create an album cover in 8-bit pixel art style for artist {{
-          state_attr('media_player.era300', 'media_artist') }} and song {{
-          state_attr('media_player.era300', 'media_title') }}. The artwork should
-          feature the artist's likeness, captured as accurately as possible, but
-          avoid using any text on the image. Aim for a vibrant, retro aesthetic
-          that embodies the spirit of classic video game graphics.
-      response_variable: ai_response
-    - data:
-        action: set_state_attributes
-        entity_id: input_text.ai_music
-        state: "off"
-        attributes:
-          - ai_url: "{{ ai_response['url'] }}"
-          - ai_update: "{{ '' ~ now().strftime('%H:%M | %d/%m/%Y') }}"
-      action: python_script.hass_entities
-  description: album cover art
-  ```
-
 __________
+> [!TIP]
+> The following music services have been tested: Apple Music, Spotify, Tidal, YouTube Music, MixCloud, and Sonos Radio.
 
 > [!NOTE]
 > While experimenting with the device, you may notice occasional freezes. These could potentially be due to power issues. To address this, it’s suggested to use a USB charger with an output of 3A for optimal performance. If you’re using a charger with a lower voltage (2A, which is the minimum required), it’s advisable to limit the screen brightness to no more than 90%.
