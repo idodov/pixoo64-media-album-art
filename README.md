@@ -86,7 +86,7 @@ pixoo64_media_album_art:
         media_player: "media_player.era300"        # Media player entity ID
         toggle: "input_boolean.pixoo64_album_art"  # Boolean sensor to control script execution (Optional)
         pixoo_sensor: "sensor.pixoo64_media_data"  # Sensor to store media data (Optional)
-        light: "light.strip_stone"                 # RGB light entity ID (if any) (Optional)
+        light: False                               # RGB light entity ID (if any) or False (Optional)
         ai_fallback: turbo                         # Create alternative AI image when fallback - use model 'flex' or 'turbo'
     pixoo:
         url: "http://192.168.86.21:80/post"        # Pixoo device URL
