@@ -1,6 +1,5 @@
 # DIVOOM PIXOO64 Media Album Art Display: Elevate Your Musical Journey
-Transform your DIVOOM PIXOO64 into a dynamic visual companion for your music with this script. It automatically fetches and displays the album cover art of the currently playing track, enhancing your musical experience. Additionally, it extracts valuable data such as the artist’s name and the dominant color from the album art, which can be utilized for further automation in your Home Assistant environment.
-This script also supports AI image creation using the [pollinations.ai](https://pollinations.ai/) service. It's designed to show alternative AI-generated album cover art when no album art exists, or when using music services (like SoundCloud) where the script can't fetch the image.
+Turn your DIVOOM PIXOO64 into a dynamic visual companion with this script. It fetches and displays the album cover art of the currently playing track, enhancing your musical experience. It also extracts valuable data like the artist's name and the dominant color from the album art, which can be used for further automation in your Home Assistant environment. The script supports AI image creation using [pollinations.ai](https://pollinations.ai/) and shows alternative AI-generated album cover art when no album art is available, or when using services like SoundCloud where the script can't fetch the image. It also works with some streaming radio stations.
 
 ## Examples
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
