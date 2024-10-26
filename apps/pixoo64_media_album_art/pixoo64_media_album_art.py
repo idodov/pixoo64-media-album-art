@@ -192,7 +192,18 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     normalized_artist = artist if artist else ""
                 self.ai_title = title
                 self.ai_artist = artist
-                picture = self.get_state(self.media_player, attribute="entity_picture")
+                media_content_id = self.get_state(self.media_player, attribute="media_content_id")
+                if media_content_id.startswith("x-rincon") or media_content_id.startswith("aac:"):
+                    if self.ai_fallback not in ["flux", "turbo"]:
+                        self.ai_fallback = "turbo"
+                    if artist:
+                        ai_url = f"https://pollinations.ai/p/8-bit pixel art for {artist}'s album cover, titled '{title}'. Feature the artist's likeness. Use the song title for the vibe.?model={self.ai_fallback}&width=256&height=256"
+                    else:
+                        ai_url = f"https://pollinations.ai/p/8-bit pixel art for {title} album cover. Feature the song title vibe.?model={self.ai_fallback}&width=256&height=256"
+                    picture = ai_url.replace(" ", "%20")
+                else:
+                    picture = self.get_state(self.media_player, attribute="entity_picture")
+
                 gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
                 new_attributes = {"artist": artist,"normalized_artist": normalized_artist, "media_title": title,"normalized_title": normalized_title, "font_color": font_color, "font_color_alternative": recommended_font_color, "background_color_brightness": brightness, "background_color": background_color, "color_alternative_rgb": most_common_color_alternative, "background_color_rgb": background_color_rgb, "recommended_font_color_rgb": recommended_font_color_rgb, "color_alternative": most_common_color_alternative_rgb,}
                 self.set_state(self.pixoo_sensor, state="on", attributes=new_attributes)
@@ -523,8 +534,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 ai_url = f"https://pollinations.ai/p/8-bit pixel art for {title} album cover. Feature the artist's likeness and use the song title for the vibe.?model={self.ai_fallback}&width=256&height=256"
 
             picture = ai_url.replace(" ", "%20")
+            #print(picture)
             gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
             return gif_base64
+            
         except Exception as e:
             gif_base64 = zlib.decompress(BLK_SCR).decode()
             self.fail_txt = True
