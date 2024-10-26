@@ -3,8 +3,7 @@ Divoom Pixoo64 Album Art Display
 --------------------------------
 This functionality automatically showcases the album cover art of the currently playing track on your Divoom Pixoo64 screen.
 In addition to this, it extracts useful information like the artist's name and the predominant color from the album art. This extracted data can be leveraged for additional automation within your Home Assistant setup.
-This script also supports AI image creation using the OpenAI conversation image creation service. It's designed to show alternative AI-generated album cover art when no album art exists, or when using music services (like SoundCloud) where the script can't fetch the image. It also works for radio stations that don't send any picture data.
-Using the OpenAI service incurs a cost. Each AI-generated image costs equating to around 25 images per dollar.
+This script also supports AI image creation It's designed to show alternative AI-generated album cover art when no album art exists, or when using music services (like SoundCloud) where the script can't fetch the image.
 
 APPDAEMON CONFIGURATION
 python_packages:
@@ -105,8 +104,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.ha_url = self.args.get('home_assistant', {}).get("ha_url", "http://homeassistant.local:8123")
         self.pixoo_sensor = self.args.get('home_assistant', {}).get("pixoo_sensor", "sensor.pixoo64_media_data")
         self.light = self.args.get('home_assistant', {}).get("light", None)
-        self.ai_fallback = self.args.get('home_assistant', {}).get("ai_fallback", False)
-        # ai_fallback can be: ["flux","flux-realism","flux-cablyai","flux-anime","flux-3d","any-dark","flux-pro","turbo"]
+        self.ai_fallback = self.args.get('home_assistant', {}).get("ai_fallback", 'flux')
 
         self.url = self.args.get('pixoo', {}).get("url", "192.168.86.21:80/post")
         self.full_control = self.args.get('pixoo', {}).get("full_control", True)
@@ -322,7 +320,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self.fallback = False
 
         except Exception as e:
-            self.log(f"Error processing image. Will try to create AI Image: {e}")
+            self.log(f"Error processing image: {e}.\n Will try to create AI Image")
             self.fallback = True
             self.fail_txt = False
             if self.ai_fallback:
@@ -519,12 +517,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self.ai_fallback = "turbo"
         try:
             if artist:
-                ai_url = f"https://image.pollinations.ai/prompt/8-bit pixel art style for {artist} album cover art title '{title}'. Feature the artist's likeness, captured as accurately as possible and song title vibe?model={self.ai_fallback}"
+                ai_url = f"https://pollinations.ai/p/8-bit pixel art for {artist}'s album cover, titled '{title}'. Feature the artist's likeness. Use the song title for the vibe.?model={self.ai_fallback}&width=256&height=256"
+
             else:
-                ai_url = f"https://image.pollinations.ai/prompt/8-bit pixel for album cover art style, title: '{title}'. be creative?model={self.ai_fallback}"
+                ai_url = f"https://pollinations.ai/p/8-bit pixel art for {title} album cover. Feature the artist's likeness and use the song title for the vibe.?model={self.ai_fallback}&width=256&height=256"
 
             picture = ai_url.replace(" ", "%20")
-            #print(picture)
             gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
             return gif_base64
         except Exception as e:
