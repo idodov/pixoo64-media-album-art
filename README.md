@@ -119,7 +119,6 @@ pixoo64_media_album_art:
 | `url` | Pixoo device URL | `"http://192.168.86.21:80/post"` |
 | `full_control` | Control display on/off with play/pause | `True` |
 | `contrast` | Apply 50% contrast filter | `True` |
-| `fail_txt` | Show media info if image fails to load | `True` |
 | `clock` | Show a clock top corner | `False` |
 | `clock_align` | Align to clock `Left` or `Right` | `Left` |
 | `tv_icon` | Shows TV art when playing sound from TV | `True` |
