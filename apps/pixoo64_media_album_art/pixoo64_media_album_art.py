@@ -77,6 +77,7 @@ try:
 except ImportError:
     print("The 'bidi.algorithm' module is not installed or not available. RTL texts will display reverce")
 
+AI_ENGINE = "https://pollinations.ai/p"
 BLK_SCR = b'x\x9c\xed\xc11\x01\x00\x00\x00\xc2\xa0l\xeb_\xca\x18>@\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00o\x03\xda:@\xf1'
 NO_IMAGE_PATH = "/local/pixoo64/photo-frame-error.png"
 TV_ICON_PATH = "/local/pixoo64/tv-icon-1.png"
@@ -123,9 +124,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.crop_extra = self.args.get('pixoo', {}).get('crop_borders', {}).get("extra", True)
         self.fallback = False
         self.fail_txt = False
+        self.playing_radio = False
         self.album_name = self.get_state(self.media_player, attribute="media_album_name")
         self.listen_state(self.update_attributes, self.media_player, attribute='media_title')
         self.listen_state(self.update_attributes, self.media_player)
+
+        if self.ai_fallback not in ["flux", "turbo"]:
+            self.ai_fallback = "turbo"
 
         if not os.path.exists(local_directory):
             os.makedirs(local_directory)
@@ -190,20 +195,23 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 else:
                     normalized_title = title
                     normalized_artist = artist if artist else ""
-                self.ai_title = title
-                self.ai_artist = artist
+                self.ai_title = normalized_title
+                self.ai_artist = normalized_artist
+                picture = self.get_state(self.media_player, attribute="entity_picture")
                 media_content_id = self.get_state(self.media_player, attribute="media_content_id")
-                if media_content_id.startswith("x-rincon") or media_content_id.startswith("aac:"):
-                    if self.ai_fallback not in ["flux", "turbo"]:
-                        self.ai_fallback = "turbo"
-                    if artist:
-                        ai_url = f"https://pollinations.ai/p/8-bit pixel art for {artist}'s album cover, titled '{title}'. Feature the artist's likeness. Use the song title for the vibe.?model={self.ai_fallback}&width=256&height=256"
-                    else:
-                        ai_url = f"https://pollinations.ai/p/8-bit pixel art for {title} album cover. Feature the song title vibe.?model={self.ai_fallback}&width=256&height=256"
-                    picture = ai_url.replace(" ", "%20")
-                else:
-                    picture = self.get_state(self.media_player, attribute="entity_picture")
+                queue_position = self.get_state(self.media_player, attribute="queue_position")
 
+                # Check if lisening to radio station
+                if media_content_id.startswith("x-rincon") or media_content_id.startswith("aac:"):
+                    self.playing_radio = True
+                    if artist:
+                        picture = (f"{AI_ENGINE}/8-bit pixel art style for {normalized_artist}'s album cover, titled '{normalized_title}'. Feature the artist's likeness as accurately as possible. Interpret the title as an image.?model={self.ai_fallback}")
+                    # Show radio station logo if Tunein jingel is playing
+                    elif 'https://tunein' in media_content_id or queue_position == 1:
+                        picture = self.get_state(self.media_player, attribute="entity_picture")
+                else:
+                    self.playing_radio = False
+                
                 gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
                 new_attributes = {"artist": artist,"normalized_artist": normalized_artist, "media_title": title,"normalized_title": normalized_title, "font_color": font_color, "font_color_alternative": recommended_font_color, "background_color_brightness": brightness, "background_color": background_color, "color_alternative_rgb": most_common_color_alternative, "background_color_rgb": background_color_rgb, "recommended_font_color_rgb": recommended_font_color_rgb, "color_alternative": most_common_color_alternative_rgb,}
                 self.set_state(self.pixoo_sensor, state="on", attributes=new_attributes)
@@ -334,9 +342,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self.log(f"Error processing image: {e}.\n Will try to create AI Image")
             self.fallback = True
             self.fail_txt = False
-            if self.ai_fallback:
+            try:
                 gif_base64 = self.get_ai_image()
-            else:
+            except Exception as e:
+                self.log(f"Failed to create AI image: {e}")  
                 gif_base64 = zlib.decompress(BLK_SCR).decode()
                 self.fail_txt = True
 
@@ -353,6 +362,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             
             if response.status_code != 200:
                 return None
+            
             img = Image.open(BytesIO(response.content))
             img = img.convert("RGB")
             
@@ -363,7 +373,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 enhancer = ImageEnhance.Contrast(img)
                 img = enhancer.enhance(1.9)  # 90% contrast
             
-            if self.crop_borders:
+            if self.crop_borders and self.fallback == False and self.playing_radio == False:
                 temp_img = img
                 
                 if self.crop_extra:
@@ -434,7 +444,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     def send_pixoo(self, payload_command):
         response = requests.post(self.url, headers=HEADERS, data=json.dumps(payload_command))
-        #print(payload_command)
         if response.status_code != 200:
             self.log(f"Failed to send REST: {response.content}")
         time.sleep(0.25)
@@ -523,18 +532,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     def get_ai_image(self, timeout=30):
         artist = self.clean_title(self.ai_artist).replace("&", "and").replace("?", "").replace('"', '')
         title = self.clean_title(self.ai_title).replace("&", "and").replace("?", "").replace('"', '')
-
-        if self.ai_fallback not in ["flux", "turbo"]:
-            self.ai_fallback = "turbo"
         try:
             if artist:
-                ai_url = f"https://pollinations.ai/p/8-bit pixel art for {artist}'s album cover, titled '{title}'. Feature the artist's likeness. Use the song title for the vibe.?model={self.ai_fallback}&width=256&height=256"
-
+                picture = f"{AI_ENGINE}/8-bit pixel art style for {artist}'s album cover, titled '{title}'. Feature the artist's likeness as accurately as possible. Interpret the title as an image.?model={self.ai_fallback}"
             else:
-                ai_url = f"https://pollinations.ai/p/8-bit pixel art for {title} album cover. Feature the artist's likeness and use the song title for the vibe.?model={self.ai_fallback}&width=256&height=256"
-
-            picture = ai_url.replace(" ", "%20")
-            #print(picture)
+                picture = f"{AI_ENGINE}/8-bit pixel art for {title} song title. Feature the title likeness as accurately as possible.?model={self.ai_fallback}"
             gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
             return gif_base64
             
