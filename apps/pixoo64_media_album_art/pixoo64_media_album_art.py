@@ -536,7 +536,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if artist:
                 picture = f"{AI_ENGINE}/8-bit pixel art style for {artist}'s album cover, titled '{title}'. Feature the artist's likeness as accurately as possible. Interpret the title as an image.?model={self.ai_fallback}"
             else:
-                picture = f"{AI_ENGINE}/8-bit pixel art for {title} song title. Feature the title likeness as accurately as possible.?model={self.ai_fallback}"
+                picture = f"{AI_ENGINE}/8-bit pixel art for '{title}' song title. Feature the title likeness as accurately as possible.?model={self.ai_fallback}"
             gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
             return gif_base64
             
