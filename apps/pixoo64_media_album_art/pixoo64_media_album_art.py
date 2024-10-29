@@ -202,8 +202,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 queue_position = self.get_state(self.media_player, attribute="queue_position")
 
                 # Check if lisening to radio station
-                if media_content_id and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac:"):
-                # if media_content_id.startswith("x-rincon") or media_content_id.startswith("aac:"):
+                if media_content_id and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac:")):
                     self.playing_radio = True
                     if artist:
                         picture = (f"{AI_ENGINE}/8-bit pixel art style for {normalized_artist}'s album cover, titled '{normalized_title}'. Feature the artist's likeness as accurately as possible. Interpret the title as an image.?model={self.ai_fallback}")
