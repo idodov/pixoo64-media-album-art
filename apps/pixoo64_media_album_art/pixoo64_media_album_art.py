@@ -207,21 +207,19 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 # Check if lisening to radio station
                 if media_channel and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac://http") or media_content_id.startswith("rtsp://")):
                     self.playing_radio = True
-                    if media_channel and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac://http")):
-                        self.playing_radio = True
-                        if artist and title:
-                            picture = (f"{AI_ENGINE}/8-bit pixel art style for {normalized_artist}'s album cover, titled '{normalized_title}'. Feature the artist's likeness as accurately as possible. Interpret the title as an image.?model={self.ai_fallback}")
-                            # Show radio station logo if Tunein jingle is playing
-                        if ('https://tunein' in media_content_id or 
+                    if artist and title:
+                        picture = (f"{AI_ENGINE}/8-bit pixel art style for {normalized_artist}'s album cover, titled '{normalized_title}'. Feature the artist's likeness as accurately as possible. Interpret the title as an image.?model={self.ai_fallback}")
+                        # Show radio station logo if Tunein jingle is playing
+                    if ('https://tunein' in media_content_id or 
                                 queue_position == 1 or 
                                 original_title == media_channel or 
                                 original_title == original_artist or 
                                 original_artist == media_channel or 
                                 original_artist == 'Live'):
-                            picture = original_picture
-                    else:
-                        self.playing_radio = False
                         picture = original_picture
+                else:
+                    self.playing_radio = False
+                    picture = original_picture
                 gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
                 new_attributes = {"artist": artist,"normalized_artist": normalized_artist, "media_title": title,"normalized_title": normalized_title, "font_color": font_color, "font_color_alternative": recommended_font_color, "background_color_brightness": brightness, "background_color": background_color, "color_alternative_rgb": most_common_color_alternative, "background_color_rgb": background_color_rgb, "recommended_font_color_rgb": recommended_font_color_rgb, "color_alternative": most_common_color_alternative_rgb,}
                 self.set_state(self.pixoo_sensor, state="on", attributes=new_attributes)
