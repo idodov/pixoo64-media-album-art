@@ -179,6 +179,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         if media_state in ["playing", "on"]:  # Check for playing state
             title = self.get_state(self.media_player, attribute="media_title")
+            original_title = title
             # Use the corrected variable name:
             title = self.clean_title(title) if self.clean_title_enabled else title
 
@@ -198,21 +199,29 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 self.ai_title = normalized_title
                 self.ai_artist = normalized_artist
                 picture = self.get_state(self.media_player, attribute="entity_picture")
+                original_picture = picture
                 media_content_id = self.get_state(self.media_player, attribute="media_content_id")
                 queue_position = self.get_state(self.media_player, attribute="queue_position")
                 media_channel = self.get_state(self.media_player, attribute="media_channel")
 
                 # Check if lisening to radio station
-                if media_channel and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac://http")):
+                if media_channel and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac://http") or media_content_id.startswith("rtsp://")):
                     self.playing_radio = True
-                    if artist:
-                        picture = (f"{AI_ENGINE}/8-bit pixel art style for {normalized_artist}'s album cover, titled '{normalized_title}'. Feature the artist's likeness as accurately as possible. Interpret the title as an image.?model={self.ai_fallback}")
-                    # Show radio station logo if Tunein jingel is playing
-                    elif 'https://tunein' in media_content_id or queue_position == 1 or original_title == media_channel or original_title == original_artist or artist == 'Live':
-                        picture = self.get_state(self.media_player, attribute="entity_picture")
-                else:
-                    self.playing_radio = False
-                
+                    if media_channel and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac://http")):
+                        self.playing_radio = True
+                        if artist and title:
+                            picture = (f"{AI_ENGINE}/8-bit pixel art style for {normalized_artist}'s album cover, titled '{normalized_title}'. Feature the artist's likeness as accurately as possible. Interpret the title as an image.?model={self.ai_fallback}")
+                            # Show radio station logo if Tunein jingle is playing
+                        if ('https://tunein' in media_content_id or 
+                                queue_position == 1 or 
+                                original_title == media_channel or 
+                                original_title == original_artist or 
+                                original_artist == media_channel or 
+                                original_artist == 'Live'):
+                            picture = original_picture
+                    else:
+                        self.playing_radio = False
+                        picture = original_picture
                 gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
                 new_attributes = {"artist": artist,"normalized_artist": normalized_artist, "media_title": title,"normalized_title": normalized_title, "font_color": font_color, "font_color_alternative": recommended_font_color, "background_color_brightness": brightness, "background_color": background_color, "color_alternative_rgb": most_common_color_alternative, "background_color_rgb": background_color_rgb, "recommended_font_color_rgb": recommended_font_color_rgb, "color_alternative": most_common_color_alternative_rgb,}
                 self.set_state(self.pixoo_sensor, state="on", attributes=new_attributes)
@@ -273,7 +282,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 
             if self.full_control:
                 payload = {"Command":"Draw/CommandList", "CommandList":[{"Command":"Draw/ClearHttpText"},{"Command": "Draw/ResetHttpGifId"},{"Command":"Channel/OnOffScreen", "OnOff":0} ]}
-                time.sleep(4) # Delay to not turn off the screen when choosing music tracks while playing a track
+                time.sleep(5) # Delay to not turn off the screen when changing music tracks while playing a track
             else:
                 payload = {"Command":"Draw/CommandList", "CommandList":[{"Command":"Draw/ClearHttpText"},{"Command": "Draw/ResetHttpGifId"},{"Command":"Channel/SetIndex", "SelectIndex": 4 },{"Command":"Channel/SetIndex", "SelectIndex": select_index }]}
                 
@@ -362,6 +371,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 response = requests.get(f"{self.ha_url}{picture}")
             
             if response.status_code != 200:
+                self.fallback = True
                 return None
             
             img = Image.open(BytesIO(response.content))
@@ -447,7 +457,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         response = requests.post(self.url, headers=HEADERS, data=json.dumps(payload_command))
         if response.status_code != 200:
             self.log(f"Failed to send REST: {response.content}")
-        time.sleep(0.25)
+        else:
+            time.sleep(0.25)
     
     def ensure_rgb(self, img):
         if img.mode != "RGB":
@@ -535,7 +546,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         title = self.clean_title(self.ai_title).replace("&", "and").replace("?", "").replace('"', '')
         try:
             if artist:
-                picture = f"{AI_ENGINE}/8-bit pixel art style for {artist}'s album cover, titled '{title}'. Feature the artist's likeness as accurately as possible. Interpret the title as an image.?model={self.ai_fallback}"
+                picture = f"{AI_ENGINE}/Create an 8-bit pixel art style album cover for {artist}'s latest work, titled '{title}'. The artwork should feature an accurate likeness of the artist and creatively interpret the album title into visual imagery in 80's video game style.?model={self.ai_fallback}"
             else:
                 picture = f"{AI_ENGINE}/8-bit pixel art for '{title}' song title. Feature the title likeness as accurately as possible.?model={self.ai_fallback}"
             gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
