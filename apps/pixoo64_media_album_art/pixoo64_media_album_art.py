@@ -79,12 +79,9 @@ except ImportError:
 
 AI_ENGINE = "https://pollinations.ai/p"
 BLK_SCR = b'x\x9c\xed\xc11\x01\x00\x00\x00\xc2\xa0l\xeb_\xca\x18>@\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00o\x03\xda:@\xf1'
-NO_IMAGE_PATH = "/local/pixoo64/photo-frame-error.png"
 TV_ICON_PATH = "/local/pixoo64/tv-icon-1.png"
 local_directory = "/homeassistant/www/pixoo64/"
-files = {
-    "photo-frame-error.png": "https://raw.githubusercontent.com/idodov/pixoo64-media-album-art/refs/heads/main/apps/pixoo64_media_album_art/photo-frame-error.png",
-    "tv-icon-1.png": "https://raw.githubusercontent.com/idodov/pixoo64-media-album-art/refs/heads/main/apps/pixoo64_media_album_art/tv-icon-1.png"}
+files = { "tv-icon-1.png": "https://raw.githubusercontent.com/idodov/pixoo64-media-album-art/refs/heads/main/apps/pixoo64_media_album_art/tv-icon-1.png"}
 hebrew = r"\u0590-\u05FF"
 arabic = r"\u0600-\u06FF|\u0750-\u077F|\u08A0-\u08FF|\uFB50-\uFDFF|\uFE70-\uFEFF|\u0621-\u06FF"
 syriac = r"\u0700-\u074F"
@@ -122,9 +119,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         self.crop_borders = self.args.get('pixoo', {}).get('crop_borders', {}).get("enabled", True)
         self.crop_extra = self.args.get('pixoo', {}).get('crop_borders', {}).get("extra", True)
-        self.fallback = False
-        self.fail_txt = False
-        self.playing_radio = False
+
+        self.fallback = self.fail_txt = self.playing_radio = self.radio_logo = False
         self.album_name = self.get_state(self.media_player, attribute="media_album_name")
         self.listen_state(self.update_attributes, self.media_player, attribute='media_title')
         self.listen_state(self.update_attributes, self.media_player)
@@ -207,18 +203,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 # Check if lisening to radio station
                 if media_channel and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac://http") or media_content_id.startswith("rtsp://")):
                     self.playing_radio = True
-                    if artist and title:
-                        picture = (f"{AI_ENGINE}/8-bit pixel art style for {normalized_artist}'s album cover, titled '{normalized_title}'. Feature the artist's likeness as accurately as possible. Interpret the title as an image.?model={self.ai_fallback}")
-                        # Show radio station logo if Tunein jingle is playing
+                    self.radio_logo = False
+                    if artist:
+                        picture = self.format_ai_image_prompt(artist, title)
+                    # Show radio station logo if Tunein jingel is playing
                     if ('https://tunein' in media_content_id or 
-                                queue_position == 1 or 
-                                original_title == media_channel or 
-                                original_title == original_artist or 
-                                original_artist == media_channel or 
-                                original_artist == 'Live'):
+                            queue_position == 1 or 
+                            original_title == media_channel or 
+                            original_title == original_artist or 
+                            original_artist == media_channel or 
+                            original_artist == 'Live'):
                         picture = original_picture
+                        self.radio_logo = True
                 else:
-                    self.playing_radio = False
+                    self.playing_radio = self.radio_logo = False
                     picture = original_picture
                 gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
                 new_attributes = {"artist": artist,"normalized_artist": normalized_artist, "media_title": title,"normalized_title": normalized_title, "font_color": font_color, "font_color_alternative": recommended_font_color, "background_color_brightness": brightness, "background_color": background_color, "color_alternative_rgb": most_common_color_alternative, "background_color_rgb": background_color_rgb, "recommended_font_color_rgb": recommended_font_color_rgb, "color_alternative": most_common_color_alternative_rgb,}
@@ -231,7 +229,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     text_track = text_track + "       "
                 text_string = self.convert_text(text_track) if artist else self.convert_text(title)
                 dir = 1 if self.has_bidi(text_string) else 0
-
                 brightness_factor = 50  
                 color_font = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
                 color_font = '#%02x%02x%02x' % color_font
@@ -242,7 +239,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     if self.light:
                         self.control_light('on',background_color_rgb)
                 
-                if self.show_text and not self.fallback:
+                if self.show_text and not self.fallback and not self.radio_logo:
                     textid +=1
                     text_temp = { "TextId":textid, "type":22, "x":0, "y":48, "dir":dir, "font":2, "TextWidth":64, "Textheight":16, "speed":100, "align":2, "TextString": text_string, "color":color_font }
                     moreinfo["ItemList"].append(text_temp)
@@ -262,12 +259,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     self.send_pixoo(payload)
             else:
                 if self.tv_icon_pic:
-                    try:
-                        picture = TV_ICON_PATH
-                        gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
-                    except Exception as e:
-                        gif_base64 = zlib.decompress(BLK_SCR).decode()
-                        print("TV Image not load")
+                    picture = TV_ICON_PATH
+                    img = self.get_image(picture)
+                    img = self.ensure_rgb(img)
+                    gif_base64 = self.gbase64(img)
                     payload = {"Command":"Draw/CommandList", "CommandList":[{"Command":"Channel/OnOffScreen", "OnOff":1},{"Command": "Draw/ResetHttpGifId"},{"Command": "Draw/SendHttpGif","PicNum": 1,"PicWidth": 64, "PicOffset": 0, "PicID": 0, "PicSpeed": 1000, "PicData": gif_base64 }]}
                 else:
                     payload = {"Command":"Draw/CommandList", "CommandList":[{"Command":"Draw/ClearHttpText"},{"Command": "Draw/ResetHttpGifId"},{"Command":"Channel/SetIndex", "SelectIndex": 4 },{"Command":"Channel/SetIndex", "SelectIndex": select_index }]}
@@ -291,72 +286,62 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if self.light:
                     self.control_light('off')
 
-    def process_picture(self, picture, timeout=30):
+    def reset_img_values(self):
         font_color = recommended_font_color = recommended_font_color_rgb = "#FFFFFF"
         background_color  = most_common_color_alternative_rgb = most_common_color_alternative = "#0000FF"
         background_color_rgb = tuple(random.randint(10, 200) for _ in range(3))
-        brightness = 0
-        brightness_lower_part = 0
-        
+        brightness = brightness_lower_part = 0
+        return font_color, recommended_font_color, recommended_font_color_rgb, background_color, most_common_color_alternative_rgb, most_common_color_alternative, background_color_rgb, brightness, brightness_lower_part
+
+    def img_values(self, img):
+        font_color, recommended_font_color, recommended_font_color_rgb, background_color, most_common_color_alternative_rgb, most_common_color_alternative, background_color_rgb, brightness, brightness_lower_part = self.reset_img_values()
+        full_img = img
+        lower_part = img.crop((3, 48, 61, 61))
+        lower_part = self.ensure_rgb(lower_part)
+        most_common_color = self.most_vibrant_color(lower_part)
+        most_common_color_alternative_rgb = self.most_vibrant_color(full_img)
+        most_common_color_alternative = '#%02x%02x%02x' % most_common_color_alternative_rgb
+        brightness = int(sum(most_common_color_alternative_rgb) / 3)
+        brightness_lower_part = int(sum(most_common_color)/ 3)
+        most_common_colors = [item[0] for item in Counter(lower_part.getdata()).most_common(10)]
+        candidate_colors = [(0, 0, 255), (255, 0, 0), (0, 255, 0), (255, 255, 0), (0, 255, 255), (255, 0, 255)]
+            
+        for color in candidate_colors:
+            if color not in most_common_colors:
+                font_color = '#%02x%02x%02x' % color
+                break
+            
+        opposite_color = tuple(255 - i for i in most_common_color)
+        opposite_color_brightness = int(sum(opposite_color)/3)
+        brightness_lower_part = round(1 - opposite_color_brightness / 255, 2) if 0 <= opposite_color_brightness <= 255 else 0
+        recommended_font_color = '#%02x%02x%02x' % opposite_color
+        enhancer = ImageEnhance.Contrast(full_img)
+        full_img = enhancer.enhance(2.0)
+        background_color_rgb = self.most_vibrant_color(full_img)
+        background_color = '#%02x%02x%02x' % most_common_color_alternative_rgb
+        recommended_font_color_rgb = opposite_color
+        return font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
+
+    def process_picture(self, picture, timeout=30):
+        font_color, recommended_font_color, recommended_font_color_rgb, background_color, most_common_color_alternative_rgb, most_common_color_alternative, background_color_rgb, brightness, brightness_lower_part = self.reset_img_values()
         try:
             img = self.get_image(picture)
             img = self.ensure_rgb(img)
-            full_img = img
-            lower_part = img.crop((3, 48, 61, 61))
-            lower_part = self.ensure_rgb(lower_part)
-            most_common_color = self.most_vibrant_color(lower_part)
-            most_common_color_alternative_rgb = self.most_vibrant_color(full_img)
-            most_common_color_alternative = '#%02x%02x%02x' % most_common_color_alternative_rgb
-            brightness = int(sum(most_common_color_alternative_rgb) / 3)
-            brightness_lower_part = int(sum(most_common_color)/ 3)
-            most_common_colors = [item[0] for item in Counter(lower_part.getdata()).most_common(10)]
-            candidate_colors = [(0, 0, 255), (255, 0, 0), (0, 255, 0), (255, 255, 0), (0, 255, 255), (255, 0, 255)]
-            
-            for color in candidate_colors:
-                if color not in most_common_colors:
-                    font_color = '#%02x%02x%02x' % color
-                    break
-            
-            opposite_color = tuple(255 - i for i in most_common_color)
-            opposite_color_brightness = int(sum(opposite_color)/3)
-            brightness_lower_part = round(1 - opposite_color_brightness / 255, 2) if 0 <= opposite_color_brightness <= 255 else 0
-            recommended_font_color = '#%02x%02x%02x' % opposite_color
-            enhancer = ImageEnhance.Contrast(full_img)
-            full_img = enhancer.enhance(2.0)
-            background_color_rgb = self.most_vibrant_color(full_img)
-            background_color = '#%02x%02x%02x' % most_common_color_alternative_rgb
-            recommended_font_color_rgb = opposite_color
-            
-            if self.text_bg and self.show_text:
-                lpc = (0,48,64,64)
-                lower_part_img = img.crop(lpc)
-                enhancer_lp = ImageEnhance.Brightness(lower_part_img)
-                lower_part_img = enhancer_lp.enhance(brightness_lower_part)
-                img.paste(lower_part_img, lpc)
-
-            if self.show_clock:
-                lpc = (43, 2, 62, 9) if self.clock_align == "Right" else (2, 2, 21, 9)
-                lower_part_img = img.crop(lpc)
-                enhancer_lp = ImageEnhance.Brightness(lower_part_img)
-                lower_part_img = enhancer_lp.enhance(0.2)
-                img.paste(lower_part_img, lpc)
-
-            pixels = self.get_pixels(img)
-            b64 = base64.b64encode(bytearray(pixels))
-            gif_base64 = b64.decode("utf-8")
-            self.fallback = False
+            font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.img_values(img)
+            img = self.text_clock_img(img, brightness_lower_part)
+            gif_base64 = self.gbase64(img)
+            self.fallback = self.fail_text = False
 
         except Exception as e:
             self.log(f"Error processing image: {e}.\n Will try to create AI Image")
             self.fallback = True
             self.fail_txt = False
             try:
-                gif_base64 = self.get_ai_image()
+                gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.get_ai_image()
             except Exception as e:
                 self.log(f"Failed to create AI image: {e}")  
                 gif_base64 = zlib.decompress(BLK_SCR).decode()
-                self.fail_txt = True
-
+                self.fail_txt = self.fallback = True
         return gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
 
     def get_image(self, picture):
@@ -364,12 +349,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if picture.startswith('http'):
                 # If it starts with 'http', use the picture URL as is
                 response = requests.get(picture)
+                response.raise_for_status()
             else:
                 # Otherwise, prepend ha_url
                 response = requests.get(f"{self.ha_url}{picture}")
+                response.raise_for_status()
             
             if response.status_code != 200:
-                self.fallback = True
+                self.fail_txt = self.fallback = True
                 return None
             
             img = Image.open(BytesIO(response.content))
@@ -382,62 +369,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 enhancer = ImageEnhance.Contrast(img)
                 img = enhancer.enhance(1.9)  # 90% contrast
             
-            if self.crop_borders and self.fallback == False and self.playing_radio == False:
-                temp_img = img
-                
-                if self.crop_extra:
-                    img = img.filter(ImageFilter.BoxBlur(5))
-                    enhancer = ImageEnhance.Brightness(img)
-                    img = enhancer.enhance(1.95)
-                
-                try:
-                    np_image = np.array(img)
-                    edge_pixels = np.concatenate([np_image[0, :], np_image[-1, :], np_image[:, 0], np_image[:, -1]])
-                    colors, counts = np.unique(edge_pixels, axis=0, return_counts=True)
-                    border_color = colors[counts.argmax()]
-                    dists = np.linalg.norm(np_image - border_color, axis=2)
-                    mask = dists < 100  # TOLERANCE
-                    coords = np.argwhere(mask == False)
-
-                    if coords.size == 0:
-                        raise ValueError("No non-border pixels found")
-                    
-                    x_min, y_min = coords.min(axis=0)
-                    x_max, y_max = coords.max(axis=0) + 1
-
-                    # Exclude top areas with text by removing rows near the top that are too small
-                    rows_with_few_pixels = np.sum(mask[:x_min], axis=1) > 0.98 * mask.shape[1]
-                    if np.any(rows_with_few_pixels):
-                        first_valid_row = np.argmax(~rows_with_few_pixels)
-                        x_min = max(x_min, first_valid_row)
-
-                    width, height = x_max - x_min, y_max - y_min
-                    max_size = max(width, height)
-                    x_center, y_center = (x_min + x_max) // 2, (y_min + y_max) // 2
-
-                    # Ensure the final crop size is at least 64x64
-                    if max_size < 64:
-                        max_size = 64
-
-                    x_min = max(0, x_center - max_size // 2)
-                    y_min = max(0, y_center - max_size // 2)
-                    x_max = min(np_image.shape[0], x_min + max_size)
-                    y_max = min(np_image.shape[1], y_min + max_size)
-
-                    # Adjust if the crop dimensions don't match the expected max_size
-                    if x_max - x_min < max_size:
-                        x_min = max(0, x_max - max_size)
-                    if y_max - y_min < max_size:
-                        y_min = max(0, y_max - max_size)
-
-                    img = temp_img
-                    img = img.crop((y_min, x_min, y_max, x_max))
-                
-                except Exception as e:
-                    self.log(f"Failed to crop: {e}")  
-                    enhancer = ImageEnhance.Contrast(temp_img)
-                    temp_img = enhancer.enhance(2.0)
-                    img = temp_img
+            if self.crop_borders and not self.fallback and not self.playing_radio:
+                img = self.crop_img(img)
                 
             if self.contrast and not grayscale.all():
                 enhancer = ImageEnhance.Contrast(img)
@@ -446,10 +379,72 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             img.thumbnail((64, 64), Image.Resampling.LANCZOS)
             return img
         
-        except UnidentifiedImageError:
-            self.log("Unable to identify image file.")
-            self.fallback = True
+        except (UnidentifiedImageError, requests.RequestException) as e:
+            self.log(f"Failed to get image: {str(e)}")
+            self.fail_txt = self.fallback = True
             return None
+
+        except Exception as e:
+            self.log(f"Unexpected error in get_image: {str(e)}")
+            self.fail_txt = self.fallback = True
+            return None
+
+    def crop_img(self, img):
+        temp_img = img
+        if self.crop_extra:
+            img = img.filter(ImageFilter.BoxBlur(5))
+            enhancer = ImageEnhance.Brightness(img)
+            img = enhancer.enhance(1.95)
+        
+        try:
+            np_image = np.array(img)
+            edge_pixels = np.concatenate([np_image[0, :], np_image[-1, :], np_image[:, 0], np_image[:, -1]])
+            colors, counts = np.unique(edge_pixels, axis=0, return_counts=True)
+            border_color = colors[counts.argmax()]
+            dists = np.linalg.norm(np_image - border_color, axis=2)
+            mask = dists < 100  # TOLERANCE
+            coords = np.argwhere(mask == False)
+
+            if coords.size == 0:
+                raise ValueError("No non-border pixels found")
+            
+            x_min, y_min = coords.min(axis=0)
+            x_max, y_max = coords.max(axis=0) + 1
+
+            # Exclude top areas with text by removing rows near the top that are too small
+            rows_with_few_pixels = np.sum(mask[:x_min], axis=1) > 0.98 * mask.shape[1]
+            if np.any(rows_with_few_pixels):
+                first_valid_row = np.argmax(~rows_with_few_pixels)
+                x_min = max(x_min, first_valid_row)
+
+            width, height = x_max - x_min, y_max - y_min
+            max_size = max(width, height)
+            x_center, y_center = (x_min + x_max) // 2, (y_min + y_max) // 2
+
+            # Ensure the final crop size is at least 64x64
+            if max_size < 64:
+                max_size = 64
+
+            x_min = max(0, x_center - max_size // 2)
+            y_min = max(0, y_center - max_size // 2)
+            x_max = min(np_image.shape[0], x_min + max_size)
+            y_max = min(np_image.shape[1], y_min + max_size)
+
+            # Adjust if the crop dimensions don't match the expected max_size
+            if x_max - x_min < max_size:
+                x_min = max(0, x_max - max_size)
+            if y_max - y_min < max_size:
+                y_min = max(0, y_max - max_size)
+
+            img = temp_img
+            img = img.crop((y_min, x_min, y_max, x_max))
+                
+        except Exception as e:
+            self.log(f"Failed to crop: {e}")  
+            enhancer = ImageEnhance.Contrast(temp_img)
+            temp_img = enhancer.enhance(2.0)
+            img = temp_img
+        return img
 
     def send_pixoo(self, payload_command):
         response = requests.post(self.url, headers=HEADERS, data=json.dumps(payload_command))
@@ -462,13 +457,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if img.mode != "RGB":
             img = img.convert("RGB")
         return img
-
-    def get_pixels(self, img):
-        if img.mode == "RGB":
-            pixels = [item for p in list(img.getdata()) for item in p]
-        else:
-            pixels = list(img.getdata())
-        return pixels
 
     def split_string(self, text, length):
         words = text.split(' ')
@@ -542,15 +530,60 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     def get_ai_image(self, timeout=30):
         artist = self.clean_title(self.ai_artist).replace("&", "and").replace("?", "").replace('"', '')
         title = self.clean_title(self.ai_title).replace("&", "and").replace("?", "").replace('"', '')
+        font_color, recommended_font_color, recommended_font_color_rgb, background_color, most_common_color_alternative_rgb, most_common_color_alternative, background_color_rgb, brightness, brightness_lower_part = self.reset_img_values()
+        picture = self.format_ai_image_prompt(artist, title)
         try:
-            if artist:
-                picture = f"{AI_ENGINE}/Create an 8-bit pixel art style album cover for {artist}'s latest work, titled '{title}'. The artwork should feature an accurate likeness of the artist and creatively interpret the album title into visual imagery in 80's video game style.?model={self.ai_fallback}"
+            img = self.get_image(picture)
+            img = self.ensure_rgb(img)
+            font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.img_values(img)
+            img = self.text_clock_img(img, brightness_lower_part)
+            gif_base64 = self.gbase64(img)
+            return gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
+
+        except Exception as e:
+            self.log(f"Failed to create AI image for {artist} - {title}: {e}")  
+            gif_base64 = zlib.decompress(BLK_SCR).decode()
+            self.fail_txt = self.fallback = True
+            return gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
+
+    def text_clock_img(self, img, brightness_lower_part):
+        if self.text_bg and self.show_text and not self.radio_logo:
+            lpc = (0,48,64,64)
+            lower_part_img = img.crop(lpc)
+            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
+            lower_part_img = enhancer_lp.enhance(brightness_lower_part)
+            img.paste(lower_part_img, lpc)
+
+        if self.show_clock:
+            lpc = (43, 2, 62, 9) if self.clock_align == "Right" else (2, 2, 21, 9)
+            lower_part_img = img.crop(lpc)
+            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
+            lower_part_img = enhancer_lp.enhance(0.2)
+            img.paste(lower_part_img, lpc)
+        return img
+
+    def gbase64(self, img):
+        try:
+            if img.mode == "RGB":
+                pixels = [item for p in list(img.getdata()) for item in p]
             else:
-                picture = f"{AI_ENGINE}/8-bit pixel art for '{title}' song title. Feature the title likeness as accurately as possible.?model={self.ai_fallback}"
-            gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
+                pixels = list(img.getdata())
+            b64 = base64.b64encode(bytearray(pixels))
+            gif_base64 = b64.decode("utf-8")
+            self.fallback = self.fail_text = False
             return gif_base64
-            
+
         except Exception as e:
             gif_base64 = zlib.decompress(BLK_SCR).decode()
-            self.fail_txt = True
+            self.fail_txt = self.fallback = True
             return gif_base64
+
+    def format_ai_image_prompt(self, artist, title):
+        # Format the AI image prompt with the given artist and title
+        if artist:
+            prompt = f"Create a photorealistic image inspired by {artist}'s, titled: '{title}'. The artwork should feature an accurate likeness of the artist and creatively interpret the title into a pop art visual imagery in 80's video game style."
+        else:
+            prompt = f"Create a photorealistic image inspired by: '{title}'. Incorporate bold colors and pop art visual imagery in 80's video game style."
+        prompt = f"{AI_ENGINE}/{prompt}?model={self.ai_fallback}"
+        return prompt
+        
