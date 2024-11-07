@@ -1,5 +1,9 @@
 # DIVOOM PIXOO64 Media Album Art Display: Elevate Your Musical Journey
-Turn your DIVOOM PIXOO64 into a dynamic visual companion with this script. It fetches and displays the album cover art of the currently playing track, enhancing your musical experience. It also extracts valuable data like the artist's name and the dominant color from the album art, which can be used for further automation in your Home Assistant environment. The script supports AI image creation using [pollinations.ai](https://pollinations.ai/) and shows alternative AI-generated album cover art when no album art is available, or when using services like SoundCloud where the script can't fetch the image. It also works with some streaming radio stations.
+
+Transform your DIVOOM PIXOO64 into a dynamic visual companion with this script. It fetches and displays the album cover art of the currently playing track, enriching your musical experience. Additionally, it extracts useful data such as the artist's name and the dominant color from the album art, which can be leveraged for further automation in your Home Assistant environment.
+
+The script supports fallbacks using the Spotify API and MusicBrainz. If these methods fail, it will attempt to create AI-generated album art using [pollinations.ai](https://pollinations.ai/). This alternative AI-generated cover art is displayed when no album art is available or when using services like SoundCloud, where the script cannot fetch the image. It is also compatible with streaming radio stations and local files.
+
 
 ## Examples
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
@@ -59,7 +63,6 @@ Turn your DIVOOM PIXOO64 into a dynamic visual companion with this script. It fe
 > ```yaml
 > #/addon_configs/a0d7b954_appdaemon/appdaemon.yaml
 > ---
-> secrets: /homeassistant/secrets.yaml
 > appdaemon:
 >   app_dir: /homeassistant/appdaemon/apps/
 > ```
@@ -87,6 +90,9 @@ pixoo64_media_album_art:
         pixoo_sensor: "sensor.pixoo64_media_data"  # Sensor to store media data (Optional)
         light: False                               # RGB light entity ID (if any) or False (Optional)
         ai_fallback: turbo                         # Create alternative AI image when fallback - use model 'flex' or 'turbo'
+        musicbrainz: True                          # Get fallback image from MusicBrainz 
+        spotify_client_id: False                   # client_id key from developers.spotify.com
+        spotify_client_secret: False               # client_id_secret
     pixoo:
         url: "http://192.168.86.21:80/post"        # Pixoo device URL
         full_control: True                         # Control display on/off with play/pause
@@ -114,20 +120,23 @@ pixoo64_media_album_art:
 | `toggle` | Boolean sensor to control script execution (Optional) | `"input_boolean.pixoo64_album_art"` |
 | `pixoo_sensor` | Sensor to store media data (Optional) | `"sensor.pixoo64_media_data"` |
 | `light` | RGB light entity ID (if any) (Optional) | `False` or `light.rgb_light` |
-| `ai_fallback` | Create alternative album art cover using the power of AI. Can be  `flux` or  `turbo` | `turbo` |
+| `ai_fallback` | Create alternative album art using AI. Options are `flux` or `turbo` | `turbo` |
+| `musicbrainz` | Search for album art in MusicBrainz | `"http://192.168.86.21:80/post"` |
+| `spotify_client_id` | Spotify Client ID. Use `False` or the actual key | `False` or `KEY` |
+| `spotify_client_secret` | Spotify Client Secret. Use `False` or the actual key | `False` or `KEY` |
 | `url` | Pixoo device URL | `"http://192.168.86.21:80/post"` |
 | `full_control` | Control display on/off with play/pause | `True` |
-| `contrast` | Apply 50% contrast filter | `True` |
-| `clock` | Show a clock top corner | `False` |
-| `clock_align` | Align to clock `Left` or `Right` | `Left` |
-| `tv_icon` | Shows TV art when playing sound from TV | `True` |
+| `contrast` | Apply a 50% contrast filter | `True` |
+| `clock` | Show a clock in the top corner | `False` |
+| `clock_align` | Align the clock to `Left` or `Right` | `Left` |
+| `tv_icon` | Show TV art when playing sound from TV | `True` |
 | `show_text - enabled` | Show media info with image | `False` |
-| `show_text - clean_title` | Remove "Remaster" labels, track number and file extentions from the title if any | `True` |
+| `show_text - clean_title` | Remove "Remaster" labels, track numbers, and file extensions from the title if any | `True` |
 | `show_text - text_background` | Change background of text area | `True` |
 | `show_text - font` | Pixoo internal font type (0-7). Used in fallback screen only | `2` |
 | `show_text - color` | Use alternative font color | `False` |
 | `crop_borders - enabled` | Crop image borders if present | `True` |
-| `crop_borders - extra` | Apply enhanced border crop | `True` |
+| `crop_borders - extra` | Apply enhanced border cropping | `True` |
 
 > [!NOTE]
 > ### `light`
@@ -145,6 +154,32 @@ ____________
 
 ![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
 _____________
+
+## Fallback Image
+
+When there's no image associated with the music file, or if the image can't be fetched, the fallback function will activate. There are four types of fallbacks:
+
+1. **Getting the Album Art from Spotify API**: This is the most recommended option because Spotify's servers are fast and reliable. To use this method, you'll need two keys — the Client ID and the Client Secret. Instructions on how to obtain them are provided beyond this text.
+
+2. **Fetching Album Art from MusicBrainz**: MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks, and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
+
+3. **Generating Art with Special AI**: In this scenario, the script will attempt to generate an alternative version of the album art using generative AI. This option will trigger only if the Spotify API fails (or is unavailable) and/or no album art is found or there is a timeout from the MusicBrainz service. Be aware, as it is a free AI generative service, it may also be laggy or sometimes unavailable.
+
+4. **Fallback Text Display**: If no image is available at all, text displaying the artist's name and the track title will be shown.
+
+## Guide to help you get your Spotify Client ID and Client Secret from the developer site:
+
+1. **Log in to Spotify Developer Dashboard**: Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/login) and log in with your Spotify account.
+
+2. **Create an App**: Click on the "Create an App" button. You'll need to provide a name and a brief description for your app. These fields are mainly for display purposes, so you can keep them simple.
+3. **Choose `Web API`** from the `Which API/SDKs are you planning to use` section and press `SAVE`.
+   ![{22F7F6C8-CA87-4146-A035-B0BCEC99DF3B}](https://github.com/user-attachments/assets/d653366f-ac76-4204-a17f-c27b1dc6a051)
+
+4. **Copy Client ID and Client Secret**: Once your app is created, you'll be taken to the app overview page. At the Basic Information section you'll find your Client ID and Client Secret. Copy these values and store them on `apps.yaml` file under `spotify_client_id` and `spotify_client_secret`.
+
+That's it! You now have your Spotify Client ID and Client Secret, which you can use to authenticate your Pixoo64 with the Spotify API.
+
+
 ## Sensor Attribues
 The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assistant. It’s designed to store useful picture data from the album cover art of the currently playing song. This includes the artist’s name, the title of the media and color information such as the color of the font and the background. This sensor allows for dynamic visual experiences and automation possibilities based on the music being played.
 
