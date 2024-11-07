@@ -25,6 +25,9 @@ pixoo64_media_album_art:
         pixoo_sensor: "sensor.pixoo64_media_data"  # Sensor to store media data (Optional)
         light: "light.strip_stone"                 # RGB light entity ID (if any) (Optional)
         ai_fallback: turbo                         # Create alternative AI image when fallback - use model 'flex' or 'turbo'
+        musicbrainz: True                          # Get fallback image from MusicBrainz 
+        spotify_client_id: False                   # client_id key from developers.spotify.com
+        spotify_client_secret: False               # client_id_secret
     pixoo:
         url: "http://192.168.86.21:80/post"        # Pixoo device URL
         full_control: True                         # Control display on/off with play/pause
@@ -103,7 +106,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.pixoo_sensor = self.args.get('home_assistant', {}).get("pixoo_sensor", "sensor.pixoo64_media_data")
         self.light = self.args.get('home_assistant', {}).get("light", None)
         self.ai_fallback = self.args.get('home_assistant', {}).get("ai_fallback", 'flux')
-
+        self.musicbrainz = self.args.get('home_assistant', {}).get("musicbrainz", True)
+        self.spotify_client_id = self.args.get('home_assistant', {}).get("spotify_client_id", False)
+        self.spotify_client_secret = self.args.get('home_assistant', {}).get("spotify_client_secret", False)
         self.url = self.args.get('pixoo', {}).get("url", "192.168.86.21:80/post")
         self.full_control = self.args.get('pixoo', {}).get("full_control", True)
         self.contrast = self.args.get('pixoo', {}).get("contrast", False)
@@ -141,7 +146,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     with open(local_file_path, 'wb') as file:
                         file.write(response.content)
 
-    def update_attributes(self, entity, attribute, old, new, kwargs):
+        # Add Spotify token cache
+        self.spotify_token_cache = {
+            'token': None,
+            'expires': 0
+        }
+
+    def update_attributes(self, entity, attribute, old, new, kwargs, timeout=30):
         try:
             input_boolean = self.get_state(self.toggle)
         
@@ -192,8 +203,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 else:
                     normalized_title = title
                     normalized_artist = artist if artist else ""
-                self.ai_title = normalized_title
-                self.ai_artist = normalized_artist
+                self.ai_title = original_title #normalized_title
+                self.ai_artist = original_artist #normalized_artist
+                
                 picture = self.get_state(self.media_player, attribute="entity_picture")
                 original_picture = picture
                 media_content_id = self.get_state(self.media_player, attribute="media_content_id")
@@ -206,19 +218,21 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     self.radio_logo = False
                     if artist:
                         picture = self.format_ai_image_prompt(artist, title)
-                    # Show radio station logo if Tunein jingel is playing
+                    # Show radio station logo if Tunein jingle is playing
                     if ('https://tunein' in media_content_id or 
                             queue_position == 1 or 
                             original_title == media_channel or 
                             original_title == original_artist or 
                             original_artist == media_channel or 
-                            original_artist == 'Live'):
+                            original_artist == 'Live' or 
+                            original_artist == None):
                         picture = original_picture
                         self.radio_logo = True
                 else:
                     self.playing_radio = self.radio_logo = False
                     picture = original_picture
-                gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.process_picture(picture)
+                gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.get_final_url(picture)
+
                 new_attributes = {"artist": artist,"normalized_artist": normalized_artist, "media_title": title,"normalized_title": normalized_title, "font_color": font_color, "font_color_alternative": recommended_font_color, "background_color_brightness": brightness, "background_color": background_color, "color_alternative_rgb": most_common_color_alternative, "background_color_rgb": background_color_rgb, "recommended_font_color_rgb": recommended_font_color_rgb, "color_alternative": most_common_color_alternative_rgb,}
                 self.set_state(self.pixoo_sensor, state="on", attributes=new_attributes)
                 payload = {"Command":"Draw/CommandList", "CommandList":[{"Command":"Channel/OnOffScreen", "OnOff":1},{"Command": "Draw/ResetHttpGifId"},{"Command": "Draw/SendHttpGif", "PicNum": 1, "PicWidth": 64, "PicOffset": 0, "PicID": 0, "PicSpeed": 1000, "PicData": gif_base64 }]}
@@ -230,7 +244,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 text_string = self.convert_text(text_track) if artist else self.convert_text(title)
                 dir = 1 if self.has_bidi(text_string) else 0
                 brightness_factor = 50  
-                color_font = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
+                try:
+                    color_font = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
+                except Exception as e:
+                    background_color_rgb = (200,200,200)
+                    color_font = (255,255,255)
+                #color_font = tuple(min(255, int(c) + brightness_factor) for c in background_color_rgb)
+
                 color_font = '#%02x%02x%02x' % color_font
                 color_font = color_font if self.font_c else recommended_font_color
                 if self.send_pic:
@@ -326,6 +346,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         font_color, recommended_font_color, recommended_font_color_rgb, background_color, most_common_color_alternative_rgb, most_common_color_alternative, background_color_rgb, brightness, brightness_lower_part = self.reset_img_values()
         try:
             img = self.get_image(picture)
+            if not img:
+                return None
+            
             img = self.ensure_rgb(img)
             font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.img_values(img)
             img = self.text_clock_img(img, brightness_lower_part)
@@ -333,18 +356,15 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self.fallback = self.fail_text = False
 
         except Exception as e:
-            self.log(f"Error processing image: {e}.\n Will try to create AI Image")
+            self.log(f"Error processing image for {self.ai_artist} - {self.ai_title}: {e}.\n{traceback.format_exc()}")
             self.fallback = True
             self.fail_txt = False
-            try:
-                gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.get_ai_image()
-            except Exception as e:
-                self.log(f"Failed to create AI image: {e}")  
-                gif_base64 = zlib.decompress(BLK_SCR).decode()
-                self.fail_txt = self.fallback = True
+
         return gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
 
     def get_image(self, picture):
+        if not picture:
+            return None
         try:
             if picture.startswith('http'):
                 # If it starts with 'http', use the picture URL as is
@@ -358,10 +378,19 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if response.status_code != 200:
                 self.fail_txt = self.fallback = True
                 return None
-            
+
             img = Image.open(BytesIO(response.content))
             img = img.convert("RGB")
-            
+
+            width, height = img.size
+            if width != height:
+                new_size = min(width, height)
+                left = (width - new_size) / 2
+                top = (height - new_size) / 2
+                right = (width + new_size) / 2
+                bottom = (height + new_size) / 2
+                img = img.crop((left, top, right, bottom))
+
             # Check if the image is grayscale
             grayscale = np.array(img)
             if np.all(grayscale[:, :, 0] == grayscale[:, :, 1]) and np.all(grayscale[:, :, 1] == grayscale[:, :, 2]):
@@ -369,7 +398,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 enhancer = ImageEnhance.Contrast(img)
                 img = enhancer.enhance(1.9)  # 90% contrast
             
-            if self.crop_borders and not self.fallback and not self.playing_radio:
+            if self.crop_borders and not self.fallback and not self.radio_logo:
                 img = self.crop_img(img)
                 
             if self.contrast and not grayscale.all():
@@ -380,12 +409,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             return img
         
         except (UnidentifiedImageError, requests.RequestException) as e:
-            self.log(f"Failed to get image: {str(e)}")
+            #self.log(f"Failed to get image: {str(e)}")
             self.fail_txt = self.fallback = True
             return None
 
         except Exception as e:
-            self.log(f"Unexpected error in get_image: {str(e)}")
+            self.log(f"Unexpected error in get_image: {str(e)}\n{traceback.format_exc()}")
             self.fail_txt = self.fallback = True
             return None
 
@@ -527,25 +556,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         bidi_regex = f"[{hebrew}|{arabic}|{syriac}|{thaana}|{nkoo}|{rumi}|{arabic_math}|{symbols}|{old_persian_phaistos}|{samaritan}]"
         return bool(re.search(bidi_regex, text))
 
-    def get_ai_image(self, timeout=30):
-        artist = self.clean_title(self.ai_artist).replace("&", "and").replace("?", "").replace('"', '')
-        title = self.clean_title(self.ai_title).replace("&", "and").replace("?", "").replace('"', '')
-        font_color, recommended_font_color, recommended_font_color_rgb, background_color, most_common_color_alternative_rgb, most_common_color_alternative, background_color_rgb, brightness, brightness_lower_part = self.reset_img_values()
-        picture = self.format_ai_image_prompt(artist, title)
-        try:
-            img = self.get_image(picture)
-            img = self.ensure_rgb(img)
-            font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.img_values(img)
-            img = self.text_clock_img(img, brightness_lower_part)
-            gif_base64 = self.gbase64(img)
-            return gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
-
-        except Exception as e:
-            self.log(f"Failed to create AI image for {artist} - {title}: {e}")  
-            gif_base64 = zlib.decompress(BLK_SCR).decode()
-            self.fail_txt = self.fallback = True
-            return gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
-
     def text_clock_img(self, img, brightness_lower_part):
         if self.text_bg and self.show_text and not self.radio_logo:
             lpc = (0,48,64,64)
@@ -581,9 +591,166 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     def format_ai_image_prompt(self, artist, title):
         # Format the AI image prompt with the given artist and title
         if artist:
-            prompt = f"Create a photorealistic image inspired by {artist}'s, titled: '{title}'. The artwork should feature an accurate likeness of the artist and creatively interpret the title into a pop art visual imagery in 80's video game style."
+            prompt = f"Create an image inspired by the music artist {artist}, titled: '{title}'. The artwork should feature an accurate likeness of the artist and creatively interpret the title into a visual imagery"
         else:
             prompt = f"Create a photorealistic image inspired by: '{title}'. Incorporate bold colors and pop art visual imagery in 80's video game style."
         prompt = f"{AI_ENGINE}/{prompt}?model={self.ai_fallback}"
         return prompt
-        
+
+    def get_album_art_url(self) -> str:
+        search_url = "https://musicbrainz.org/ws/2/release/"
+        params = {
+        "query": f'artist:"{self.ai_artist}" AND track:"{self.ai_title}"',
+        "fmt": "json",
+        }
+
+        response = requests.get(search_url, params=params)
+
+        if response.status_code != 200:
+            self.log("Unable to access MusicBrainz API")
+            return None
+
+        data = response.json()
+        # Check if any release matches the search
+        if "releases" not in data or len(data["releases"]) == 0:
+            self.log("No releases found @ MusicBrainz")
+            return None
+
+        release_id = data["releases"][0]["id"]
+        cover_art_url = f"https://coverartarchive.org/release/{release_id}/front"
+        self.log("Found album art @ MusicBrainz")
+        return cover_art_url
+
+    def get_spotify_access_token(self):
+        try:
+            # Check if cached token is still valid
+            if (self.spotify_token_cache['token'] and 
+                time.time() < self.spotify_token_cache['expires']):
+                return self.spotify_token_cache['token']
+
+            url = "https://accounts.spotify.com/api/token"
+            spotify_headers = {
+                "Authorization": "Basic " + base64.b64encode(f"{self.spotify_client_id}:{self.spotify_client_secret}".encode()).decode(),
+                "Content-Type": "application/x-www-form-urlencoded"
+            }
+            payload = {
+                "grant_type": "client_credentials"
+            }
+            response = requests.post(url, headers=spotify_headers, data=payload)
+            response_json = response.json()
+            access_token = response_json["access_token"]
+            
+            # Cache the new token
+            self.spotify_token_cache = {
+                'token': access_token,
+                'expires': time.time() + 3500  # Cache for slightly less than 1 hour
+            }
+            
+            self.log("Got new Spotify access token")
+            return access_token
+            
+        except Exception as e:
+            self.log(f"Error getting Spotify access token: {str(e)}\nCheck client_id and client_secret at https://developer.spotify.com/dashboard")
+            self.spotify_client_id = False
+            return False
+
+    # Function to get album ID by artist and track
+    def get_spotify_album_id(self):
+        try:
+            token = self.get_spotify_access_token()
+            if not token:
+                return None
+                
+            url = "https://api.spotify.com/v1/search"
+            spotify_headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "q": f"track: {self.ai_title} artist: {self.ai_artist}",
+                "type": "track",
+                "limit": 1
+            }
+            response = requests.get(url, headers=spotify_headers, params=payload)
+            response_json = response.json()
+            track_info = response_json['tracks']['items'][0]
+            album_id = track_info['album']['id']
+            return album_id
+        except Exception:
+            self.log(f"Error getting spotify album id")
+            return None
+
+    # Function to get album image URL
+    def get_spotify_album_image_url(self, album_id):
+        try:
+            token = self.get_spotify_access_token()
+            if not token:
+                return None
+                
+            url = f"https://api.spotify.com/v1/albums/{album_id}"
+            spotify_headers = {
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json"
+            }
+            response = requests.get(url, headers=spotify_headers)
+            response_json = response.json()
+            image_url = response_json['images'][0]['url']
+            if image_url:
+                return image_url
+            else:
+                pass
+        except Exception:
+            self.log(f"Error getting spotify album url")
+            return None
+
+    def get_final_url(self, picture, timeout=30):
+        default_values = self.reset_img_values()
+        self.fail_txt = self.fallback = False
+
+        # Try original picture first 
+        try:
+            if not self.playing_radio or self.radio_logo:
+                result = self.process_picture(picture)
+            if result:
+                return result
+        except Exception:
+            pass
+
+        if self.spotify_client_id and self.spotify_client_secret:
+            try:
+                album_id = self.get_spotify_album_id()
+                image_url = self.get_spotify_album_image_url(album_id)
+                if image_url:
+                    try:
+                        result = self.process_picture(image_url)
+                        if result:
+                            self.log("Found the Album Art @ Spotify")
+                            return result
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        if self.musicbrainz:
+            mb_url = self.get_album_art_url()
+            if mb_url:
+                try:
+                    result = self.process_picture(mb_url)
+                    if result:
+                        self.log("Found the Album Art @ MusicBrainz")
+                        return result
+                except Exception:
+                    pass
+
+        try:
+            ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
+            result = self.process_picture(ai_url)
+            if result:
+                self.log("Generated AI Image")
+                return result
+        except Exception as e:
+            self.log(f"AI generation failed: {e}")
+
+        # Ultimate fallback - black screen
+        self.fail_txt = self.fallback = True
+        return (zlib.decompress(BLK_SCR).decode(), *default_values)
