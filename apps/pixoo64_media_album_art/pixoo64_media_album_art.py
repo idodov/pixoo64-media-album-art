@@ -105,6 +105,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.ha_url = self.args.get('home_assistant', {}).get("ha_url", "http://homeassistant.local:8123")
         self.pixoo_sensor = self.args.get('home_assistant', {}).get("pixoo_sensor", "sensor.pixoo64_media_data")
         self.light = self.args.get('home_assistant', {}).get("light", None)
+        self.force_ai = self.args.get('home_assistant', {}).get("force_ai", False)
+
         self.ai_fallback = self.args.get('home_assistant', {}).get("ai_fallback", 'flux')
         self.musicbrainz = self.args.get('home_assistant', {}).get("musicbrainz", True)
         self.spotify_client_id = self.args.get('home_assistant', {}).get("spotify_client_id", False)
@@ -165,6 +167,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if media_state in ["off", "idle", "pause"]:
             self.set_state(self.pixoo_sensor, state="off")
             self.album_name = "media player is not playing - removing the album name"
+            return
         
         if input_boolean == "on":
             self.pixoo_run(media_state)
@@ -346,10 +349,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         font_color, recommended_font_color, recommended_font_color_rgb, background_color, most_common_color_alternative_rgb, most_common_color_alternative, background_color_rgb, brightness, brightness_lower_part = self.reset_img_values()
         try:
             img = self.get_image(picture)
+            img = self.ensure_rgb(img)
             if not img:
                 return None
             
-            img = self.ensure_rgb(img)
+            #img = self.ensure_rgb(img)
             font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.img_values(img)
             img = self.text_clock_img(img, brightness_lower_part)
             gif_base64 = self.gbase64(img)
@@ -359,6 +363,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self.log(f"Error processing image for {self.ai_artist} - {self.ai_title}: {e}.\n{traceback.format_exc()}")
             self.fallback = True
             self.fail_txt = False
+            return None
 
         return gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
 
@@ -483,9 +488,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             time.sleep(0.25)
     
     def ensure_rgb(self, img):
-        if img.mode != "RGB":
-            img = img.convert("RGB")
-        return img
+        try:
+            if img.mode != "RGB":
+                img = img.convert("RGB")
+            return img
+        except Exception:
+            return None
 
     def split_string(self, text, length):
         words = text.split(' ')
@@ -597,7 +605,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         prompt = f"{AI_ENGINE}/{prompt}?model={self.ai_fallback}"
         return prompt
 
-    def get_album_art_url(self) -> str:
+    def get_musicbrainz_album_art_url(self) -> str:
         search_url = "https://musicbrainz.org/ws/2/release/"
         params = {
         "query": f'artist:"{self.ai_artist}" AND track:"{self.ai_title}"',
@@ -618,7 +626,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         release_id = data["releases"][0]["id"]
         cover_art_url = f"https://coverartarchive.org/release/{release_id}/front"
-        self.log("Found album art @ MusicBrainz")
         return cover_art_url
 
     def get_spotify_access_token(self):
@@ -684,7 +691,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     def get_spotify_album_image_url(self, album_id):
         try:
             token = self.get_spotify_access_token()
-            if not token:
+            if not token or not album_id:
                 return None
                 
             url = f"https://api.spotify.com/v1/albums/{album_id}"
@@ -704,8 +711,17 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             return None
 
     def get_final_url(self, picture, timeout=30):
-        default_values = self.reset_img_values()
         self.fail_txt = self.fallback = False
+
+        if self.force_ai:
+            try:
+                ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
+                result = self.process_picture(ai_url)
+                if result:
+                    self.log("Generated AI Image")
+                    return result
+            except Exception as e:
+                self.log(f"AI generation failed: {e}")
 
         # Try original picture first 
         try:
@@ -732,7 +748,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 pass
 
         if self.musicbrainz:
-            mb_url = self.get_album_art_url()
+            mb_url = self.get_musicbrainz_album_art_url()
             if mb_url:
                 try:
                     result = self.process_picture(mb_url)
@@ -741,7 +757,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         return result
                 except Exception:
                     pass
-
+        
         try:
             ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
             result = self.process_picture(ai_url)
@@ -750,7 +766,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 return result
         except Exception as e:
             self.log(f"AI generation failed: {e}")
-
+        
         # Ultimate fallback - black screen
+        default_values = self.reset_img_values()
         self.fail_txt = self.fallback = True
         return (zlib.decompress(BLK_SCR).decode(), *default_values)
+
