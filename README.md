@@ -88,13 +88,16 @@ pixoo64_media_album_art:
         media_player: "media_player.era300"        # Media player entity ID
         toggle: "input_boolean.pixoo64_album_art"  # Boolean sensor to control script execution (Optional)
         pixoo_sensor: "sensor.pixoo64_media_data"  # Sensor to store media data (Optional)
-        light: False                               # RGB light entity ID (if any) or False (Optional)
+        light: "light.strip_stone"                 # RGB light entity ID (if any) (Optional)
         ai_fallback: turbo                         # Create alternative AI image when fallback - use model 'flex' or 'turbo'
+        force_ai: False                            # Show only AI Images
         musicbrainz: True                          # Get fallback image from MusicBrainz 
-        spotify_client_id: False                   # client_id key from developers.spotify.com
-        spotify_client_secret: False               # client_id_secret
+        spotify_client_id: False                   # client_id key API KEY from developers.spotify.com
+        spotify_client_secret: False               # client_id_secret API KEY
+        last.fm: False                             # Last.fm API KEY from https://www.last.fm/api/account/create
+        discogs: False                             # Discogs API KEY from https://www.discogs.com/settings/developers
     pixoo:
-        url: "http://192.168.86.21:80/post"        # Pixoo device URL
+        url: "http://192.168.86.21/post"        # Pixoo device URL
         full_control: True                         # Control display on/off with play/pause
         contrast: True                             # Apply 50% contrast filter
         clock: True                                # Show clock top corner
@@ -124,6 +127,8 @@ pixoo64_media_album_art:
 | `musicbrainz` | Search for album art in MusicBrainz | `"http://192.168.86.21:80/post"` |
 | `spotify_client_id` | Spotify Client ID. Use `False` or the actual key | `False` or `KEY` |
 | `spotify_client_secret` | Spotify Client Secret. Use `False` or the actual key | `False` or `KEY` |
+| `last.fm` | Last.fm key. Use `False` or the actual key | `False` or `KEY` |
+| `Discogs` | Discogs Personal token. Use `False` or the actual key | `False` or `KEY` |
 | `url` | Pixoo device URL | `"http://192.168.86.21:80/post"` |
 | `full_control` | Control display on/off with play/pause | `True` |
 | `contrast` | Apply a 50% contrast filter | `True` |
@@ -156,28 +161,46 @@ ____________
 _____________
 
 ## Fallback Image
-
 When there's no image associated with the music file, or if the image can't be fetched, the fallback function will activate. There are four types of fallbacks:
 
-1. **Getting the Album Art from Spotify API**: This is the most recommended option because Spotify's servers are fast and reliable. To use this method, you'll need two keys — the Client ID and the Client Secret. Instructions on how to obtain them are provided beyond this text.
+1. **Getting the Album API**: This is the most recommended option because servers are fast and reliable. You can choose one or more options. To use this method, you'll need keys —
+   - Spotify: the Client ID and the Client Secret.
+   - Discogs: Personal API Key
+   - Last.FM: Api Key
+   - Instructions on how to obtain them are provided beyond this text.
 
-2. **Fetching Album Art from MusicBrainz**: MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks, and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
+3. **Fetching Album Art from MusicBrainz**: MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks, and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
 
-3. **Generating Art with Special AI**: In this scenario, the script will attempt to generate an alternative version of the album art using generative AI. This option will trigger only if the Spotify API fails (or is unavailable) and/or no album art is found or there is a timeout from the MusicBrainz service. Be aware, as it is a free AI generative service, it may also be laggy or sometimes unavailable.
+4. **Generating Art with Special AI**: In this scenario, the script will attempt to generate an alternative version of the album art using generative AI. This option will trigger only if the Spotify API fails (or is unavailable) and/or no album art is found or there is a timeout from the MusicBrainz service. Be aware, as it is a free AI generative service, it may also be laggy or sometimes unavailable.
 
-4. **Fallback Text Display**: If no image is available at all, text displaying the artist's name and the track title will be shown.
+5. **Fallback Text Display**: If no image is available at all, text displaying the artist's name and the track title will be shown.
 
 ## Guide to help you get your Spotify Client ID and Client Secret from the developer site:
 
 1. **Log in to Spotify Developer Dashboard**: Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/login) and log in with your Spotify account.
 
 2. **Create an App**: Click on the "Create an App" button. You'll need to provide a name and a brief description for your app. These fields are mainly for display purposes, so you can keep them simple.
+
 3. **Choose `Web API`** from the `Which API/SDKs are you planning to use` section and press `SAVE`.
-   ![{22F7F6C8-CA87-4146-A035-B0BCEC99DF3B}](https://github.com/user-attachments/assets/d653366f-ac76-4204-a17f-c27b1dc6a051)
+    ![{22F7F6C8-CA87-4146-A035-B0BCEC99DF3B}](https://github.com/user-attachments/assets/d653366f-ac76-4204-a17f-c27b1dc6a051)
 
 4. **Copy Client ID and Client Secret**: Once your app is created, you'll be taken to the app overview page. At the Basic Information section you'll find your Client ID and Client Secret. Copy these values and store them on `apps.yaml` file under `spotify_client_id` and `spotify_client_secret`.
 
-That's it! You now have your Spotify Client ID and Client Secret, which you can use to authenticate your Pixoo64 with the Spotify API.
+## Guide to help you get your Discogs API key:
+
+1. **Log in to Discogs**: Go to the [Discogs website](https://www.discogs.com/) and log in with your account.
+
+2. **Create a Personal Key**: Navigate to the [Discogs API documentation](https://www.discogs.com/developers/) and follow the instructions to create a new personal key. You don't need to create application.
+
+## Guide to help you get your Last.fm API key:
+
+1. **Log in to Last.fm**: Go to the [Last.fm website](https://www.last.fm/) and log in with your account.
+
+2. **Create an Application**: Navigate to the [Last.fm API documentation](https://www.last.fm/api) and follow the instructions to create a new application. You'll need to provide a name and a brief description for your application.
+
+3. **Obtain API Key**: Once your application is created, you'll be provided with an API key and a secret. Copy the API KEY.
+
+That's it! You now have your API keys for Spotify, Discogs, and Last.fm, which you can use to authenticate your Pixoo64 with these services.
 
 
 ## Sensor Attribues
