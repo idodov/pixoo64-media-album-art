@@ -7,7 +7,6 @@ This script also supports AI image creation It's designed to show alternative AI
 
 APPDAEMON CONFIGURATION
 python_packages:
-  - requests
   - unidecode
   - pillow
   - numpy==1.26.4
@@ -67,10 +66,6 @@ try:
 except ImportError:
     print("the 'pillow' module is not installed or not available. No image support")
 try:
-    import requests
-except ImportError:
-    print("The 'request' module is not installed or not available. It's mandatory!")
-try:
     import numpy as np
 except ImportError:
     print("The 'numpy' module is not installed or not available. Crop feaure won't work")
@@ -107,10 +102,6 @@ symbols = r"\U0001F110-\U0001F5FF"
 old_persian_phaistos = r"\U00010F00-\U00010FFF"
 samaritan = r"\u0800-\u08FF"
 bidi_marks = r"\u200E|\u200F"
-
-HEADERS = {
-    "Content-Type": "application/json; charset=utf-8"
-}
 
 class Pixoo64_Media_Album_Art(hass.Hass):
     async def initialize(self):
@@ -164,15 +155,24 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if not os.path.exists(local_directory):
             os.makedirs(local_directory)
 
-        # Download required files
-        for file_name, url in files.items():
+        # Download required files asynchronously
+        async def download_file(file_name, url):
             local_file_path = os.path.join(local_directory, file_name)
             if not os.path.exists(local_file_path):
-                response = requests.get(url)
-                if response.status_code == 200:
-                    with open(local_file_path, 'wb') as file:
-                        file.write(response.content)
+                self.log(f"Downloading {file_name} from {url}...")  # Log the download action
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            with open(local_file_path, 'wb') as file:
+                                file.write(await response.read())
+                        else:
+                            self.log(f"Failed to download {file_name}: {response.status}")  # Log failure
 
+        # Create a list of download tasks
+        download_tasks = [download_file(file_name, url) for file_name, url in files.items()]
+        await asyncio.gather(*download_tasks)
+
+        
         # Spotify token cache
         self.spotify_token_cache = {
             'token': None,
@@ -638,47 +638,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         gif_base64 = self.gbase64(img)
         return (gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative)
 
-    def text_clock_img(self, img, brightness_lower_part):
-        if self.text_bg and self.show_text and not self.radio_logo:
-            lpc = (0,48,64,64)
-            lower_part_img = img.crop(lpc)
-            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
-            lower_part_img = enhancer_lp.enhance(brightness_lower_part)
-            img.paste(lower_part_img, lpc)
-
-        if self.show_clock:
-            lpc = (43, 2, 62, 9) if self.clock_align == "Right" else (2, 2, 21, 9)
-            lower_part_img = img.crop(lpc)
-            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
-            lower_part_img = enhancer_lp.enhance(0.2)
-            img.paste(lower_part_img, lpc)
-        return img
-
-    def gbase64(self, img):
-        try:
-            if img.mode == "RGB":
-                pixels = [item for p in list(img.getdata()) for item in p]
-            else:
-                pixels = list(img.getdata())
-            b64 = base64.b64encode(bytearray(pixels))
-            gif_base64 = b64.decode("utf-8")
-            self.fallback = self.fail_text = False
-            return gif_base64
-
-        except Exception as e:
-            gif_base64 = zlib.decompress(BLK_SCR).decode()
-            self.fail_txt = self.fallback = True
-            return gif_base64
-
-    def format_ai_image_prompt(self, artist, title):
-        # Format the AI image prompt with the given artist and title
-        if artist:
-            prompt = f"Create an image inspired by the music artist {artist}, titled: '{title}'. The artwork should feature an accurate likeness of the artist and creatively interpret the title into a visual imagery"
-        else:
-            prompt = f"Create a photorealistic image inspired by: '{title}'. Incorporate bold colors and pop art visual imagery in 80's video game style."
-        prompt = f"{AI_ENGINE}/{prompt}?model={self.ai_fallback}"
-        return prompt
-
     async def get_musicbrainz_album_art_url(self) -> str:
         """Get album art URL from MusicBrainz asynchronously"""
         search_url = "https://musicbrainz.org/ws/2/release/"
@@ -725,7 +684,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         except asyncio.TimeoutError:
             self.log("MusicBrainz request timed out")
 
-    def get_spotify_access_token(self):
+    async def get_spotify_access_token(self):
         try:
             # Check if cached token is still valid
             if (self.spotify_token_cache['token'] and 
@@ -740,9 +699,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             payload = {
                 "grant_type": "client_credentials"
             }
-            response = requests.post(url, headers=spotify_headers, data=payload)
-            response_json = response.json()
-            access_token = response_json["access_token"]
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers=spotify_headers, data=payload) as response:
+                    response_json = await response.json()
+                    access_token = response_json["access_token"]
             
             # Cache the new token
             self.spotify_token_cache = {
@@ -759,9 +719,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             return False
 
     # Function to get album ID by artist and track
-    def get_spotify_album_id(self):
+    async def get_spotify_album_id(self):
         try:
-            token = self.get_spotify_access_token()
+            token = await self.get_spotify_access_token()
             if not token:
                 return None
                 
@@ -775,19 +735,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "type": "track",
                 "limit": 1
             }
-            response = requests.get(url, headers=spotify_headers, params=payload)
-            response_json = response.json()
-            track_info = response_json['tracks']['items'][0]
-            album_id = track_info['album']['id']
-            return album_id
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=spotify_headers, params=payload) as response:
+                    response_json = await response.json()
+                    track_info = response_json['tracks']['items'][0]
+                    album_id = track_info['album']['id']
+                    return album_id
         except Exception:
             self.log(f"Error getting spotify album id")
             return None
 
     # Function to get album image URL
-    def get_spotify_album_image_url(self, album_id):
+    async def get_spotify_album_image_url(self, album_id):
         try:
-            token = self.get_spotify_access_token()
+            token = await self.get_spotify_access_token()
             if not token or not album_id:
                 return None
                 
@@ -796,13 +757,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json"
             }
-            response = requests.get(url, headers=spotify_headers)
-            response_json = response.json()
-            image_url = response_json['images'][0]['url']
-            if image_url:
-                return image_url
-            else:
-                pass
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, headers=spotify_headers) as response:
+                    response_json = await response.json()
+                    image_url = response_json['images'][0]['url']
+                    if image_url:
+                        return image_url
         except Exception:
             self.log(f"Error getting spotify album url")
             return None
@@ -832,18 +792,16 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         # Try Spotify first if credentials are available
         if self.spotify_client_id and self.spotify_client_secret:
             try:
-                # Create a new event loop for the executor
-                loop = asyncio.get_event_loop()
-                with ThreadPoolExecutor() as executor:
-                    # Run Spotify API calls in the executor
-                    album_id = await loop.run_in_executor(executor, self.get_spotify_album_id)
-                    if album_id:
-                        image_url = await loop.run_in_executor(executor, self.get_spotify_album_image_url, album_id)
-                        if image_url:
-                            result = await self.process_picture(image_url)
-                            if result:
-                                self.log("Found the Album Art @ Spotify")
-                                return result
+                album_id = await self.get_spotify_album_id()
+                if album_id:
+                    image_url = await self.get_spotify_album_image_url(album_id)
+                    if image_url:
+                        result = await self.process_picture(image_url)
+                        if result:
+                            self.log("Found the Album Art @ Spotify")
+                            return result
+                    else:
+                        self.log("Failed to process Spotify image")
             except Exception as e:
                 self.log(f"Spotify fallback failed: {e}")
 
@@ -876,6 +834,33 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         default_values = self.reset_img_values()
         self.fail_txt = self.fallback = True
         return (zlib.decompress(BLK_SCR).decode(), *default_values)
+
+    async def test_pixoo_connection(self):
+        """Test connection to Pixoo device"""
+        try:
+            test_command = {
+                "Command": "Channel/GetIndex"
+            }
+            
+            #self.log(f"Testing connection to Pixoo at {self.url}")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.url,
+                    headers=self.headers,
+                    json=test_command,
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as response:
+                    response_text = await response.text()
+                    #self.log(f"Pixoo test response: {response_text}")
+                    
+                    if response.status == 200:
+                        self.log("Successfully connected to Pixoo device")
+                    else:
+                        self.log(f"Failed to connect to Pixoo device: {response.status}")
+                        
+        except Exception as e:
+            self.log(f"Error testing Pixoo connection: {str(e)}\n{traceback.format_exc()}")
 
     def ensure_rgb(self, img):
         try:
@@ -958,33 +943,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         """Check if text contains bidirectional characters"""
         bidi_regex = f"[{hebrew}|{arabic}|{syriac}|{thaana}|{nkoo}|{rumi}|{arabic_math}|{symbols}|{old_persian_phaistos}|{samaritan}]"
         return bool(re.search(bidi_regex, text))
-
-    async def test_pixoo_connection(self):
-        """Test connection to Pixoo device"""
-        try:
-            test_command = {
-                "Command": "Channel/GetIndex"
-            }
-            
-            #self.log(f"Testing connection to Pixoo at {self.url}")
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.url,
-                    headers=self.headers,
-                    json=test_command,
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as response:
-                    response_text = await response.text()
-                    #self.log(f"Pixoo test response: {response_text}")
-                    
-                    if response.status == 200:
-                        self.log("Successfully connected to Pixoo device")
-                    else:
-                        self.log(f"Failed to connect to Pixoo device: {response.status}")
-                        
-        except Exception as e:
-            self.log(f"Error testing Pixoo connection: {str(e)}\n{traceback.format_exc()}")
 
     def validate_pixoo_url(self, url):
         """Validate and format Pixoo URL"""
@@ -1102,3 +1060,45 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             temp_img = enhancer.enhance(2.0)
             img = temp_img
         return img
+
+    def text_clock_img(self, img, brightness_lower_part):
+        if self.text_bg and self.show_text and not self.radio_logo:
+            lpc = (0,48,64,64)
+            lower_part_img = img.crop(lpc)
+            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
+            lower_part_img = enhancer_lp.enhance(brightness_lower_part)
+            img.paste(lower_part_img, lpc)
+
+        if self.show_clock:
+            lpc = (43, 2, 62, 9) if self.clock_align == "Right" else (2, 2, 21, 9)
+            lower_part_img = img.crop(lpc)
+            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
+            lower_part_img = enhancer_lp.enhance(0.2)
+            img.paste(lower_part_img, lpc)
+        return img
+
+    def gbase64(self, img):
+        try:
+            if img.mode == "RGB":
+                pixels = [item for p in list(img.getdata()) for item in p]
+            else:
+                pixels = list(img.getdata())
+            b64 = base64.b64encode(bytearray(pixels))
+            gif_base64 = b64.decode("utf-8")
+            self.fallback = self.fail_text = False
+            return gif_base64
+
+        except Exception as e:
+            gif_base64 = zlib.decompress(BLK_SCR).decode()
+            self.fail_txt = self.fallback = True
+            return gif_base64
+
+    def format_ai_image_prompt(self, artist, title):
+        # Format the AI image prompt with the given artist and title
+        if artist:
+            prompt = f"Create an image inspired by the music artist {artist}, titled: '{title}'. The artwork should feature an accurate likeness of the artist and creatively interpret the title into a visual imagery"
+        else:
+            prompt = f"Create a photorealistic image inspired by: '{title}'. Incorporate bold colors and pop art visual imagery in 80's video game style."
+        prompt = f"{AI_ENGINE}/{prompt}?model={self.ai_fallback}"
+        return prompt
+
