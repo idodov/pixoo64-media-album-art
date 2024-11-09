@@ -34,7 +34,7 @@ The script supports fallbacks using the Spotify API and MusicBrainz. If these me
 > ```
 > **Ensure that the helper sensor is created prior to executing the script for the first time.**
 1. Install **AppDaemon** from the Home Assistant add-on store.
-2. On the AppDaemon [Configuration page](http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config), install the **`requests`**, **`numpy==1.26.4`**, **`pillow`**, **`python-bidi`** and **`unidecode`** Python packages.
+2. On the AppDaemon [Configuration page](http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config), install the **`numpy==1.26.4`**, **`pillow`**, **`python-bidi`** and **`unidecode`** Python packages.
 
 > [!IMPORTANT]
 > Not installing the packadges may cause the script not work
@@ -42,7 +42,6 @@ The script supports fallbacks using the Spotify API and MusicBrainz. If these me
 ># http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config
 >system_packages: []
 >python_packages:
->  - requests
 >  - unidecode
 >  - pillow
 >  - numpy==1.26.4
