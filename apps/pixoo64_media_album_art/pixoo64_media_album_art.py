@@ -26,8 +26,10 @@ pixoo64_media_album_art:
         ai_fallback: turbo                         # Create alternative AI image when fallback - use model 'flex' or 'turbo'
         force_ai: False                            # Show only AI Images
         musicbrainz: True                          # Get fallback image from MusicBrainz 
-        spotify_client_id: False                   # client_id key from developers.spotify.com
-        spotify_client_secret: False               # client_id_secret
+        spotify_client_id: False                   # client_id key API KEY from developers.spotify.com
+        spotify_client_secret: False               # client_id_secret API KEY
+        last.fm: False                             # Last.fm API KEY from https://www.last.fm/api/account/create
+        discogs: False                             # Discogs API KEY from https://www.discogs.com/settings/developers
     pixoo:
         url: "http://192.168.86.21/post"        # Pixoo device URL
         full_control: True                         # Control display on/off with play/pause
@@ -114,11 +116,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.light = self.args.get('home_assistant', {}).get("light", None)
         self.force_ai = self.args.get('home_assistant', {}).get("force_ai", False)
 
-        # AI and external services settings
+        # AI and Fallback services settings
         self.ai_fallback = self.args.get('home_assistant', {}).get("ai_fallback", 'flux')
         self.musicbrainz = self.args.get('home_assistant', {}).get("musicbrainz", True)
         self.spotify_client_id = self.args.get('home_assistant', {}).get("spotify_client_id", False)
         self.spotify_client_secret = self.args.get('home_assistant', {}).get("spotify_client_secret", False)
+        self.discogs = self.args.get('home_assistant', {}).get("discogs", False)
+        self.lastfm = self.args.get('home_assistant', {}).get("last.fm", False)
+
 
         # Pixoo device settings
         pixoo_url = self.args.get('pixoo', {}).get("url", "http://192.168.86.21:80/post")
@@ -766,6 +771,65 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         except Exception:
             self.log(f"Error getting spotify album url")
             return None
+    # Function to get album image URL from Discogs
+
+    async def search_discogs_album_art(self):
+        # Define the base URL and headers for Discogs API
+        base_url = "https://api.discogs.com/database/search"
+        headers = {
+            "User-Agent": "AlbumArtSearchApp/1.0",
+            "Authorization": f"Discogs token={self.discogs}"
+        }
+
+        # Set up the search parameters
+        params = {
+            "artist": self.ai_artist,
+            "track": self.ai_title,
+            "type": "release",
+            "format": "album"
+        }
+
+        # Perform an asynchronous HTTP request
+        async with aiohttp.ClientSession() as session:
+            async with session.get(base_url, headers=headers, params=params) as response:
+                # Check if the request was successful
+                if response.status == 200:
+                    data = await response.json()
+                    # Check if there are results
+                    if data["results"]:
+                        # Get the album art URL from the first result
+                        album_art_url = data["results"][0].get("cover_image")
+                        if album_art_url:
+                            return album_art_url
+                        else:
+                            print("Album art not found @ Discogs.")
+                            return None
+                    else:
+                        print("No results found for the specified artist and track @ Discogs.")
+                        return None
+                else:
+                    print(f"Error: {response.status} - {response.reason}")
+                    return None
+
+    async def search_lastfm_album_art(self):
+        base_url = "http://ws.audioscrobbler.com/2.0/"
+        params = {
+            "method": "track.getInfo",
+            "api_key": self.lastfm,
+            "artist": self.ai_artist,
+            "track": self.ai_title,
+            "format": "json"
+        }
+
+        async with aiohttp.ClientSession() as session:
+            async with session.get(base_url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    album_art_url = data.get("track", {}).get("album", {}).get("image", [])
+                    if album_art_url:
+                    # The last element in the list usually contains the largest image
+                        return album_art_url[-1]["#text"]
+                return None
 
     async def get_final_url(self, picture, timeout=30):
         self.fail_txt = self.fallback = False
@@ -789,7 +853,22 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         except Exception as e:
             self.log(f"Original picture processing failed: {e}")
 
-        # Try Spotify first if credentials are available
+        """ Fallback begins """
+        # Try Discogs:
+        if self.discogs:
+            try:
+                album_art = await self.search_discogs_album_art()
+                if album_art:
+                    result = await self.process_picture(album_art)
+                    if result:
+                        self.log("Successfully found and processed the Album Art @ Discogs")
+                        return result
+                    else:
+                        self.log("Failed to process Discogs image")
+            except Exception as e:
+                self.log(f"Discogs fallback failed with error: {str(e)}")
+
+        # Try Spotify
         if self.spotify_client_id and self.spotify_client_secret:
             try:
                 album_id = await self.get_spotify_album_id()
@@ -798,19 +877,32 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     if image_url:
                         result = await self.process_picture(image_url)
                         if result:
-                            self.log("Found the Album Art @ Spotify")
+                            self.log("Successfully found and processed the Album Art @ Spotify")
                             return result
                     else:
                         self.log("Failed to process Spotify image")
             except Exception as e:
-                self.log(f"Spotify fallback failed: {e}")
+                self.log(f"Spotify fallback failed with error: {str(e)}")
+        
+        #Try Last.fm:
+        if self.lastfm:
+            try:
+                album_art = await self.search_lastfm_album_art()
+                if album_art:
+                    result = await self.process_picture(album_art)
+                    if result:
+                        self.log("Successfully found and processed the Album Art @ Last.fm")
+                        return result
+                    else:
+                        self.log("Failed to process Last.fm image")
+            except Exception as e:
+                self.log(f"Last.fm fallback failed with error: {str(e)}")
 
-        # Try MusicBrainz if enabled
+        # Try MusicBrainz
         if self.musicbrainz:
             try:
                 mb_url = await self.get_musicbrainz_album_art_url()
                 if mb_url:
-                    self.log(f"Attempting to fetch MusicBrainz image from: {mb_url}")
                     result = await self.process_picture(mb_url)
                     if result:
                         self.log("Successfully found and processed the Album Art @ MusicBrainz")
@@ -825,7 +917,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
             result = await self.process_picture(ai_url)
             if result:
-                self.log("Generated AI Image")
+                self.log("Successfully Generated AI Image")
                 return result
         except Exception as e:
             self.log(f"AI generation failed: {e}")
