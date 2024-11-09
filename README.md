@@ -97,7 +97,7 @@ pixoo64_media_album_art:
         last.fm: False                             # Last.fm API KEY from https://www.last.fm/api/account/create
         discogs: False                             # Discogs API KEY from https://www.discogs.com/settings/developers
     pixoo:
-        url: "http://192.168.86.21/post"        # Pixoo device URL
+        url: "192.168.86.21"                       # Pixoo device URL
         full_control: True                         # Control display on/off with play/pause
         contrast: True                             # Apply 50% contrast filter
         clock: True                                # Show clock top corner
@@ -124,7 +124,7 @@ pixoo64_media_album_art:
 | `pixoo_sensor` | Sensor to store media data (Optional) | `"sensor.pixoo64_media_data"` |
 | `light` | RGB light entity ID (if any) (Optional) | `False` or `light.rgb_light` |
 | `ai_fallback` | Create alternative album art using AI. Options are `flux` or `turbo` | `turbo` |
-| `musicbrainz` | Search for album art in MusicBrainz | `"http://192.168.86.21:80/post"` |
+| `musicbrainz` | Search for album art in MusicBrainz | `True` |
 | `spotify_client_id` | Spotify Client ID. Use `False` or the actual key | `False` or `KEY` |
 | `spotify_client_secret` | Spotify Client Secret. Use `False` or the actual key | `False` or `KEY` |
 | `last.fm` | Last.fm key. Use `False` or the actual key | `False` or `KEY` |
