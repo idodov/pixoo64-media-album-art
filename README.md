@@ -2,7 +2,7 @@
 
 Transform your DIVOOM PIXOO64 into a dynamic visual companion with this script. It fetches and displays the album cover art of the currently playing track, enriching your musical experience. Additionally, it extracts useful data such as the artist's name and the dominant color from the album art, which can be leveraged for further automation in your Home Assistant environment.
 
-The script supports fallbacks using the Spotify API and MusicBrainz. If these methods fail, it will attempt to create AI-generated album art using [pollinations.ai](https://pollinations.ai/). This alternative AI-generated cover art is displayed when no album art is available or when using services like SoundCloud, where the script cannot fetch the image. It is also compatible with streaming radio stations and local files.
+The script supports fallbacks using APIs (Spotify/Discogs/Last.fm) or free services like MusicBrainz. If these methods fail, it will attempt to create AI-generated album art using [pollinations.ai](https://pollinations.ai/). This alternative AI-generated cover art is displayed when no album art is available or when using services like SoundCloud, where the script cannot fetch the image. It is also compatible with streaming radio stations and local files.
 
 
 ## Examples
@@ -128,7 +128,7 @@ pixoo64_media_album_art:
 | `spotify_client_secret` | Spotify Client Secret. Use `False` or the actual key | `False` or `KEY` |
 | `last.fm` | Last.fm key. Use `False` or the actual key | `False` or `KEY` |
 | `Discogs` | Discogs Personal token. Use `False` or the actual key | `False` or `KEY` |
-| `url` | Pixoo device URL | `"http://192.168.86.21:80/post"` |
+| `url` | Pixoo device URL | `192.168.86.21` |
 | `full_control` | Control display on/off with play/pause | `True` |
 | `contrast` | Apply a 50% contrast filter | `True` |
 | `clock` | Show a clock in the top corner | `False` |
@@ -160,19 +160,22 @@ ____________
 _____________
 
 ## Fallback Image
-When there's no image associated with the music file, or if the image can't be fetched, the fallback function will activate. There are four types of fallbacks:
 
-1. **Getting the Album API**: This is the most recommended option because servers are fast and reliable. You can choose one or more options. To use this method, you'll need keys —
-   - Spotify: the Client ID and the Client Secret.
-   - Discogs: Personal API Key
-   - Last.FM: Api Key
+When there's no image associated with the music file, or if the image can't be fetched, the fallback function will activate. By default, the supported fallbacks are MusicBrainz and the AI Image generator because neither requires an API key. However, these services are not 100% reliable, so it's recommended to use any of the APIs that this script supports (Spotify/Discogs/Last.fm). You can choose to use one, two, or all three. The fallback will first try to find the album art on Discogs, and if it fails, it will try Spotify, then Last.fm. No matter what, 99.9% of the time when a track is played, the Pixoo64 will present artwork graphics.
+
+### There are four types of fallbacks:
+
+1. **Getting the Album API**: This is the most recommended option because servers are fast and reliable. You can choose one or more options. To use this method, you'll need keys:
+   - **Spotify**: the Client ID and the Client Secret.
+   - **Discogs**: Personal API Key
+   - **Last.FM**: API Key
    - Instructions on how to obtain them are provided beyond this text.
 
-3. **Fetching Album Art from MusicBrainz**: MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks, and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
+2. **Fetching Album Art from MusicBrainz**: MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
 
-4. **Generating Art with Special AI**: In this scenario, the script will attempt to generate an alternative version of the album art using generative AI. This option will trigger only if the Spotify API fails (or is unavailable) and/or no album art is found or there is a timeout from the MusicBrainz service. Be aware, as it is a free AI generative service, it may also be laggy or sometimes unavailable.
+3. **Generating Art with Special AI**: In this scenario, the script will attempt to generate an alternative version of the album art using generative AI. This option will trigger only if the Spotify API fails (or is unavailable) and/or no album art is found, or there is a timeout from the MusicBrainz service. Be aware that as it is a free AI generative service, it may also be laggy or sometimes unavailable.
 
-5. **Fallback Text Display**: If no image is available at all, text displaying the artist's name and the track title will be shown.
+4. **Fallback Text Display**: If no image is available at all, text displaying the artist's name and the track title will be shown.
 
 ## Guide to help you get your Spotify Client ID and Client Secret from the developer site:
 
