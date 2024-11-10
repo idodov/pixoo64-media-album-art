@@ -22,32 +22,23 @@ The script supports fallbacks using APIs (Spotify/Discogs/Last.fm) or free servi
 3. AppDaemon (Home Assistant add-on)
 ## Installation
 > [!TIP]
-> Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs. This means that whenever the player starts a track, the album art will appear if the toggle is on. Establish this helper within the Home Assistant User Interface or YAML code. It’s best to do this prior to installation. Here’s how you can proceed:
-> 1. Open `configuration.yaml`.
-> 2. Add this lines and restart Home Assistant:
-> ```yaml
-> #/homeassistant/configuration.yaml
-> input_boolean:
->   pixoo64_album_art:
->     name: Pixoo64 Album Art
->     icon: mdi:framed_picture 
-> ```
+> Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs. This means that whenever the player starts a track, the album art will appear if the toggle is on. Establish this helper within the Home Assistant User Interface or YAML code. It’s best to do this prior to installation.
 > **Ensure that the helper sensor is created prior to executing the script for the first time.**
 1. Install **AppDaemon** from the Home Assistant add-on store.
 2. On the AppDaemon [Configuration page](http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config), install the **`numpy==1.26.4`**, **`pillow`**, **`python-bidi`** and **`unidecode`** Python packages.
 
 > [!IMPORTANT]
 > Not installing the packadges may cause the script not work
->```yaml
-># http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config
->system_packages: []
->python_packages:
->  - unidecode
->  - pillow
->  - numpy==1.26.4
->  - python-bidi
->init_commands: []
->```
+```yaml
+# http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config
+system_packages: []
+python_packages:
+  - unidecode
+  - pillow
+  - numpy==1.26.4
+  - python-bidi
+init_commands: []
+```
 ### Manual Download
 1. Download the Python file from [This Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py).
 2. Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step
@@ -60,22 +51,22 @@ The script supports fallbacks using APIs (Spotify/Discogs/Last.fm) or free servi
 > [!IMPORTANT]  
 > In AppDaemon, make sure to specify the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`.
 > Also, remember to transfer all files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`.
-> ```yaml
-> #/addon_configs/a0d7b954_appdaemon/appdaemon.yaml
-> ---
-> appdaemon:
->   app_dir: /homeassistant/appdaemon/apps/
-> ```
+```yaml
+#/addon_configs/a0d7b954_appdaemon/appdaemon.yaml
+---
+appdaemon:
+  app_dir: /homeassistant/appdaemon/apps/
+```
 _________
 ## Final Step - Configuration
 Open `/appdaemon/apps/apps.yaml` and add this code:
 > [!TIP]
 >  If you’re using the File Editor add-on, it’s set up by default to only allow file access to the main Home Assistant directory. However, the AppDaemon add-on files are located in the root directory. To access these files, follow these steps:
-> 1. Go to `Settings` > `Add-ons` > `File Editor` > `Configuration`
-> 2. Toggle off the `Enforce Basepath` option.
-> 3. In the File Editor, click on the arrow next to the directory name (which will be ‘homeassistant’). This should give you access to the root directory where the AppDaemon add-on files are located.
-> 
->    ![arrow](https://github.com/idodov/RedAlert/assets/19820046/e57ea52d-d677-45b0-90c4-87723c5ddfea)
+1. Go to `Settings` > `Add-ons` > `File Editor` > `Configuration`
+2. Toggle off the `Enforce Basepath` option.
+3. In the File Editor, click on the arrow next to the directory name (which will be ‘homeassistant’). This should give you access to the root directory where the AppDaemon add-on files are located.
+
+![arrow](https://github.com/idodov/RedAlert/assets/19820046/e57ea52d-d677-45b0-90c4-87723c5ddfea)
 
 ```yaml
 # appdaemon/apps/apps.yaml
