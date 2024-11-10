@@ -52,10 +52,11 @@ The script supports fallbacks using APIs (Spotify/Discogs/Last.fm) or free servi
 1. Download the Python file from [This Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py).
 2. Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step
 ### HACS Download
-1. In Home Assistant: Navigate to `HACS` > `Automation`
-   * If this option is not available, go to `Settings` > `Integrations` > `HACS` > `Configure` and enable `AppDaemon apps discovery & tracking`. After enabling, return to the main HACS screen and select `Automation`
-2. Navigate to the `Custom Repositories` page and add the following repository as `Automation`: `https://github.com/idodov/pixoo64-media-album-art/`
-3. Return to the `HACS Automation` screen, press the `+` button, search for `PIXOO64 Media Album Art`, and click on `Download`
+1. In Home Assistant: Navigate to `Settings` > `Integrations` > `HACS` > `Configure` and enable `AppDaemon apps discovery & tracking`. After enabling, return to the main HACS screen.
+   * ![{D6AD7841-B9A6-460A-A1C6-B1C680188B66}](https://github.com/user-attachments/assets/18a39041-57a8-4acd-89e9-7ce44874c894)
+
+2. Navigate to the `Custom Repositories` page and add the following repository as `AppDaemon`: `https://github.com/idodov/pixoo64-media-album-art/`
+3. Return to the `HACS Automation` screen and search for `PIXOO64 Media Album Art`.  Click on `Download`
 > [!IMPORTANT]  
 > In AppDaemon, make sure to specify the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`.
 > Also, remember to transfer all files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`.
