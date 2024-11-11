@@ -7,9 +7,8 @@ This script also supports AI image creation It's designed to show alternative AI
 
 APPDAEMON CONFIGURATION
 python_packages:
-  - unidecode
   - pillow
-  - numpy==1.26.4
+  - unidecode
   - python-bidi
 
 # appdaemon/apps/apps.yaml
@@ -26,7 +25,7 @@ pixoo64_media_album_art:
         ai_fallback: turbo                         # Create alternative AI image when fallback - use model 'flex' or 'turbo'
         force_ai: False                            # Show only AI Images
         musicbrainz: True                          # Get fallback image from MusicBrainz 
-        spotify_client_id: False                   # client_id key API KEY from developers.spotify.com
+        spotify_client_id: False                   # client_id key API KEY from https://developers.spotify.com
         spotify_client_secret: False               # client_id_secret API KEY
         last.fm: False                             # Last.fm API KEY from https://www.last.fm/api/account/create
         discogs: False                             # Discogs API KEY from https://www.discogs.com/settings/developers
@@ -58,19 +57,11 @@ import zlib
 import random
 import traceback
 from io import BytesIO
+from PIL import Image, ImageEnhance, ImageFilter
 from collections import Counter
-from functools import partial
 from concurrent.futures import ThreadPoolExecutor
 from appdaemon.plugins.hass import hassapi as hass
 
-try:
-    from PIL import Image, UnidentifiedImageError, ImageEnhance, ImageFilter
-except ImportError:
-    print("the 'pillow' module is not installed or not available. No image support")
-try:
-    import numpy as np
-except ImportError:
-    print("The 'numpy' module is not installed or not available. Crop feaure won't work")
 try:
     from unidecode import unidecode
     undicode_m = True
@@ -106,6 +97,11 @@ samaritan = r"\u0800-\u08FF"
 bidi_marks = r"\u200E|\u200F"
 
 class Pixoo64_Media_Album_Art(hass.Hass):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)  # Call the parent class's __init__ method
+        self.image_lock = asyncio.Lock()  # Initialize a lock for image processing
+        self.pending_task = None  # To keep track of the last task
+
     async def initialize(self):
         """Initialize the app and set up state listeners."""
         # Home Assistant settings
@@ -176,7 +172,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         # Create a list of download tasks
         download_tasks = [download_file(file_name, url) for file_name, url in files.items()]
         await asyncio.gather(*download_tasks)
-
         
         # Spotify token cache
         self.spotify_token_cache = {
@@ -198,11 +193,17 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         # Test connection
         await self.test_pixoo_connection()
+        self.is_processing = False
 
         self.callback_timeout = 30  # Increase the callback timeout limit
 
     async def safe_state_change_callback(self, entity, attribute, old, new, kwargs):
         """Wrapper for state change callback with timeout protection"""
+        if hasattr(self, 'is_processing') and self.is_processing:
+            self.log(f"Ignoring new callback {self.ai_artist} - {self.ai_title}", level="WARNING")
+            return  # Ignore if already processing
+
+        self.is_processing = True  # Set the flag to indicate processing has started
         try:
             # Create a task with timeout
             async with asyncio.timeout(self.callback_timeout):
@@ -212,6 +213,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             # Optionally reset any state or cleanup here
         except Exception as e:
             self.log(f"Error in callback: {str(e)}", level="ERROR")
+        finally:
+            self.is_processing = False  # Reset the flag when processing is done
 
     async def state_change_callback(self, entity, attribute, old, new, kwargs):
         """Main callback with early exit conditions"""
@@ -219,11 +222,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             # Quick checks for early exit
             if new == old:
                 return
-                
+            
+            # Get the state of the input boolean
             input_boolean = await self.get_state(self.toggle)
             if input_boolean != "on":
                 return
-                
+            
             media_state = await self.get_state(self.media_player)
             if media_state in ["off", "idle", "pause", "paused"]:
                 await self.set_state(self.pixoo_sensor, state="off")
@@ -231,9 +235,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
                 if self.full_control:
                     # Check state again after delay to ensure music is still stopped
-                    await asyncio.sleep(7)  # Delay to not turn off during track changes
+                    await asyncio.sleep(2)  # Delay to not turn off during track changes
                     current_state = await self.get_state(self.media_player)
-                        
+                    
                     if current_state not in ["playing", "on"]:
                         payload = {
                             "Command": "Draw/CommandList",
@@ -248,6 +252,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         if self.light:
                             await self.control_light('off')
                 else:
+                    # If not in full control, just update the display
                     current_state = await self.get_state(self.media_player)
                     if current_state not in ["playing", "on"]:
                         payload = {
@@ -267,9 +272,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
             # If we get here, proceed with the main logic
             await self.update_attributes(entity, attribute, old, new, kwargs)
-            
+
         except Exception as e:
-            self.log(f"Error in state change callback: {str(e)}\n{traceback.format_exc()}")
+            self.log(f"Error in state change callback: {str(e)}", level="ERROR")
 
     async def update_attributes(self, entity, attribute, old, new, kwargs):
         """Modified to be more efficient"""
@@ -286,7 +291,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if not title:
                 return
 
-            # Clean title if enabled
             title = self.clean_title(title) if self.clean_title_enabled else title
 
             # Check if we need to update the album art
@@ -305,26 +309,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         try:
             async with asyncio.timeout(self.callback_timeout):
                 # Get current channel index
-                channel_command = {
-                    "Command": "Channel/GetIndex"
-                }
-                
-                # Get current channel index from Pixoo
-                select_index = 1  # Default fallback value
-                try:
-                    async with aiohttp.ClientSession() as session:
-                        async with session.post(
-                            self.url,
-                            headers=self.headers,
-                            json=channel_command,
-                            timeout=aiohttp.ClientTimeout(total=5)
-                        ) as response:
-                            response_text = await response.text()
-                            response_data = json.loads(response_text)
-                            select_index = response_data.get('SelectIndex', 1)
-                except Exception as e:
-                    self.log(f"Failed to get channel index from Pixoo: {str(e)}")
-                
+                select_index = await self.get_current_channel_index()
                 if media_state in ["playing", "on"]:
                     title = await self.get_state(self.media_player, attribute="media_title")
                     original_title = title
@@ -503,29 +488,22 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def send_pixoo(self, payload_command):
         """Send command to Pixoo device"""
         try:
-            #self.log(f"Sending payload to Pixoo: {payload_command}")
-            
             async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.url,
-                    headers=self.headers,
-                    json=payload_command,
-                    timeout=aiohttp.ClientTimeout(total=10)
-                ) as response:
-                    response_text = await response.text()
-                    #self.log(f"Response from Pixoo: {response_text}")
-                    
+                async with session.post(self.url, headers=self.headers, json=payload_command, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status != 200:
                         self.log(f"Failed to send REST: {response.status}")
                     else:
                         await asyncio.sleep(0.25)
-                        
         except Exception as e:
             self.log(f"Error sending command to Pixoo: {str(e)}\n{traceback.format_exc()}")
 
     async def get_image(self, picture):
         if not picture:
             return None
+        
+        async with self.image_lock:  # Acquire the lock before processing
+            self.pending_task = picture  # Set the current task as pending
+
         try:
             async with aiohttp.ClientSession() as session:
                 url = picture if picture.startswith('http') else f"{self.ha_url}{picture}"
@@ -535,38 +513,62 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         return None
                     
                     image_data = await response.read()
-                    
-            # Create a new event loop for the executor
-            loop = asyncio.get_event_loop()
-            with ThreadPoolExecutor() as executor:
-                img = await loop.run_in_executor(
-                    executor,
-                    self._process_image,
-                    image_data
-                )
-            return img
+                    result = await self.process_image_data(image_data)
+
+                    # Check if a new task was set while processing
+                    async with self.image_lock:
+                        if self.pending_task != picture:  # If a new task is pending
+                            return None  # Ignore the result of this task
+
+                    return result
 
         except Exception as e:
             self.log(f"Unexpected error in get_image: {str(e)}\n{traceback.format_exc()}")
             self.fail_txt = self.fallback = True
             return None
 
+    async def process_image_data(self, image_data):
+        loop = asyncio.get_event_loop()
+        with ThreadPoolExecutor() as executor:
+            img = await loop.run_in_executor(
+                executor,
+                self._process_image,
+                image_data
+            )
+        return img
+
     def _process_image(self, image_data):
-        """Synchronous image processing helper function"""
         try:
-            img = Image.open(BytesIO(image_data))
-            img = self.ensure_rgb(img)
-            
-            if self.crop_borders:
-                img = self.crop_image_borders(img)
+            with Image.open(BytesIO(image_data)) as img:
+                img = self.ensure_rgb(img)
                 
-            if self.contrast:
-                enhancer = ImageEnhance.Contrast(img)
-                img = enhancer.enhance(1.5)
+                # Ensure the image is square
+                width, height = img.size
+                if height < width:  # Check if height is less than width
+                    # Calculate the border size
+                    border_size = (width - height) // 2
+                    # Create a new image with the background color
+                    background_color = (255, 255, 255)  # Set your desired background color here (e.g., white)
+                    new_img = Image.new("RGB", (width, width), background_color)  # Create a square image
+                    new_img.paste(img, (0, border_size))  # Paste the original image onto the new image
+                    img = new_img  # Update img to the new image
+                elif width != height:
+                    new_size = min(width, height)
+                    left = (width - new_size) // 2
+                    top = (height - new_size) // 2
+                    img = img.crop((left, top, left + new_size, top + new_size))
                 
-            img = img.resize((64, 64), Image.Resampling.LANCZOS)
-            return img
-            
+
+                if self.crop_borders and not self.radio_logo:
+                    img = self.crop_image_borders(img)
+                    
+                if self.contrast:
+                    enhancer = ImageEnhance.Contrast(img)
+                    img = enhancer.enhance(1.5)
+                    
+                img = img.resize((64, 64), Image.Resampling.LANCZOS)
+                return img
+
         except Exception as e:
             self.log(f"Error processing image: {str(e)}")
             return None
@@ -805,7 +807,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                             print("Album art not found @ Discogs.")
                             return None
                     else:
-                        print("No results found for the specified artist and track @ Discogs.")
+                        self.log("No results found for the specified artist and track @ Discogs.")
                         return None
                 else:
                     print(f"Error: {response.status} - {response.reason}")
@@ -827,100 +829,99 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     data = await response.json()
                     album_art_url = data.get("track", {}).get("album", {}).get("image", [])
                     if album_art_url:
-                    # The last element in the list usually contains the largest image
                         return album_art_url[-1]["#text"]
                 return None
 
     async def get_final_url(self, picture, timeout=30):
         self.fail_txt = self.fallback = False
 
-        if self.force_ai:
+        if self.force_ai and not self.radio_logo:
             try:
                 ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
                 result = await self.process_picture(ai_url)
                 if result:
-                    self.log("Generated AI Image")
+                    self.log("Force Generated AI Image")
                     return result
             except Exception as e:
                 self.log(f"AI generation failed: {e}")
-
+        else:
         # Process original picture
-        try:
-            if not self.playing_radio or self.radio_logo:
-                result = await self.process_picture(picture)
-                if result:
-                    return result
-        except Exception as e:
-            self.log(f"Original picture processing failed: {e}")
-
-        """ Fallback begins """
-        # Try Discogs:
-        if self.discogs:
             try:
-                album_art = await self.search_discogs_album_art()
-                if album_art:
-                    result = await self.process_picture(album_art)
+                if not self.playing_radio or self.radio_logo:
+                    result = await self.process_picture(picture)
                     if result:
-                        self.log("Successfully found and processed the Album Art @ Discogs")
                         return result
-                    else:
-                        self.log("Failed to process Discogs image")
             except Exception as e:
-                self.log(f"Discogs fallback failed with error: {str(e)}")
+                self.log(f"Original picture processing failed: {e}")
 
-        # Try Spotify
-        if self.spotify_client_id and self.spotify_client_secret:
-            try:
-                album_id = await self.get_spotify_album_id()
-                if album_id:
-                    image_url = await self.get_spotify_album_image_url(album_id)
-                    if image_url:
-                        result = await self.process_picture(image_url)
+            """ Fallback begins """
+            # Try Discogs:
+            if self.discogs:
+                try:
+                    album_art = await self.search_discogs_album_art()
+                    if album_art:
+                        result = await self.process_picture(album_art)
                         if result:
-                            self.log("Successfully found and processed the Album Art @ Spotify")
+                            self.log("Successfully found and processed the Album Art @ Discogs")
                             return result
-                    else:
-                        self.log("Failed to process Spotify image")
-            except Exception as e:
-                self.log(f"Spotify fallback failed with error: {str(e)}")
+                        else:
+                            self.log("Failed to process Discogs image")
+                except Exception as e:
+                    self.log(f"Discogs fallback failed with error: {str(e)}")
+
+            # Try Spotify
+            if self.spotify_client_id and self.spotify_client_secret:
+                try:
+                    album_id = await self.get_spotify_album_id()
+                    if album_id:
+                        image_url = await self.get_spotify_album_image_url(album_id)
+                        if image_url:
+                            result = await self.process_picture(image_url)
+                            if result:
+                                self.log("Successfully found and processed the Album Art @ Spotify")
+                                return result
+                        else:
+                            self.log("Failed to process Spotify image")
+                except Exception as e:
+                    self.log(f"Spotify fallback failed with error: {str(e)}")
         
-        #Try Last.fm:
-        if self.lastfm:
-            try:
-                album_art = await self.search_lastfm_album_art()
-                if album_art:
-                    result = await self.process_picture(album_art)
-                    if result:
-                        self.log("Successfully found and processed the Album Art @ Last.fm")
-                        return result
-                    else:
-                        self.log("Failed to process Last.fm image")
-            except Exception as e:
-                self.log(f"Last.fm fallback failed with error: {str(e)}")
+            #Try Last.fm:
+            if self.lastfm:
+                try:
+                    album_art = await self.search_lastfm_album_art()
+                    if album_art:
+                        result = await self.process_picture(album_art)
+                        if result:
+                            self.log("Successfully found and processed the Album Art @ Last.fm")
+                            return result
+                        else:
+                            self.log("Failed to process Last.fm image")
+                except Exception as e:
+                    self.log(f"Last.fm fallback failed with error: {str(e)}")
 
-        # Try MusicBrainz
-        if self.musicbrainz:
-            try:
-                mb_url = await self.get_musicbrainz_album_art_url()
-                if mb_url:
-                    result = await self.process_picture(mb_url)
-                    if result:
-                        self.log("Successfully found and processed the Album Art @ MusicBrainz")
-                        return result
-                    else:
-                        self.log("Failed to process MusicBrainz image")
-            except Exception as e:
-                self.log(f"MusicBrainz fallback failed with error: {str(e)}")
+            # Try MusicBrainz
+            if self.musicbrainz:
+                try:
+                    mb_url = await self.get_musicbrainz_album_art_url()
+                    if mb_url:
+                        result = await self.process_picture(mb_url)
+                        if result:
+                            self.log("Successfully found and processed the Album Art @ MusicBrainz")
+                            return result
+                        else:
+                            self.log("Failed to process MusicBrainz image")
+                except Exception as e:
+                    self.log(f"MusicBrainz fallback failed with error: {str(e)}")
 
-        # Fallback to AI generation
-        try:
-            ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
-            result = await self.process_picture(ai_url)
-            if result:
-                self.log("Successfully Generated AI Image")
-                return result
-        except Exception as e:
-            self.log(f"AI generation failed: {e}")
+            # Fallback to AI generation
+            try:
+                ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
+                result = await self.process_picture(ai_url)
+                if result:
+                    self.log("Successfully Generated AI Image")
+                    return result
+            except Exception as e:
+                self.log(f"AI generation failed: {e}")
 
         # Ultimate fallback
         default_values = self.reset_img_values()
@@ -987,14 +988,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             all_lines = all_lines[:4]
         
         start_y = (64 - len(all_lines) * 15) // 2
-        payloads = [{"Command":"Draw/ClearHttpText"}] 
-        
-        for i, line in enumerate(all_lines):
-            payload = {
+        payloads = [
+            {
                 "Command": "Draw/SendHttpText",
-                "TextId": i+1,
+                "TextId": i + 1,
                 "x": 0,
-                "y": start_y + i*15,
+                "y": start_y + i * 15,
                 "dir": 0,
                 "font": self.font,
                 "TextWidth": 64,
@@ -1003,7 +1002,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "color": "#a0e5ff" if i < len(artist_lines) else "#f9ffa0",
                 "align": 2
             }
-            payloads.append(payload)
+            for i, line in enumerate(all_lines)
+        ]
         return payloads
     
     def most_vibrant_color(self, full_img):
@@ -1097,60 +1097,46 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
 
     def crop_image_borders(self, img):
+        """Crop image to make it square and then crop borders based on the most common border color."""
         temp_img = img
+
         if self.crop_extra:
             img = img.filter(ImageFilter.BoxBlur(5))
             enhancer = ImageEnhance.Brightness(img)
             img = enhancer.enhance(1.95)
-        
+
         try:
-            np_image = np.array(img)
-            edge_pixels = np.concatenate([np_image[0, :], np_image[-1, :], np_image[:, 0], np_image[:, -1]])
-            colors, counts = np.unique(edge_pixels, axis=0, return_counts=True)
-            border_color = colors[counts.argmax()]
-            dists = np.linalg.norm(np_image - border_color, axis=2)
-            mask = dists < 100  # TOLERANCE
-            coords = np.argwhere(mask == False)
-
-            if coords.size == 0:
-                raise ValueError("No non-border pixels found")
+            border_pixels = []
+            width, height = img.size
             
-            x_min, y_min = coords.min(axis=0)
-            x_max, y_max = coords.max(axis=0) + 1
+            border_pixels.extend([img.getpixel((x, 0)) for x in range(width)])  # Top border
+            border_pixels.extend([img.getpixel((x, height - 1)) for x in range(width)])  # Bottom border
+            border_pixels.extend([img.getpixel((0, y)) for y in range(height)])  # Left border
+            border_pixels.extend([img.getpixel((width - 1, y)) for y in range(height)])  # Right border
 
-            # Exclude top areas with text by removing rows near the top that are too small
-            rows_with_few_pixels = np.sum(mask[:x_min], axis=1) > 0.98 * mask.shape[1]
-            if np.any(rows_with_few_pixels):
-                first_valid_row = np.argmax(~rows_with_few_pixels)
-                x_min = max(x_min, first_valid_row)
+            border_color = max(set(border_pixels), key=border_pixels.count)
 
-            width, height = x_max - x_min, y_max - y_min
-            max_size = max(width, height)
-            x_center, y_center = (x_min + x_max) // 2, (y_min + y_max) // 2
+            mask = Image.new("L", img.size, 0)  # Create a mask with the same size as the image
+            for x in range(width):
+                for y in range(height):
+                    if img.getpixel((x, y)) != border_color:
+                        mask.putpixel((x, y), 255)
 
-            # Ensure the final crop size is at least 64x64
-            if max_size < 64:
-                max_size = 64
-
-            x_min = max(0, x_center - max_size // 2)
-            y_min = max(0, y_center - max_size // 2)
-            x_max = min(np_image.shape[0], x_min + max_size)
-            y_max = min(np_image.shape[1], y_min + max_size)
-
-            # Adjust if the crop dimensions don't match the expected max_size
-            if x_max - x_min < max_size:
-                x_min = max(0, x_max - max_size)
-            if y_max - y_min < max_size:
-                y_min = max(0, y_max - max_size)
-
-            img = temp_img
-            img = img.crop((y_min, x_min, y_max, x_max))
+            bbox = mask.getbbox() 
+            if bbox:
+                center_x = (bbox[0] + bbox[2]) // 2
+                center_y = (bbox[1] + bbox[3]) // 2
+                size = min(bbox[2] - bbox[0], bbox[3] - bbox[1])
                 
+                half_size = max(size // 2, 32)
+                img = temp_img.crop((center_x - half_size, center_y - half_size, center_x + half_size, center_y + half_size))  # Crop the image to the bounding box
+            else:
+                img = temp_img  
+
         except Exception as e:
             self.log(f"Failed to crop: {e}")  
-            enhancer = ImageEnhance.Contrast(temp_img)
-            temp_img = enhancer.enhance(2.0)
             img = temp_img
+            
         return img
 
     def text_clock_img(self, img, brightness_lower_part):
@@ -1186,11 +1172,76 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             return gif_base64
 
     def format_ai_image_prompt(self, artist, title):
-        # Format the AI image prompt with the given artist and title
-        if artist:
-            prompt = f"Create an image inspired by the music artist {artist}, titled: '{title}'. The artwork should feature an accurate likeness of the artist and creatively interpret the title into a visual imagery"
-        else:
-            prompt = f"Create a photorealistic image inspired by: '{title}'. Incorporate bold colors and pop art visual imagery in 80's video game style."
+        # List of prompt templates
+        if not artist:
+            artist = 'Pixoo64 (a real 64x64 led screen)'
+        prompts = [
+            f"Create an image inspired by the music artist {artist}, titled: '{title}'. The artwork should feature an accurate likeness of the artist and creatively interpret the title into a visual imagery.",
+            f"Design a vibrant album cover for '{title}' by {artist}, incorporating elements that reflect the mood and theme of the music.",
+            f"Imagine a surreal landscape that represents the essence of '{title}' by {artist}. Use bold colors and abstract shapes.",
+            f"Create a retro-style album cover for '{title}' by {artist}, featuring pixel art and nostalgic elements from the 80s.",
+            f"Illustrate a dreamlike scene inspired by '{title}' by {artist}, blending fantasy and reality in a captivating way.",
+            f"Generate a minimalist design for '{title}' by {artist}, focusing on simplicity and elegance in the artwork.",
+            f"Craft a dynamic and energetic cover for '{title}' by {artist}, using motion and vibrant colors to convey excitement.",
+            f"Produce a whimsical and playful illustration for '{title}' by {artist}, incorporating fun characters and imaginative elements.",
+            f"Create a dark and moody artwork for '{title}' by {artist}, using shadows and deep colors to evoke emotion.",
+            f"Design a futuristic album cover for '{title}' by {artist}, featuring sci-fi elements and innovative designs."
+        ]
+
+        # Randomly select a prompt
+        prompt = random.choice(prompts)
         prompt = f"{AI_ENGINE}/{prompt}?model={self.ai_fallback}"
         return prompt
 
+    async def get_current_channel_index(self):
+        channel_command = {
+            "Command": "Channel/GetIndex"
+        }
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    self.url,
+                    headers=self.headers,
+                    json=channel_command,
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as response:
+                    response_text = await response.text()
+                    response_data = json.loads(response_text)
+                    return response_data.get('SelectIndex', 1)
+        except Exception as e:
+            self.log(f"Failed to get channel index from Pixoo: {str(e)}")
+            return 1  # Default fallback value
+
+    async def save_image_to_file(self, picture, file_path):
+        if not picture:
+            return False
+        
+        async with self.image_lock:  # Acquire the lock before processing
+            self.pending_task = picture  # Set the current task as pending
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                url = picture if picture.startswith('http') else f"{self.ha_url}{picture}"
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        self.fail_txt = self.fallback = True
+                        return False
+                    
+                    image_data = await response.read()
+
+                    # Check if a new task was set while processing
+                    async with self.image_lock:
+                        if self.pending_task != picture:  # If a new task is pending
+                            return False  # Ignore the result of this task
+
+                    with open(file_path, 'wb') as file:
+                        file.write(image_data)
+                    return True
+        except Exception as e:
+            self.log(f"Error saving image to file: {str(e)}")
+            return False
+
+        except Exception as e:
+            self.log(f"Unexpected error in get_image: {str(e)}\n{traceback.format_exc()}")
+            self.fail_txt = self.fallback = True
+            return None
