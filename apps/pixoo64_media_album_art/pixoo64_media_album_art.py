@@ -121,8 +121,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.lastfm = self.args.get('home_assistant', {}).get("last.fm", False)
 
         # Pixoo device settings
-        pixoo_url = self.args.get('pixoo', {}).get("url", "http://192.168.86.21:80/post")
-        self.url = self.validate_pixoo_url(pixoo_url)
+        pixoo_url = self.args.get('pixoo', {}).get("url", "192.168.86.21")
+        pixoo_url = f"http://{pixoo_url}" if not pixoo_url.startswith('http') else pixoo_url
+        pixoo_url = f"{pixoo_url}:80/post" if not pixoo_url.endswith(':80/post') else pixoo_url
+        self.url = pixoo_url
 
         # Display settings
         self.full_control = self.args.get('pixoo', {}).get("full_control", True)
@@ -1006,17 +1008,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         """Check if text contains bidirectional characters"""
         bidi_regex = f"[{hebrew}|{arabic}|{syriac}|{thaana}|{nkoo}|{rumi}|{arabic_math}|{symbols}|{old_persian_phaistos}|{samaritan}]"
         return bool(re.search(bidi_regex, text))
-
-    def validate_pixoo_url(self, url):
-        # Ensure the URL starts with 'http'
-        if not url.startswith('http'):
-            url = f"http://{url}"
-
-        # Ensure the URL ends with ':80/post'
-        if not url.endswith(':80/post'):
-            url = f"{url}:80/post"
-
-        return url
 
     def clean_title(self, title):
         """Clean up the title by removing common patterns"""
