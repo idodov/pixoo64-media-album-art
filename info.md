@@ -4,13 +4,13 @@
 > Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs. Establish it as a helper within the Home Assistant User Interface or YAML code. It’s best to do this prior to installation. Here’s how you can proceed:
 > 1. Open `configuration.yaml`.
 > 2. Add this lines and restart Home Assistant:
-> ```yaml
-> #/homeassistant/configuration.yaml
-> input_boolean:
->   pixoo64_album_art:
->     name: Pixoo64 Album Art
->     icon: mdi:framed_picture 
-> ```
+```yaml
+#/homeassistant/configuration.yaml
+input_boolean:
+  pixoo64_album_art:
+    name: Pixoo64 Album Art
+    icon: mdi:framed_picture 
+```
 > **Ensure that the helper sensor is created prior to executing the script for the first time.**
 1. Install **AppDaemon** from the Home Assistant add-on store.
 2. On the AppDaemon [Configuration page](http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config), install the **pyrhon-bidi**, **pillow**, and **unidecode** Python packages.
