@@ -120,11 +120,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.discogs = self.args.get('home_assistant', {}).get("discogs", False)
         self.lastfm = self.args.get('home_assistant', {}).get("last.fm", False)
 
-
         # Pixoo device settings
         pixoo_url = self.args.get('pixoo', {}).get("url", "http://192.168.86.21:80/post")
         self.url = self.validate_pixoo_url(pixoo_url)
-        self.log(f"Using Pixoo URL: {self.url}")
 
         # Display settings
         self.full_control = self.args.get('pixoo', {}).get("full_control", True)
@@ -139,6 +137,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.font = self.args.get('pixoo', {}).get('show_text', {}).get("font", 2)
         self.font_c = self.args.get('pixoo', {}).get('show_text', {}).get("color", True)
         self.text_bg = self.args.get('pixoo', {}).get('show_text', {}).get("text_background", True)
+        self.ai_artist = self.ai_title = None
 
         # Image processing settings
         self.crop_borders = self.args.get('pixoo', {}).get('crop_borders', {}).get("enabled", True)
@@ -192,10 +191,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         }
 
         # Test connection
-        await self.test_pixoo_connection()
         self.is_processing = False
-
         self.callback_timeout = 30  # Increase the callback timeout limit
+        self.select_index = await self.get_current_channel_index()
 
     async def safe_state_change_callback(self, entity, attribute, old, new, kwargs):
         """Wrapper for state change callback with timeout protection"""
@@ -261,7 +259,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                                 {"Command": "Draw/ClearHttpText"},
                                 {"Command": "Draw/ResetHttpGifId"},
                                 {"Command": "Channel/SetIndex", "SelectIndex": 4},
-                                {"Command": "Channel/SetIndex", "SelectIndex": select_index}
+                                {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
                             ]
                         }
                         await self.send_pixoo(payload)
@@ -309,7 +307,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         try:
             async with asyncio.timeout(self.callback_timeout):
                 # Get current channel index
-                select_index = await self.get_current_channel_index()
+                self.select_index = await self.get_current_channel_index()
                 if media_state in ["playing", "on"]:
                     title = await self.get_state(self.media_player, attribute="media_title")
                     original_title = title
@@ -472,7 +470,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                                     {"Command": "Draw/ClearHttpText"},
                                     {"Command": "Draw/ResetHttpGifId"},
                                     {"Command": "Channel/SetIndex", "SelectIndex": 4},
-                                    {"Command": "Channel/SetIndex", "SelectIndex": select_index}
+                                    {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
                                 ]
                             }
 
@@ -547,8 +545,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if height < width:  # Check if height is less than width
                     # Calculate the border size
                     border_size = (width - height) // 2
-                    # Create a new image with the background color
-                    background_color = (255, 255, 255)  # Set your desired background color here (e.g., white)
+                    background_color = img.getpixel((1, 1))
+                    
                     new_img = Image.new("RGB", (width, width), background_color)  # Create a square image
                     new_img.paste(img, (0, border_size))  # Paste the original image onto the new image
                     img = new_img  # Update img to the new image
@@ -928,33 +926,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.fail_txt = self.fallback = True
         return (zlib.decompress(BLK_SCR).decode(), *default_values)
 
-    async def test_pixoo_connection(self):
-        """Test connection to Pixoo device"""
-        try:
-            test_command = {
-                "Command": "Channel/GetIndex"
-            }
-            
-            #self.log(f"Testing connection to Pixoo at {self.url}")
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    self.url,
-                    headers=self.headers,
-                    json=test_command,
-                    timeout=aiohttp.ClientTimeout(total=5)
-                ) as response:
-                    response_text = await response.text()
-                    #self.log(f"Pixoo test response: {response_text}")
-                    
-                    if response.status == 200:
-                        self.log("Successfully connected to Pixoo device")
-                    else:
-                        self.log(f"Failed to connect to Pixoo device: {response.status}")
-                        
-        except Exception as e:
-            self.log(f"Error testing Pixoo connection: {str(e)}\n{traceback.format_exc()}")
-
     def ensure_rgb(self, img):
         try:
             if img.mode != "RGB":
@@ -1037,26 +1008,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         return bool(re.search(bidi_regex, text))
 
     def validate_pixoo_url(self, url):
-        """Validate and format Pixoo URL"""
-        default_url = "http://192.168.86.21:80/post"
-    
-        if not url:
-            return default_url
-
-        # Regex to match an IP address format x.x.x.x
-        ip_pattern = re.compile(r"^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$")
-    
-        # Extract hostname from the URL
-        try:
-            hostname = re.search(r'(?P<url>https?://[^\s]+)', url).group("url").split("//")[1].split("/")[0].split(':')[0]
-        except:
-            hostname = url
-
-        # Validate the IP address format
-        if not ip_pattern.match(hostname):
-            self.log("Invalid URL: IP address format is incorrect")
-            return default_url
-
         # Ensure the URL starts with 'http'
         if not url.startswith('http'):
             url = f"http://{url}"
@@ -1211,37 +1162,3 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         except Exception as e:
             self.log(f"Failed to get channel index from Pixoo: {str(e)}")
             return 1  # Default fallback value
-
-    async def save_image_to_file(self, picture, file_path):
-        if not picture:
-            return False
-        
-        async with self.image_lock:  # Acquire the lock before processing
-            self.pending_task = picture  # Set the current task as pending
-
-        try:
-            async with aiohttp.ClientSession() as session:
-                url = picture if picture.startswith('http') else f"{self.ha_url}{picture}"
-                async with session.get(url) as response:
-                    if response.status != 200:
-                        self.fail_txt = self.fallback = True
-                        return False
-                    
-                    image_data = await response.read()
-
-                    # Check if a new task was set while processing
-                    async with self.image_lock:
-                        if self.pending_task != picture:  # If a new task is pending
-                            return False  # Ignore the result of this task
-
-                    with open(file_path, 'wb') as file:
-                        file.write(image_data)
-                    return True
-        except Exception as e:
-            self.log(f"Error saving image to file: {str(e)}")
-            return False
-
-        except Exception as e:
-            self.log(f"Unexpected error in get_image: {str(e)}\n{traceback.format_exc()}")
-            self.fail_txt = self.fallback = True
-            return None
