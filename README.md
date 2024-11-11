@@ -4,6 +4,7 @@ Transform your DIVOOM PIXOO64 into a dynamic visual companion with this script. 
 
 The script supports fallbacks using APIs (Spotify/Discogs/Last.fm) or free services like MusicBrainz. If these methods fail, it will attempt to create AI-generated album art using [pollinations.ai](https://pollinations.ai/). This alternative AI-generated cover art is displayed when no album art is available or when using services like SoundCloud, where the script cannot fetch the image. It is also compatible with streaming radio stations and local files.
 
+This script works with speaker systems such as Chromecast, AirPlay 2, Sonos, and more when the music service, radio station, or the music file contains artist and title metadata.
 
 ## Examples
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
@@ -25,7 +26,7 @@ The script supports fallbacks using APIs (Spotify/Discogs/Last.fm) or free servi
 > Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs. This means that whenever the player starts a track, the album art will appear if the toggle is on. Establish this helper within the Home Assistant User Interface or YAML code. It’s best to do this prior to installation.
 > **Ensure that the helper sensor is created prior to executing the script for the first time.**
 1. Install **AppDaemon** from the Home Assistant add-on store.
-2. On the AppDaemon [Configuration page](http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config), install the **`numpy==1.26.4`**, **`pillow`**, **`python-bidi`** and **`unidecode`** Python packages.
+2. On the AppDaemon [Configuration page](http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config), install the **`pillow`**, **`python-bidi`** *(optional)* and **`unidecode`** *(optional)* Python packages.
 
 > [!IMPORTANT]
 > Not installing the packadges may cause the script not work
@@ -33,9 +34,8 @@ The script supports fallbacks using APIs (Spotify/Discogs/Last.fm) or free servi
 # http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config
 system_packages: []
 python_packages:
-  - unidecode
   - pillow
-  - numpy==1.26.4
+  - unidecode
   - python-bidi
 init_commands: []
 ```
