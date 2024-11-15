@@ -22,7 +22,7 @@ The script is compatible with speaker systems such as Chromecast, AirPlay 2, and
 - **Light Dynamic Color Integration**: Uses the dominant color from the album art to set the background color on any RGB light.
 
 ### Fallback Image
-When there's no image associated with the music file, or if the image can't be fetched, ot while listening to radio stations the fallback function activates. By default, the supported fallbacks are MusicBrainz and the AI Image generator because neither requires an API key. However, these services are not 100% reliable, so it's recommended to use any of the APIs that this script supports (Spotify/Discogs/Last.fm). You can choose to use one, two, or all three. The fallback will first try to find the album art on Discogs, and if it fails, it will try Spotify, then Last.fm. Regardless, 99.9% of the time when a track is played, the Pixoo64 will present artwork graphics.
+When there's no image associated with the music file, or if the image can't be fetched, or while listening to radio stations, the fallback function activates. By default, the supported fallbacks are MusicBrainz and the AI Image generator, as neither requires an API key. However, these services are not 100% reliable, so it's recommended to use any of the APIs that this script supports (Spotify/Discogs/Last.fm). You can choose to use one, two, or all three. The fallback will first try to find the album art on Discogs; if it fails, it will try Spotify, then Last.fm. Regardless, 99.9% of the time when a track is played, the Pixoo64 will present artwork graphics.
 
 #### Display Lyrics
 For accessibility, when lyrics are available and displayed above the image, the image will appear 50% darker when `text_background` is `True` (apps.yaml).
