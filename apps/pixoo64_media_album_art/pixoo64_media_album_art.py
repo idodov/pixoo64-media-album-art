@@ -30,12 +30,13 @@ pixoo64_media_album_art:
         last.fm: False                             # Last.fm API KEY from https://www.last.fm/api/account/create
         discogs: False                             # Discogs API KEY from https://www.discogs.com/settings/developers
     pixoo:
-        url: "http://192.168.86.21/post"        # Pixoo device URL
+        url: "192.168.86.21"                       # Pixoo device URL
         full_control: True                         # Control display on/off with play/pause
         contrast: True                             # Apply 50% contrast filter
         clock: True                                # Show clock top corner
         clock_align: Right                         # Clock align - Left or Right
         tv_icon: True                              # Shows TV icon when playing sound from TV
+        lyrics: False                              # Show track lyrics. In this mode the show_text and clock feture will disable.
         show_text:
             enabled: False                         # Show media artist and title 
             clean_title: True                      # Remove "Remaster" labels, track number and file extentions from the title if any
@@ -47,21 +48,23 @@ pixoo64_media_album_art:
             extra: True                            # Apply enhanced border crop
 """
 import asyncio
-import aiohttp
-import re
 import os
-import base64
+import re
 import json
 import time
 import zlib
 import random
 import traceback
-from io import BytesIO
-from PIL import Image, ImageEnhance, ImageFilter
+from datetime import datetime, timezone
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from appdaemon.plugins.hass import hassapi as hass
+from io import BytesIO
+import math
 
+# Third-party library imports
+import aiohttp
+from PIL import Image, ImageEnhance, ImageFilter, ImageStat
+import colorsys
 try:
     from unidecode import unidecode
     undicode_m = True
@@ -73,9 +76,13 @@ try:
 except ImportError:
     print("The 'bidi.algorithm' module is not installed or not available. RTL texts will display reverce")
 
+# Home Assistant plugins
+from appdaemon.plugins.hass import hassapi as hass
+import colorsys
+
 # Constants
 AI_ENGINE = "https://pollinations.ai/p"
-BLK_SCR = b'x\x9c\xed\xc11\x01\x00\x00\x00\xc2\xa0l\xeb_\xca\x18>@\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00o\x03\xda:@\xf1'
+BLK_SCR = b'x\x9c\xc11\x01\x00\x00\x00\xc2\xa0l\xeb_\xca\x18>@\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00o\x03\xda:@\xf1'
 TV_ICON_PATH = "/local/pixoo64/tv-icon-1.png"
 local_directory = "/homeassistant/www/pixoo64/"
 
@@ -101,6 +108,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         super().__init__(*args, **kwargs)  # Call the parent class's __init__ method
         self.image_lock = asyncio.Lock()  # Initialize a lock for image processing
         self.pending_task = None  # To keep track of the last task
+        self.clear_timer_task = None
 
     async def initialize(self):
         """Initialize the app and set up state listeners."""
@@ -134,6 +142,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.tv_icon_pic = self.args.get('pixoo', {}).get("tv_icon", True)
 
         # Text display settings
+        self.show_lyrics = self.args.get('pixoo', {}).get("lyrics", False)
         self.show_text = self.args.get('pixoo', {}).get('show_text', {}).get("enabled", False)
         self.clean_title_enabled = self.args.get('pixoo', {}).get('show_text', {}).get("clean_title", True) 
         self.font = self.args.get('pixoo', {}).get('show_text', {}).get("font", 2)
@@ -147,6 +156,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         # State variables
         self.fallback = self.fail_txt = self.playing_radio = self.radio_logo = False
+        self.media_position = self.media_duration = 0
+        self.media_position_updated_at = None
         self.album_name = self.get_state(self.media_player, attribute="media_album_name")
 
         # Validate AI model
@@ -182,7 +193,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         # Set up state listeners
         self.listen_state(self.safe_state_change_callback, self.media_player, attribute='media_title')
-        self.listen_state(self.safe_state_change_callback, self.media_player)
+        self.listen_state(self.safe_state_change_callback, self.media_player, attribute='state')
+        if self.show_lyrics:
+            self.run_every(self.calculate_position, datetime.now(), 1)  # Run every second
         
         # Update headers
         self.headers = {
@@ -194,16 +207,19 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         # Test connection
         self.is_processing = False
+        self.lyrics = []
+        self.lyrics_font_color = "#FF00AA"
         self.callback_timeout = 30  # Increase the callback timeout limit
         self.select_index = await self.get_current_channel_index()
 
     async def safe_state_change_callback(self, entity, attribute, old, new, kwargs):
         """Wrapper for state change callback with timeout protection"""
-        if hasattr(self, 'is_processing') and self.is_processing:
-            self.log(f"Ignoring new callback {self.ai_artist} - {self.ai_title}", level="WARNING")
-            return  # Ignore if already processing
+        #if hasattr(self, 'is_processing') and self.is_processing:
+        if self.is_processing:
+            self.log(f"Ignoring new callback {new} - {old}", level="WARNING")
+            return  # Ignore if image already processing
 
-        self.is_processing = True  # Set the flag to indicate processing has started
+        #self.is_processing = True  # Set the flag to indicate processing has started
         try:
             # Create a task with timeout
             async with asyncio.timeout(self.callback_timeout):
@@ -213,19 +229,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             # Optionally reset any state or cleanup here
         except Exception as e:
             self.log(f"Error in callback: {str(e)}", level="ERROR")
-        finally:
-            self.is_processing = False  # Reset the flag when processing is done
+        #finally:
+            #self.is_processing = False  # Reset the flag when processing is done
 
     async def state_change_callback(self, entity, attribute, old, new, kwargs):
         """Main callback with early exit conditions"""
         try:
             # Quick checks for early exit
-            if new == old:
-                return
-            
-            # Get the state of the input boolean
-            input_boolean = await self.get_state(self.toggle)
-            if input_boolean != "on":
+            if new == old or (await self.get_state(self.toggle)) != "on":
                 return
             
             media_state = await self.get_state(self.media_player)
@@ -234,37 +245,16 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 self.album_name = "media player is not playing - removing the album name"
 
                 if self.full_control:
-                    # Check state again after delay to ensure music is still stopped
-                    await asyncio.sleep(2)  # Delay to not turn off during track changes
-                    current_state = await self.get_state(self.media_player)
-                    
-                    if current_state not in ["playing", "on"]:
-                        payload = {
+                    await asyncio.sleep(5)  # Delay to not turn off during track changes
+                    if await self.get_state(self.media_player) not in ["playing", "on"]:
+                        await self.send_pixoo({
                             "Command": "Draw/CommandList",
                             "CommandList": [
                                 {"Command": "Draw/ClearHttpText"},
                                 {"Command": "Draw/ResetHttpGifId"},
                                 {"Command": "Channel/OnOffScreen", "OnOff": 0}
                             ]
-                        }
-                        await self.send_pixoo(payload)
-                        await self.set_state(self.pixoo_sensor, state="off")
-                        if self.light:
-                            await self.control_light('off')
-                else:
-                    # If not in full control, just update the display
-                    current_state = await self.get_state(self.media_player)
-                    if current_state not in ["playing", "on"]:
-                        payload = {
-                            "Command": "Draw/CommandList",
-                            "CommandList": [
-                                {"Command": "Draw/ClearHttpText"},
-                                {"Command": "Draw/ResetHttpGifId"},
-                                {"Command": "Channel/SetIndex", "SelectIndex": 4},
-                                {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
-                            ]
-                        }
-                        await self.send_pixoo(payload)
+                        })
                         await self.set_state(self.pixoo_sensor, state="off")
                         if self.light:
                             await self.control_light('off')
@@ -274,30 +264,29 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             await self.update_attributes(entity, attribute, old, new, kwargs)
 
         except Exception as e:
-            self.log(f"Error in state change callback: {str(e)}", level="ERROR")
+            self.log(f"Error in state change callback: {str(e)}")
 
     async def update_attributes(self, entity, attribute, old, new, kwargs):
         """Modified to be more efficient"""
         try:
             # Quick validation of media state
-            media_state = await self.get_state(self.media_player)
-            if media_state not in ["playing", "on"]:
+            if (media_state := await self.get_state(self.media_player)) not in ["playing", "on"]:
                 if self.light:
                     await self.control_light('off')
                 return
 
             # Get current title and check if we need to update
-            title = await self.get_state(self.media_player, attribute="media_title")
-            if not title:
+            if not (title := await self.get_state(self.media_player, attribute="media_title")):
                 return
 
             title = self.clean_title(title) if self.clean_title_enabled else title
 
-            # Check if we need to update the album art
-            album_name_check = await self.get_state(self.media_player, attribute="media_album_name") or title
-            if album_name_check == self.album_name:
-                return  # No need to update if it's the same album
-
+            if self.show_lyrics:
+                artist = await self.get_state(self.media_player, attribute="media_artist")
+                await self.get_lyrics(artist, title)  # Fetch lyrics here
+            else:
+                self.lyrics = []
+            
             # Proceed with the main logic
             await self.pixoo_run(media_state)
 
@@ -312,11 +301,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 self.select_index = await self.get_current_channel_index()
                 if media_state in ["playing", "on"]:
                     title = await self.get_state(self.media_player, attribute="media_title")
+                    self.media_position = await self.get_state(self.media_player, attribute="media_position", default=0)
+                    self.media_position_updated_at = await self.get_state(self.media_player, attribute="media_position_updated_at", default=None)
+                    self.media_duration = await self.get_state(self.media_player, attribute="media_duration", default=0)
                     original_title = title
                     title = self.clean_title(title) if self.clean_title_enabled else title
-
-                    album_name_check = await self.get_state(self.media_player, attribute="media_album_name") or title
-                    self.send_pic = album_name_check != self.album_name
 
                     if title != "TV" and title is not None:
                         artist = await self.get_state(self.media_player, attribute="media_artist")
@@ -328,15 +317,15 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         else:
                             normalized_title = title
                             normalized_artist = artist if artist else ""
-                        self.ai_title = original_title #normalized_title
-                        self.ai_artist = original_artist #normalized_artist
+                        self.ai_title = normalized_title
+                        self.ai_artist = normalized_artist
                         
                         picture = await self.get_state(self.media_player, attribute="entity_picture")
                         original_picture = picture
                         media_content_id = await self.get_state(self.media_player, attribute="media_content_id")
                         queue_position = await self.get_state(self.media_player, attribute="queue_position")
                         media_channel = await self.get_state(self.media_player, attribute="media_channel")
-
+                        
                         if media_channel and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac://http") or media_content_id.startswith("rtsp://")):
                             self.playing_radio = True
                             self.radio_logo = False
@@ -388,17 +377,16 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         try:
                             color_font = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
                         except Exception as e:
+                            print(f"error font \n{traceback.format_exc()}")
                             background_color_rgb = (200,200,200)
                             color_font = (255,255,255)
-                        #color_font = tuple(min(255, int(c) + brightness_factor) for c in background_color_rgb)
 
                         color_font = '#%02x%02x%02x' % color_font
                         color_font = color_font if self.font_c else recommended_font_color
-                        if self.send_pic:
-                            self.album_name = album_name_check # Will not try to upload a new pic while listening to the same album
-                            await self.send_pixoo(payload)
-                            if self.light:
-                                await self.control_light('on',background_color_rgb)
+
+                        await self.send_pixoo(payload)
+                        if self.light:
+                            await self.control_light('on',background_color_rgb)
                         
                         if self.show_text and not self.fallback and not self.radio_logo:
                             textid +=1
@@ -436,7 +424,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                                 }
                             moreinfo["ItemList"].append(clock_item)
 
-                        if (self.show_text or self.show_clock) and not self.fallback:
+                        if (self.show_text or self.show_clock) and not (self.fallback or self.show_lyrics):
                             await self.send_pixoo(moreinfo)
 
                         if self.fallback and self.fail_txt:
@@ -528,6 +516,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             return None
 
     async def process_image_data(self, image_data):
+        self.is_processing = True
         loop = asyncio.get_event_loop()
         with ThreadPoolExecutor() as executor:
             img = await loop.run_in_executor(
@@ -535,6 +524,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 self._process_image,
                 image_data
             )
+        self.is_processing = False
         return img
 
     def _process_image(self, image_data):
@@ -592,31 +582,34 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     def img_values(self, img):
         font_color, recommended_font_color, recommended_font_color_rgb, background_color, most_common_color_alternative_rgb, most_common_color_alternative, background_color_rgb, brightness, brightness_lower_part = self.reset_img_values()
         full_img = img
+
+        # Lower Part
         lower_part = img.crop((3, 48, 61, 61))
         lower_part = self.ensure_rgb(lower_part)
         most_common_color = self.most_vibrant_color(lower_part)
-        most_common_color_alternative_rgb = self.most_vibrant_color(full_img)
-        most_common_color_alternative = '#%02x%02x%02x' % most_common_color_alternative_rgb
-        brightness = int(sum(most_common_color_alternative_rgb) / 3)
-        brightness_lower_part = int(sum(most_common_color)/ 3)
-        most_common_colors = [item[0] for item in Counter(lower_part.getdata()).most_common(10)]
-        candidate_colors = [(0, 0, 255), (255, 0, 0), (0, 255, 0), (255, 255, 0), (0, 255, 255), (255, 0, 255)]
-            
-        for color in candidate_colors:
-            if color not in most_common_colors:
-                font_color = '#%02x%02x%02x' % color
-                break
-            
         opposite_color = tuple(255 - i for i in most_common_color)
         opposite_color_brightness = int(sum(opposite_color)/3)
         brightness_lower_part = round(1 - opposite_color_brightness / 255, 2) if 0 <= opposite_color_brightness <= 255 else 0
-        recommended_font_color = '#%02x%02x%02x' % opposite_color
+
+        # Full Image
+        most_common_color_alternative_rgb = self.most_vibrant_color(full_img)
+        most_common_color_alternative = '#%02x%02x%02x' % most_common_color_alternative_rgb
+        brightness = int(sum(most_common_color_alternative_rgb) / 3)
+        opposite_color_full = tuple(255 - i for i in most_common_color_alternative_rgb)
+        opposite_color_brightness_full = int(sum(opposite_color_full)/3)
+        self.brightness_full = round(1 - opposite_color_brightness_full / 255, 2) if 0 <= opposite_color_brightness_full <= 255 else 0
+
+        font_color =  self.get_optimal_font_color(lower_part)
+        self.lyrics_font_color = self.get_optimal_font_color(img)
+
         enhancer = ImageEnhance.Contrast(full_img)
         full_img = enhancer.enhance(2.0)
         background_color_rgb = self.most_vibrant_color(full_img)
         background_color = '#%02x%02x%02x' % most_common_color_alternative_rgb
         recommended_font_color_rgb = opposite_color
-        return font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative
+        
+        return (font_color, recommended_font_color, brightness, brightness_lower_part, background_color, 
+                background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative)
 
     async def process_picture(self, picture):
         try:
@@ -1082,14 +1075,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         return img
 
     def text_clock_img(self, img, brightness_lower_part):
-        if self.text_bg and self.show_text and not self.radio_logo:
+        # Check if there are no lyrics before proceeding
+        if self.show_lyrics and self.lyrics != [] and self.media_position_updated_at != None and self.text_bg:
+            enhancer_lp = ImageEnhance.Brightness(img)
+            img = enhancer_lp.enhance(0.55) #self.brightness_full) 
+            return img
+
+        if self.text_bg and self.show_text and not self.show_lyrics:
             lpc = (0,48,64,64)
             lower_part_img = img.crop(lpc)
             enhancer_lp = ImageEnhance.Brightness(lower_part_img)
             lower_part_img = enhancer_lp.enhance(brightness_lower_part)
             img.paste(lower_part_img, lpc)
 
-        if self.show_clock:
+        if self.show_clock and not self.show_lyrics:
             lpc = (43, 2, 62, 9) if self.clock_align == "Right" else (2, 2, 21, 9)
             lower_part_img = img.crop(lpc)
             enhancer_lp = ImageEnhance.Brightness(lower_part_img)
@@ -1153,3 +1152,160 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         except Exception as e:
             self.log(f"Failed to get channel index from Pixoo: {str(e)}")
             return 1  # Default fallback value
+
+    async def calculate_position(self, kwargs):
+        media_state = await self.get_state(self.media_player)  # Get the current state of the media player
+        if media_state not in ["playing", "on"]:  # Check if the media player is playing
+            return  # Exit the function if not playing
+
+        self.media_position = await self.get_state(self.media_player, attribute="media_position", default=0)
+        self.media_position_updated_at = await self.get_state(self.media_player, attribute="media_position_updated_at", default=None)
+        self.media_duration = await self.get_state(self.media_player, attribute="media_duration", default=0)
+        if self.media_position_updated_at:
+            media_position_updated_at = datetime.fromisoformat(self.media_position_updated_at.replace('Z', '+00:00'))
+            current_time = datetime.now(timezone.utc)
+            time_diff = (current_time - media_position_updated_at).total_seconds()
+            current_position = self.media_position + time_diff
+            current_position = min(current_position, self.media_duration)
+            self.track_position = int(current_position)
+            current_position = self.track_position
+            if current_position is not None and self.lyrics and self.show_lyrics:
+                for i, lyric in enumerate(self.lyrics):
+                    lyric_time = lyric['seconds']
+                    
+                    if int(current_position) == lyric_time - 1:
+                        await self.create_lyrics_payloads(lyric['lyrics'], 11)
+                        next_lyric_time = self.lyrics[i + 1]['seconds'] if i + 1 < len(self.lyrics) else None
+                        lyrics_diplay = (next_lyric_time - lyric_time) if next_lyric_time else lyric_time + 10
+                        if lyrics_diplay > 6:
+                            await asyncio.sleep(7)
+                            await self.send_pixoo({"Command": "Draw/ClearHttpText"})
+                        break
+
+
+    async def get_lyrics(self, artist, title):
+        """Fetch lyrics for the given artist and title."""
+        # Use HTTP instead of HTTPS
+        lyrics_url = f"http://api.textyl.co/api/lyrics?q={artist} - {title}"
+        try:
+            # Create a session with SSL verification disabled
+            connector = aiohttp.TCPConnector(ssl=False)
+            async with aiohttp.ClientSession(connector=connector) as session:
+                async with session.get(lyrics_url) as response:
+                    if response.status == 200:
+                        lyrics_data = await response.json()
+                        # Store the lyrics and seconds in a list of dictionaries
+                        self.lyrics = [{'seconds': line['seconds'], 'lyrics': line['lyrics']} for line in lyrics_data]
+                        self.log(f"Retrieved lyrics for {artist} - {title}")
+                    else:
+                        self.log(f"Failed to fetch lyrics: {response.status}")
+                        self.lyrics = []  # Reset lyrics if fetching fails
+        except Exception as e:
+            self.log(f"Error fetching lyrics: {str(e)}")
+            self.lyrics = []  # Reset lyrics on error
+
+    async def create_lyrics_payloads(self, lyrics, x):
+        # Split the lyrics into lines based on the max character limit
+        all_lines = self.split_string(self.get_display(lyrics) if lyrics and self.has_bidi(lyrics) else lyrics, x)[:5]  # Limit to a maximum of 5 lines
+        if len(all_lines) > 5:
+            all_lines[4] += ' ' + ' '.join(all_lines[5:])
+            all_lines = all_lines[:5]
+        
+        start_y = (64 - len(all_lines) * 15) // 2
+        payloads = [
+            {
+                "Command": "Draw/SendHttpText",
+                "TextId": i + 1,  # Unique TextId for each line
+                "x": 0,
+                "y": start_y + (i * 13),  # Adjust y position for each line
+                "dir": 0,
+                "font": self.font,
+                "TextWidth": 64,
+                "speed": 80,
+                "TextString": line,
+                "color": self.lyrics_font_color,
+                "align": 2
+            }
+            for i, line in enumerate(all_lines)
+        ]
+        # Clear text command 
+        clear_text_command = {"Command": "Draw/ClearHttpText"}
+        full_command_list = [clear_text_command] + payloads
+        payload = {"Command": "Draw/CommandList", "CommandList": full_command_list}
+        await self.send_pixoo(payload)
+
+    def get_optimal_font_color(self, img):
+        """Determine a colorful, readable font color that avoids all colors in the image palette and maximizes distinctiveness."""
+        
+        # Resize for faster processing
+        small_img = img #.resize((16, 16), Image.Resampling.LANCZOS)
+        
+        # Get all unique colors in the image (palette)
+        image_palette = set(small_img.getdata())
+        
+        # Calculate luminance to analyze image brightness
+        def luminance(color):
+            r, g, b = color
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
+        
+        # Calculate average brightness of the image palette
+        avg_brightness = sum(luminance(color) for color in image_palette) / len(image_palette)
+
+        # Define the contrast ratio calculation
+        def contrast_ratio(color1, color2):
+            L1 = luminance(color1) + 0.05
+            L2 = luminance(color2) + 0.05
+            return max(L1, L2) / min(L1, L2)
+
+        # Check if the color is sufficiently distinct from all colors in the image
+        def is_distinct_color(color, threshold=150):
+            return all(math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color, img_color))) > threshold for img_color in image_palette)
+
+        # Define a set of colorful candidate colors
+        candidate_colors = [
+            (255, 99, 71), (218, 112, 214), (72, 61, 139), (255, 165, 0), (50, 205, 50),
+            (30, 144, 255), (255, 140, 0), (173, 255, 47), (106, 90, 205), (255, 69, 0),
+            (123, 104, 238), (210, 105, 30), (0, 255, 255), (255, 105, 180), (0, 191, 255),
+            (138, 43, 226), (255, 20, 147), (127, 255, 0), (255, 215, 0), (70, 130, 180),
+            (189, 183, 107), (176, 196, 222), (219, 112, 147), (100, 149, 237), (144, 238, 144),
+            (173, 216, 230), (250, 128, 114), (46, 139, 87), (147, 112, 219), (233, 150, 122),
+            (139, 69, 19), (240, 128, 128), (245, 222, 179), (0, 128, 128), (255, 99, 71),
+            (255, 160, 122), (255, 228, 181), (0, 250, 154), (153, 50, 204), (107, 142, 35),
+            (222, 184, 135), (233, 150, 122), (255, 182, 193), (127, 255, 212), (255, 218, 185),
+            (32, 178, 170), (238, 130, 238), (0, 255, 127), (245, 245, 220), (95, 158, 160),
+            (173, 255, 47), (176, 224, 230), (199, 21, 133), (255, 127, 80), (186, 85, 211),
+            (238, 232, 170), (250, 250, 210), (255, 222, 173), (255, 239, 213), (245, 255, 250),
+            (0, 206, 209), (175, 238, 238), (255, 228, 225), (238, 221, 130), (255, 228, 196),
+            (144, 238, 144), (210, 180, 140), (176, 196, 222), (240, 248, 255), (135, 206, 235),
+            (255, 69, 0), (127, 255, 0), (255, 140, 0), (255, 105, 180), (100, 149, 237),
+            (139, 0, 139), (255, 20, 147), (255, 99, 71), (218, 112, 214), (123, 104, 238),
+            (34, 139, 34), (255, 215, 0), (32, 178, 170), (152, 251, 152), (0, 0, 255),
+            (255, 69, 0), (0, 128, 0), (173, 255, 47), (139, 69, 19), (0, 191, 255),
+            (240, 230, 140), (176, 224, 230), (245, 245, 220), (32, 178, 170), (255, 0, 255),
+            (255, 140, 0), (199, 21, 133), (250, 128, 114), (0, 250, 154), (123, 104, 238),
+            (255, 228, 196), (255, 182, 193), (250, 250, 210), (255, 218, 185), (255, 222, 173)
+        ]
+        
+        best_color = None
+        max_distance = -1  # Initialize to a negative value
+
+        # Check each candidate color against the image palette
+        for font_color in candidate_colors:
+            if is_distinct_color(font_color):
+                # Calculate the minimum distance from the candidate color to all colors in the palette
+                distances = [math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(font_color, img_color))) for img_color in image_palette]
+                min_distance = min(distances)  # Get the minimum distance to any color in the palette
+
+                # Ensure contrast with image brightness
+                if contrast_ratio(font_color, (255, 255, 255) if avg_brightness < 127 else (0, 0, 0)) >= 2:
+                    # Update best color if this candidate has a greater minimum distance
+                    if min_distance > max_distance:
+                        max_distance = min_distance
+                        best_color = font_color
+
+        # If a best color was found, return it
+        if best_color:
+            return '#%02x%02x%02x' % best_color
+
+        # Fallback if no suitable color is found
+        return '#000000' if avg_brightness > 127 else '#ffffff'  # Use average brightness for fallback
