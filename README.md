@@ -22,25 +22,10 @@ The script is compatible with speaker systems such as Chromecast, AirPlay 2, and
 - **Light Dynamic Color Integration**: Uses the dominant color from the album art to set the background color on any RGB light.
 
 ### Fallback Image
-
 When there's no image associated with the music file, or if the image can't be fetched, the fallback function activates. By default, the supported fallbacks are MusicBrainz and the AI Image generator because neither requires an API key. However, these services are not 100% reliable, so it's recommended to use any of the APIs that this script supports (Spotify/Discogs/Last.fm). You can choose to use one, two, or all three. The fallback will first try to find the album art on Discogs, and if it fails, it will try Spotify, then Last.fm. Regardless, 99.9% of the time when a track is played, the Pixoo64 will present artwork graphics.
 
-#### Recommended Fallback Options:
-- **Spotify API**: Always returns a result, even if the specific artist or track isn't found on Spotify. Requires a Spotify developer's account.
-- **Discogs**: Community-supported databases where regular people upload cover art. The cover art can be unique or rare, and sometimes it might not exist.
-
-#### Types of Fallbacks:
-1. **Album API**: Servers are fast and reliable. To use this method, you'll need:
-   - Spotify: Client ID and Client Secret.
-   - Discogs: Personal API Key.
-   - Last.FM: API Key.
-   - Instructions on how to obtain them are provided beyond this text.
-2. **MusicBrainz**: An open-source database containing URLs for album art. No API keys are required, but the server connections are slow, which can delay the retrieval of album art.
-3. **Special AI Art Generation**: If the image fails (or is unavailable) and/or no album art is found, or there is a timeout from the services, the script will attempt to generate an alternative version of the album art using generative AI. Be aware that as it is a free AI generative service, it may also be laggy or sometimes unavailable.
-4. **Fallback Text Display**: If no image is available at all, text displaying the artist's name and the track title will be shown.
-
 #### Display Lyrics
-For accessibility, when lyrics are available and displayed above the image, the image will appear 50% darker.
+For accessibility, when lyrics are available and displayed above the image, the image will appear 50% darker when `text_background` is `True` (apps.yaml)
 
 ## Prerequisites
 1. [DIVOOM PIXOO64](https://www.aliexpress.com/item/1005003116676867.html)
@@ -184,11 +169,11 @@ When there's no image associated with the music file, or if the image can't be f
 
 ### There are four types of fallbacks:
 
-1. **Getting the Album API**: This is the most recommended option because servers are fast and reliable. You can choose one or more options. To use this method, you'll need keys:
+1. **Getting the Album API**: This is the most recommended option because servers are fast and reliable. You can choose one or more options. To use this method, you'll need keys (optional):
    - **Spotify**: the Client ID and the Client Secret.
    - **Discogs**: Personal API Key
    - **Last.FM**: API Key
-   - Instructions on how to obtain them are provided beyond this text.
+   Instructions on how to obtain them are provided beyond this text.
 
 2. **Fetching Album Art from MusicBrainz**: MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
 
