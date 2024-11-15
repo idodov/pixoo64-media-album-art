@@ -1,22 +1,47 @@
-# DIVOOM PIXOO64 Media Album Art Display: Elevate Your Musical Journey
+### Album Art Display on PIXOO64
 
-Transform your DIVOOM PIXOO64 into a dynamic visual companion with this script. It fetches and displays the album cover art of the currently playing track, enriching your musical experience. Additionally, it extracts useful data such as the artist's name and the dominant color from the album art, which can be leveraged for further automation in your Home Assistant environment.
-
-The script supports fallbacks using APIs (Spotify/Discogs/Last.fm) or free services like MusicBrainz. If these methods fail, it will attempt to create AI-generated album art using [pollinations.ai](https://pollinations.ai/). This alternative AI-generated cover art is displayed when no album art is available or when using services like SoundCloud, where the script cannot fetch the image. It is also compatible with streaming radio stations and local files.
-
-This script works with speaker systems such as Chromecast, AirPlay 2, Sonos, and more when the music service, radio station, or the music file contains artist and title metadata.
+Enhance your musical experience on the DIVOOM PIXOO64 screen with this powerful Appdaemon script for Home Assistant. It fetches and displays the album cover art of the currently playing track. By default, the album art will automatically be displayed on the Pixoo64 screen when a track is playing.
 
 ## Examples
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
  
-## Features & Functional Advantages
-- **Image Cropping:** The script removes any existing borders from the image for a better viewing experience. This is particularly useful for album art with borders or minimalist backgrounds with centralized elements. By trimming the borders, the script ensures that the main subject of the picture is not too small, providing a more detailed view of the album art.
-- **Image Enhancer:** Amplifies the color vibrancy of the image for a more striking display.
-- **Sensor Data Storage:** All extracted data is stored in a dedicated sensor entity within Home Assistant, making it readily available for further automation possibilities.
-- **RTL Support:** Ensures that the artist’s name or song title is displayed correctly in right-to-left languages.
-- **Title Normalization:** Normalizes titles and artist names for easier integration with automations and consistent display, regardless of regional characters or symbols. For instance, the artist name “Beyoncé” (with an accent) would be normalized to “Beyonce” (accent removed).
-- **Light Dynamic Color Integration:** Uses the dominant color from the album art to set the background color on any RGB light.
-- **AI Image Support:** The script supports AI-generated images and activates on fallback when no image is associated with the music file.
+#### Key Features:
+- **Image Cropping**: The script cuts out wide borders from album art to present the main object on the screen.
+- **Synchronized Lyrics Display**: Displays synchronized lyrics of the song.
+- **Display Clock**: Shows the current time.
+- **Artist and Track Title Display**: Shows the artist and track title.
+- **Full Fallback Support**: If album art doesn't exist or can't be fetched, the script provides fallback options. These fallbacks support API services like MusicBrainz, Spotify, Discogs, and Last.FM. If all else fails, the script creates a dedicated AI image using [pollinations.ai](https://pollinations.ai), ensuring that 99% of the time, an image will be displayed on the Pixoo64 screen while music is playing.
+
+The script is compatible with speaker systems such as Chromecast, AirPlay 2, and Sonos, and fully supports services like Spotify, Tidal, Apple Music, YouTube Music, MixCloud, TuneIn, Sonos Radio, and more!
+
+#### More Features & Functional Advantages:
+- **Image Enhancer**: Amplifies the color vibrancy of the image for a more striking display.
+- **Sensor Data Storage**: Stores all extracted data in a dedicated sensor entity within Home Assistant for further automation possibilities.
+- **RTL Support**: Displays the artist’s name or song title correctly in right-to-left languages.
+- **Title Normalization**: Normalizes titles and artist names for easier integration with automations and consistent display. For instance, “Beyoncé” would be normalized to “Beyonce”.
+- **Light Dynamic Color Integration**: Uses the dominant color from the album art to set the background color on any RGB light.
+
+### Fallback Image
+
+When there's no image associated with the music file, or if the image can't be fetched, the fallback function activates. By default, the supported fallbacks are MusicBrainz and the AI Image generator because neither requires an API key. However, these services are not 100% reliable, so it's recommended to use any of the APIs that this script supports (Spotify/Discogs/Last.fm). You can choose to use one, two, or all three. The fallback will first try to find the album art on Discogs, and if it fails, it will try Spotify, then Last.fm. Regardless, 99.9% of the time when a track is played, the Pixoo64 will present artwork graphics.
+
+#### Recommended Fallback Options:
+- **Spotify API**: Always returns a result, even if the specific artist or track isn't found on Spotify. Requires a Spotify developer's account.
+- **Discogs**: Community-supported databases where regular people upload cover art. The cover art can be unique or rare, and sometimes it might not exist.
+
+#### Types of Fallbacks:
+1. **Album API**: Servers are fast and reliable. To use this method, you'll need:
+   - Spotify: Client ID and Client Secret.
+   - Discogs: Personal API Key.
+   - Last.FM: API Key.
+   - Instructions on how to obtain them are provided beyond this text.
+2. **MusicBrainz**: An open-source database containing URLs for album art. No API keys are required, but the server connections are slow, which can delay the retrieval of album art.
+3. **Special AI Art Generation**: If the image fails (or is unavailable) and/or no album art is found, or there is a timeout from the services, the script will attempt to generate an alternative version of the album art using generative AI. Be aware that as it is a free AI generative service, it may also be laggy or sometimes unavailable.
+4. **Fallback Text Display**: If no image is available at all, text displaying the artist's name and the track title will be shown.
+
+#### Display Lyrics
+For accessibility, when lyrics are available and displayed above the image, the image will appear 50% darker.
+
 ## Prerequisites
 1. [DIVOOM PIXOO64](https://www.aliexpress.com/item/1005003116676867.html)
 2. Home Assistant (with add-on functionality)
@@ -94,6 +119,7 @@ pixoo64_media_album_art:
         clock: True                                # Show clock top corner
         clock_align: Right                         # Clock align - Left or Right
         tv_icon: True                              # Shows TV icon when playing sound from TV
+        lyrics: False                              # Show lyrics if avalible. In this mode the show_text fetures will disabled
         show_text:
             enabled: False                         # Show media artist and title 
             clean_title: True                      # Remove "Remaster" labels, track number and file extentions from the title if any
@@ -126,9 +152,10 @@ pixoo64_media_album_art:
 | `clock` | Show a clock in the top corner | `False` |
 | `clock_align` | Align the clock to `Left` or `Right` | `Left` |
 | `tv_icon` | Show TV art when playing sound from TV | `True` |
+| `lyrics` | Display sync lyrics | `True` |
 | `show_text - enabled` | Show media info with image | `False` |
 | `show_text - clean_title` | Remove "Remaster" labels, track numbers, and file extensions from the title if any | `True` |
-| `show_text - text_background` | Change background of text area | `True` |
+| `show_text - text_background` | Change background of text area (support lytics mode also) | `True` |
 | `show_text - font` | Pixoo internal font type (0-7). Used in fallback screen only | `2` |
 | `show_text - color` | Use alternative font color | `False` |
 | `crop_borders - enabled` | Crop image borders if present | `True` |
