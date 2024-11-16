@@ -48,6 +48,7 @@ pixoo64_media_album_art:
             extra: True                            # Apply enhanced border crop
 """
 import asyncio
+import base64
 import os
 import re
 import json
