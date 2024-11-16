@@ -63,8 +63,8 @@ import math
 
 # Third-party library imports
 import aiohttp
-from PIL import Image, ImageEnhance, ImageFilter, ImageStat
-import colorsys
+from PIL import Image, ImageEnhance, ImageFilter
+
 try:
     from unidecode import unidecode
     undicode_m = True
@@ -78,7 +78,6 @@ except ImportError:
 
 # Home Assistant plugins
 from appdaemon.plugins.hass import hassapi as hass
-import colorsys
 
 # Constants
 AI_ENGINE = "https://pollinations.ai/p"
@@ -1177,8 +1176,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         await self.create_lyrics_payloads(lyric['lyrics'], 11)
                         next_lyric_time = self.lyrics[i + 1]['seconds'] if i + 1 < len(self.lyrics) else None
                         lyrics_diplay = (next_lyric_time - lyric_time) if next_lyric_time else lyric_time + 10
-                        if lyrics_diplay > 6:
-                            await asyncio.sleep(7)
+                        if lyrics_diplay > 9:
+                            await asyncio.sleep(8)
                             await self.send_pixoo({"Command": "Draw/ClearHttpText"})
                         break
 
@@ -1234,20 +1233,21 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         payload = {"Command": "Draw/CommandList", "CommandList": full_command_list}
         await self.send_pixoo(payload)
 
+
     def get_optimal_font_color(self, img):
         """Determine a colorful, readable font color that avoids all colors in the image palette and maximizes distinctiveness."""
-        
+
         # Resize for faster processing
-        small_img = img #.resize((16, 16), Image.Resampling.LANCZOS)
-        
+        small_img = img.resize((16, 16), Image.Resampling.LANCZOS)
+
         # Get all unique colors in the image (palette)
         image_palette = set(small_img.getdata())
-        
+
         # Calculate luminance to analyze image brightness
         def luminance(color):
             r, g, b = color
             return 0.2126 * r + 0.7152 * g + 0.0722 * b
-        
+
         # Calculate average brightness of the image palette
         avg_brightness = sum(luminance(color) for color in image_palette) / len(image_palette)
 
@@ -1258,7 +1258,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             return max(L1, L2) / min(L1, L2)
 
         # Check if the color is sufficiently distinct from all colors in the image
-        def is_distinct_color(color, threshold=150):
+        def is_distinct_color(color, threshold=50):
             return all(math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color, img_color))) > threshold for img_color in image_palette)
 
         # Define a set of colorful candidate colors
@@ -1285,22 +1285,27 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             (255, 140, 0), (199, 21, 133), (250, 128, 114), (0, 250, 154), (123, 104, 238),
             (255, 228, 196), (255, 182, 193), (250, 250, 210), (255, 218, 185), (255, 222, 173)
         ]
-        
+
+        random.shuffle(candidate_colors)
         best_color = None
-        max_distance = -1  # Initialize to a negative value
+        max_saturation = -1  # Initialize to a negative value
 
         # Check each candidate color against the image palette
         for font_color in candidate_colors:
-            if is_distinct_color(font_color):
-                # Calculate the minimum distance from the candidate color to all colors in the palette
-                distances = [math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(font_color, img_color))) for img_color in image_palette]
-                min_distance = min(distances)  # Get the minimum distance to any color in the palette
+            if is_distinct_color(font_color, threshold=100):
+                # Calculate the saturation of the candidate color
+                r, g, b = font_color
+                max_val = max(r, g, b)
+                min_val = min(r, g, b)
+                saturation = (max_val - min_val) / max_val if max_val != 0 else 0
 
                 # Ensure contrast with image brightness
-                if contrast_ratio(font_color, (255, 255, 255) if avg_brightness < 127 else (0, 0, 0)) >= 2:
-                    # Update best color if this candidate has a greater minimum distance
-                    if min_distance > max_distance:
-                        max_distance = min_distance
+                contrast_with_white = contrast_ratio(font_color, (255, 255, 255))
+                contrast_with_black = contrast_ratio(font_color, (0, 0, 0))
+                if (avg_brightness < 127 and contrast_with_white >= 3) or (avg_brightness >= 127 and contrast_with_black >= 3):
+                    # Update best color if this candidate has a higher saturation
+                    if saturation > max_saturation:
+                        max_saturation = saturation
                         best_color = font_color
 
         # If a best color was found, return it
@@ -1308,4 +1313,4 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             return '#%02x%02x%02x' % best_color
 
         # Fallback if no suitable color is found
-        return '#000000' if avg_brightness > 127 else '#ffffff'  # Use average brightness for fallback
+        return '#000000' if avg_brightness > 127 else '#ffffff'
