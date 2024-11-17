@@ -1,6 +1,7 @@
 ### Album Art Display on PIXOO64
+Elevate your musical experience on the DIVOOM PIXOO64 screen with this powerful Appdaemon script for Home Assistant. This script fetches and displays the album cover art of the currently playing track. By default, the album art will automatically appear on the Pixoo64 screen when a track is playing.
 
-Enhance your musical experience on the DIVOOM PIXOO64 screen with this powerful Appdaemon script for Home Assistant. It fetches and displays the album cover art of the currently playing track. By default, the album art will automatically be displayed on the Pixoo64 screen when a track is playing.
+Additionally, the script supports lyrics display and uses AI-generated images as a fallback if no album art is found.
 
 ## Examples
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
@@ -20,13 +21,6 @@ The script is compatible with speaker systems such as Chromecast, AirPlay 2, and
 - **RTL Support**: Displays the artist’s name or song title correctly in right-to-left languages.
 - **Title Normalization**: Normalizes titles and artist names for easier integration with automations and consistent display. For instance, “Beyoncé” would be normalized to “Beyonce”.
 - **Light Dynamic Color Integration**: Uses the dominant color from the album art to set the background color on any RGB light.
-
-### Fallback Image
-When there's no image associated with the music file, or if the image can't be fetched, or while listening to radio stations, the fallback function activates. By default, the supported fallbacks are MusicBrainz and the AI Image generator, as neither requires an API key. However, these services are not 100% reliable, so it's recommended to use any of the APIs that this script supports (Spotify/Discogs/Last.fm). You can choose to use one, two, or all three. The fallback will first try to find the album art on Discogs; if it fails, it will try Spotify, then Last.fm. Regardless, 99.9% of the time when a track is played, the Pixoo64 will present artwork graphics.
-
-#### Display Lyrics
-For accessibility, when lyrics are available and displayed above the image, the image will appear 50% darker when `text_background` is `True` (apps.yaml).
-This feture is not support radio stations.
 
 ## Prerequisites
 1. [DIVOOM PIXOO64](https://www.aliexpress.com/item/1005003116676867.html)
@@ -75,7 +69,7 @@ Open `/appdaemon/apps/apps.yaml` and add this code:
 >  If you’re using the File Editor add-on, it’s set up by default to only allow file access to the main Home Assistant directory. However, the AppDaemon add-on files are located in the root directory. To access these files, follow these steps:
 1. Go to `Settings` > `Add-ons` > `File Editor` > `Configuration`
 2. Toggle off the `Enforce Basepath` option.
-3. In the File Editor, click on the arrow next to the directory name (which will be ‘homeassistant’). This should give you access to the root directory where the AppDaemon add-on files are located.
+3. In the File Editor, click on the arrow next to the directory name (which will be ‘homeassistant’). This should give you access to the root directory where the AppDaemon add-on files are located at `/addon_configs/a0d7b954_appdaemon/`.
 
 ![arrow](https://github.com/idodov/RedAlert/assets/19820046/e57ea52d-d677-45b0-90c4-87723c5ddfea)
 
@@ -153,10 +147,14 @@ pixoo64_media_album_art:
 > 
 > ### `crop_borders`
 > Given the Pixoo screen’s 64x64 pixel size, it is highly recommended to utilize the crop feature. Many album cover arts come with borders, occasionally wide ones, which can distort the display of the cover art on the screen. To rectify this, the script ensures the removal of the picture frame border.
+>
 > | Original | Crop | Extra |
 > |---|---|---|
 > | ![cover2](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71fda47e-f4fe-4142-9303-16d95d2c109e) | ![cover2_crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/ad32fb20-7b94-4795-a1af-16148dac473f) | ![kb-crop_extra](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/4e6bec64-0fa3-4bb3-a863-9e1ace780b58) |
 > | ![psb-original](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/beb0d74c-5a27-4ad8-b7a8-f11f6ae8d3ea) | ![psb-crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/efc4f44a-4c7d-4aca-b1bf-a158b252b26d) | ![psb-crop_extra](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/b25cc2e7-aa22-4e73-9c7a-b30ea4ec73fb) |
+>
+> ### Display Lyrics
+> For accessibility, when lyrics are available and displayed above the image, the image will appear 50% darker when `text_background` and `lyrics` is `True` (apps.yaml). Lyrics feture is not support radio stations.
 ____________
 ## You’re all set!
 **Make sure that `input_boolean.pixoo64_album_art` is turned `on`. The next time you play a track, the album cover art will be displayed, and all the usable picture data will be stored in a new sensor.**
@@ -166,16 +164,15 @@ _____________
 
 ## Fallback Image
 
-When there's no image associated with the music file, or if the image can't be fetched, the fallback function will activate. By default, the supported fallbacks are MusicBrainz and the AI Image generator because neither requires an API key. However, these services are not 100% reliable, so it's recommended to use any of the APIs that this script supports (Spotify/Discogs/Last.fm). You can choose to use one, two, or all three. The fallback will first try to find the album art on Discogs, and if it fails, it will try Spotify, then Last.fm. No matter what, 99.9% of the time when a track is played, the Pixoo64 will present artwork graphics.
+When there's no image associated with the music file, or if the image can't be fetched, the fallback function will activate. By default, the supported fallbacks are MusicBrainz and the AI Image generator because neither requires an API key. However, these services are not 100% reliable, so it's recommended to use any of the APIs that this script supports (Spotify/Discogs/Last.fm). **You can choose to use one, two, or all three.** The fallback will first try to find the album art on Discogs, and if it fails, it will try Spotify, then Last.fm. No matter what, 99.9% of the time when a track is played, the Pixoo64 will present artwork graphics.
 
 ### There are four types of fallbacks:
 
-1. **Getting the Album API**: This is the most recommended option because servers are fast and reliable. You can choose one or more options. To use this method, you'll need keys (optional):
+1. **Getting the Album API**: This is the most recommended option because servers are fast and reliable. You can choose one or more options. To use this method, you'll need keys. Instructions on how to obtain them are provided beyond this text.
    - **Spotify**: the Client ID and the Client Secret.
    - **Discogs**: Personal API Key
    - **Last.FM**: API Key
-   Instructions on how to obtain them are provided beyond this text.
-
+   
 2. **Fetching Album Art from MusicBrainz**: MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
 
 3. **Generating Art with Special AI**: In this scenario, the script will attempt to generate an alternative version of the album art using generative AI. This option will trigger only if the Spotify API fails (or is unavailable) and/or no album art is found, or there is a timeout from the MusicBrainz service. Be aware that as it is a free AI generative service, it may also be laggy or sometimes unavailable.
@@ -198,6 +195,7 @@ When there's no image associated with the music file, or if the image can't be f
 1. **Log in to Discogs**: Go to the [Discogs website](https://www.discogs.com/) and log in with your account.
 
 2. **Create a Personal Key**: Navigate to the [Discogs API documentation](https://www.discogs.com/developers/) and follow the instructions to create a new personal key. You don't need to create application.
+3. Copy the value and store it on `apps.yaml` file under `discogs`.
 
 ## Guide to help you get your Last.fm API key:
 
@@ -205,7 +203,8 @@ When there's no image associated with the music file, or if the image can't be f
 
 2. **Create an Application**: Navigate to the [Last.fm API documentation](https://www.last.fm/api) and follow the instructions to create a new application. You'll need to provide a name and a brief description for your application.
 
-3. **Obtain API Key**: Once your application is created, you'll be provided with an API key and a secret. Copy the API KEY.
+3. **Obtain API Key**: Once your application is created, you'll be provided with an API key and a secret. You'll need just the API KEY.
+4. Copy the value and store it on `apps.yaml` file under `last.fm`.
 
 That's it! You now have your API keys for Spotify, Discogs, and Last.fm, which you can use to authenticate your Pixoo64 with these services.
 
@@ -261,9 +260,6 @@ normalized_title: amyn
 ```
 
 __________
-> [!TIP]
-> The following music services have been tested: Apple Music, Spotify, Tidal, YouTube Music, MixCloud, and Sonos Radio.
-
 > [!NOTE]
 > While experimenting with the device, you may notice occasional freezes. These could potentially be due to power issues. To address this, it’s suggested to use a USB charger with an output of 3A for optimal performance. If you’re using a charger with a lower voltage (2A, which is the minimum required), it’s advisable to limit the screen brightness to no more than 90%.
 >
