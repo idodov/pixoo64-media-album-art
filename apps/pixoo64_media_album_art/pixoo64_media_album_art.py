@@ -663,7 +663,7 @@ class MediaDataAndAI:
             self.image_cache.popitem(last=False)  # Remove the oldest item
         self.image_cache[cache_key] = result
 
-class Pixoo64AlbumArt(hass.Hass):
+class Pixoo64_Media_Album_Art(hass.Hass):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.image_lock = asyncio.Lock()
