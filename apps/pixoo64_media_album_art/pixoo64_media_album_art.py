@@ -57,10 +57,11 @@ import zlib
 import random
 import traceback
 from datetime import datetime, timezone
-from collections import Counter
+from collections import OrderedDict, Counter
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 import math
+
 
 # Third-party library imports
 import aiohttp
@@ -109,6 +110,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.image_lock = asyncio.Lock()  # Initialize a lock for image processing
         self.pending_task = None  # To keep track of the last task
         self.clear_timer_task = None
+        self.image_cache = OrderedDict()
+        self.cache_size = 15
 
     async def initialize(self):
         """Initialize the app and set up state listeners."""
@@ -158,7 +161,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.fallback = self.fail_txt = self.playing_radio = self.radio_logo = False
         self.media_position = self.media_duration = 0
         self.media_position_updated_at = None
-        self.album_name = self.get_state(self.media_player, attribute="media_album_name")
 
         # Validate AI model
         if self.ai_fallback not in ["flux", "turbo"]:
@@ -242,7 +244,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             media_state = await self.get_state(self.media_player)
             if media_state in ["off", "idle", "pause", "paused"]:
                 await self.set_state(self.pixoo_sensor, state="off")
-                self.album_name = "media player is not playing - removing the album name"
 
                 if self.full_control:
                     await asyncio.sleep(5)  # Delay to not turn off during track changes
@@ -467,9 +468,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         await self.send_pixoo(payload)
                         if self.light:
                             await self.control_light('off')
-                else:
-                    self.album_name = "no music is playing and no album name"
-                    
+
         except Exception as e:
             self.log(f"Error in pixoo_run: {str(e)}\n{traceback.format_exc()}")
 
@@ -485,12 +484,21 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         except Exception as e:
             self.log(f"Error sending command to Pixoo: {str(e)}\n{traceback.format_exc()}")
 
+
     async def get_image(self, picture):
         if not picture:
             return None
-        
-        async with self.image_lock:  # Acquire the lock before processing
-            self.pending_task = picture  # Set the current task as pending
+
+        async with self.image_lock:
+            self.pending_task = picture
+
+        #Check cache; if found, decompress and process immediately.
+        if picture in self.image_cache:
+            self.log("Image found in cache")
+            cached_item = self.image_cache.pop(picture)
+            self.image_cache[picture] = cached_item  # Re-add to maintain LRU order
+            img = await self.process_image_data(zlib.decompress(cached_item['data']))
+            return img
 
         try:
             async with aiohttp.ClientSession() as session:
@@ -499,19 +507,25 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     if response.status != 200:
                         self.fail_txt = self.fallback = True
                         return None
-                    
+
                     image_data = await response.read()
-                    result = await self.process_image_data(image_data)
+                    compressed_image_data = zlib.compress(image_data)  #Compress only if not cached
+                    img = await self.process_image_data(image_data)
 
-                    # Check if a new task was set while processing
                     async with self.image_lock:
-                        if self.pending_task != picture:  # If a new task is pending
-                            return None  # Ignore the result of this task
+                        if self.pending_task != picture:
+                            return None
 
-                    return result
+                    if img:
+                        if len(self.image_cache) >= self.cache_size:
+                            self.image_cache.popitem(last=False)
+                        self.image_cache[picture] = {'data': compressed_image_data, 'img': img}
+                        #self.log(f"Added image to cache: {picture}")
+
+            return img
 
         except Exception as e:
-            self.log(f"Unexpected error in get_image: {str(e)}\n{traceback.format_exc()}")
+            self.log(f"Error in get_image: {str(e)}\n{traceback.format_exc()}", level="ERROR")
             self.fail_txt = self.fallback = True
             return None
 
@@ -638,6 +652,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         gif_base64 = self.gbase64(img)
         return (gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative)
 
+
     async def get_musicbrainz_album_art_url(self) -> str:
         """Get album art URL from MusicBrainz asynchronously"""
         search_url = "https://musicbrainz.org/ws/2/release/"
@@ -684,127 +699,173 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         except asyncio.TimeoutError:
             self.log("MusicBrainz request timed out")
 
-    async def get_spotify_access_token(self):
-        try:
-            # Check if cached token is still valid
-            if (self.spotify_token_cache['token'] and 
-                time.time() < self.spotify_token_cache['expires']):
-                return self.spotify_token_cache['token']
 
-            url = "https://accounts.spotify.com/api/token"
-            spotify_headers = {
-                "Authorization": "Basic " + base64.b64encode(f"{self.spotify_client_id}:{self.spotify_client_secret}".encode()).decode(),
-                "Content-Type": "application/x-www-form-urlencoded"
-            }
-            payload = {
-                "grant_type": "client_credentials"
-            }
+    async def get_spotify_access_token(self):
+        if self.spotify_token_cache['token'] and time.time() < self.spotify_token_cache['expires']:
+            return self.spotify_token_cache['token']
+
+        url = "https://accounts.spotify.com/api/token"
+        spotify_headers = {
+            "Authorization": "Basic " + base64.b64encode(f"{self.spotify_client_id}:{self.spotify_client_secret}".encode()).decode(),
+            "Content-Type": "application/x-www-form-urlencoded"
+        }
+        payload = {"grant_type": "client_credentials"}
+        try:
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, headers=spotify_headers, data=payload) as response:
                     response_json = await response.json()
                     access_token = response_json["access_token"]
-            
-            # Cache the new token
-            self.spotify_token_cache = {
-                'token': access_token,
-                'expires': time.time() + 3500  # Cache for slightly less than 1 hour
-            }
-            
-            self.log("Got new Spotify access token")
-            return access_token
-            
+                    self.spotify_token_cache = {
+                        'token': access_token,
+                        'expires': time.time() + 3500
+                    }
+                    return access_token
         except Exception as e:
-            self.log(f"Error getting Spotify access token: {str(e)}\nCheck client_id and client_secret at https://developer.spotify.com/dashboard")
-            self.spotify_client_id = False
+            self.log(f"Error getting Spotify access token: {e}")
             return False
 
-    # Function to get album ID by artist and track
-    async def get_spotify_album_id(self):
+
+
+    async def get_spotify_album_id(self, artist, title):
+        token = await self.get_spotify_access_token()
+        if not token:
+            return None
+
+        url = "https://api.spotify.com/v1/search"
+        spotify_headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "q": f"track: {title} artist: {artist}",
+            "type": "track",
+            "limit": 10
+        }
+
         try:
-            token = await self.get_spotify_access_token()
-            if not token:
-                return None
-                
-            url = "https://api.spotify.com/v1/search"
-            spotify_headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "q": f"track: {self.ai_title} artist: {self.ai_artist}",
-                "type": "track",
-                "limit": 1
-            }
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=spotify_headers, params=payload) as response:
                     response_json = await response.json()
-                    track_info = response_json['tracks']['items'][0]
-                    album_id = track_info['album']['id']
-                    return album_id
-        except Exception:
-            self.log(f"Error getting spotify album id")
-            return None
+                    tracks = response_json.get('tracks', {}).get('items', [])
+                    if tracks:
+                        best_album = None
+                        earliest_year = float('inf')
+                        preferred_types = ["single", "ep"]
 
-    # Function to get album image URL
+                        for track in tracks:
+                            album = track.get('album')
+                            album_type = album.get('album_type')
+                            release_date = album.get('release_date')
+                            year = int(release_date[:4]) if release_date else float('inf')
+                            artists = album.get('artists', [])
+                            album_artist = artists[0]['name'] if artists else ""
+
+                            if artist.lower() == album_artist.lower():
+                                #Corrected Prioritization:
+                                if album_type in preferred_types:
+                                    if year < earliest_year:  #Only choose the album if its year is earlier.
+                                        earliest_year = year
+                                        best_album = album
+                                elif year < earliest_year: #If not preferred type, choose based on year alone.
+                                    earliest_year = year
+                                    best_album = album
+
+                        if best_album:
+                            return best_album['id']
+                        else:
+                            if tracks:
+                                self.log("No matching artist found on Spotify, returning the first album.")
+                                return tracks[0]['album']['id']
+                            else:
+                                self.log("No suitable album found on Spotify.")
+                                return None
+                    else:
+                        self.log("No tracks found on Spotify.")
+                        return None
+
+        except (IndexError, KeyError) as e:
+            self.log(f"Error parsing Spotify track info: {e}")
+            return None
+        except Exception as e:
+            self.log(f"Error getting Spotify album ID: {e}")
+            return None
+        finally:
+            await asyncio.sleep(0.5)
+
+
     async def get_spotify_album_image_url(self, album_id):
+        token = await self.get_spotify_access_token()
+        if not token or not album_id:
+            return None
+        url = f"https://api.spotify.com/v1/albums/{album_id}"
+        spotify_headers = {
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
         try:
-            token = await self.get_spotify_access_token()
-            if not token or not album_id:
-                return None
-                
-            url = f"https://api.spotify.com/v1/albums/{album_id}"
-            spotify_headers = {
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            }
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=spotify_headers) as response:
                     response_json = await response.json()
-                    image_url = response_json['images'][0]['url']
-                    if image_url:
-                        return image_url
-        except Exception:
-            self.log(f"Error getting spotify album url")
+                    return response_json['images'][0]['url']
+        except (IndexError, KeyError):
+            self.log("Album image not found on Spotify.")
             return None
-    # Function to get album image URL from Discogs
+        except Exception as e:
+            self.log(f"Error getting Spotify album image URL: {e}")
+            return None
+        finally:
+            await asyncio.sleep(0.5)
+
 
     async def search_discogs_album_art(self):
-        # Define the base URL and headers for Discogs API
         base_url = "https://api.discogs.com/database/search"
         headers = {
             "User-Agent": "AlbumArtSearchApp/1.0",
             "Authorization": f"Discogs token={self.discogs}"
         }
-
-        # Set up the search parameters
         params = {
             "artist": self.ai_artist,
             "track": self.ai_title,
             "type": "release",
-            "format": "album"
+            "format": "album",
+            "per_page": 100 #Increased to get more results.
         }
 
-        # Perform an asynchronous HTTP request
         async with aiohttp.ClientSession() as session:
             async with session.get(base_url, headers=headers, params=params) as response:
-                # Check if the request was successful
                 if response.status == 200:
                     data = await response.json()
-                    # Check if there are results
-                    if data["results"]:
-                        # Get the album art URL from the first result
-                        album_art_url = data["results"][0].get("cover_image")
-                        if album_art_url:
-                            return album_art_url
+                    results = data.get("results", [])
+                    if results:
+                        best_release = None
+                        earliest_year = float('inf')
+
+                        for release in results:
+                            year = int(release.get("year", earliest_year)) # Default to inf if no year
+                            master_id = release.get("master_id")
+                            # Prioritize releases with master_id
+                            master_priority = 0 if master_id else 1
+                            if year < earliest_year or (year == earliest_year and master_priority < 1):
+                                earliest_year = year
+                                best_release = release
+
+                        if best_release:
+                            album_art_url = best_release.get("cover_image")
+                            if album_art_url:
+                                return album_art_url
+                            else:
+                                self.log("Album art URL not found in best Discogs result.")
+                                return None
                         else:
-                            print("Album art not found @ Discogs.")
+                            self.log("No suitable album found on Discogs.")
                             return None
                     else:
                         self.log("No results found for the specified artist and track @ Discogs.")
                         return None
                 else:
-                    print(f"Error: {response.status} - {response.reason}")
+                    self.log(f"Discogs API request failed: {response.status} - {response.reason}")
                     return None
+
 
     async def search_lastfm_album_art(self):
         base_url = "http://ws.audioscrobbler.com/2.0/"
@@ -824,6 +885,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     if album_art_url:
                         return album_art_url[-1]["#text"]
                 return None
+
 
     async def get_final_url(self, picture, timeout=30):
         self.fail_txt = self.fallback = False
@@ -850,6 +912,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             """ Fallback begins """
             # Try Discogs:
             if self.discogs:
+                self.log("Trying to find album art @ Discogs")
                 try:
                     album_art = await self.search_discogs_album_art()
                     if album_art:
@@ -864,8 +927,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
             # Try Spotify
             if self.spotify_client_id and self.spotify_client_secret:
+                self.log("Trying to find album art @ Spotify")
                 try:
-                    album_id = await self.get_spotify_album_id()
+                    album_id = await self.get_spotify_album_id(self.ai_artist, self.ai_title)
                     if album_id:
                         image_url = await self.get_spotify_album_image_url(album_id)
                         if image_url:
@@ -877,9 +941,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                             self.log("Failed to process Spotify image")
                 except Exception as e:
                     self.log(f"Spotify fallback failed with error: {str(e)}")
-        
+
             #Try Last.fm:
             if self.lastfm:
+                self.log("Trying to find album art @ Last.fm")
                 try:
                     album_art = await self.search_lastfm_album_art()
                     if album_art:
@@ -894,6 +959,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
             # Try MusicBrainz
             if self.musicbrainz:
+                self.log("Trying to find album art @ MusicBrainz")
                 try:
                     mb_url = await self.get_musicbrainz_album_art_url()
                     if mb_url:
@@ -908,6 +974,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
             # Fallback to AI generation
             try:
+                self.log("Trying to Generate AI album art")
                 ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
                 result = await self.process_picture(ai_url)
                 if result:
@@ -921,12 +988,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.fail_txt = self.fallback = True
         return (zlib.decompress(BLK_SCR).decode(), *default_values)
 
+
     def ensure_rgb(self, img):
         try:
-            if img.mode != "RGB":
+            if img and img.mode != "RGB":
                 img = img.convert("RGB")
             return img
-        except Exception:
+        except Exception as e:
+            self.log(f"Error converting image to RGB: {e}", level="ERROR")
             return None
 
     def split_string(self, text, length):
@@ -1032,7 +1101,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
 
     def crop_image_borders(self, img):
-        """Crop image to make it square and then crop borders based on the most common border color."""
         temp_img = img
 
         if self.crop_extra:
@@ -1041,38 +1109,60 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             img = enhancer.enhance(1.95)
 
         try:
-            border_pixels = []
             width, height = img.size
-            
-            border_pixels.extend([img.getpixel((x, 0)) for x in range(width)])  # Top border
-            border_pixels.extend([img.getpixel((x, height - 1)) for x in range(width)])  # Bottom border
-            border_pixels.extend([img.getpixel((0, y)) for y in range(height)])  # Left border
-            border_pixels.extend([img.getpixel((width - 1, y)) for y in range(height)])  # Right border
+            #More robust border detection (less sensitive to noise)
+            border_color = self.get_dominant_border_color(img)
 
-            border_color = max(set(border_pixels), key=border_pixels.count)
-
-            mask = Image.new("L", img.size, 0)  # Create a mask with the same size as the image
+            # Create a mask to identify the non-border region
+            mask = Image.new("L", img.size, 0)
             for x in range(width):
                 for y in range(height):
                     if img.getpixel((x, y)) != border_color:
                         mask.putpixel((x, y), 255)
 
-            bbox = mask.getbbox() 
+            bbox = mask.getbbox()
             if bbox:
+                # Calculate center
                 center_x = (bbox[0] + bbox[2]) // 2
                 center_y = (bbox[1] + bbox[3]) // 2
-                size = min(bbox[2] - bbox[0], bbox[3] - bbox[1])
-                
-                half_size = max(size // 2, 32)
-                img = temp_img.crop((center_x - half_size, center_y - half_size, center_x + half_size, center_y + half_size))  # Crop the image to the bounding box
-            else:
-                img = temp_img  
+
+                # Crop size (at least 64x64)
+                crop_size = min(bbox[2] - bbox[0], bbox[3] - bbox[1])
+                crop_size = max(crop_size, 64)  # Ensure minimum size
+                half_crop_size = crop_size // 2
+
+                # Correctly calculate crop boundaries
+                left = max(0, center_x - half_crop_size)
+                top = max(0, center_y - half_crop_size)
+                right = min(width, center_x + half_crop_size)
+                bottom = min(height, center_y + half_crop_size)
+
+                img = temp_img.crop((left, top, right, bottom))
+
+            else: #Handle cases where no non-border pixels are found
+                img = temp_img.crop((0,0,64,64)) #Crop to a default square.
 
         except Exception as e:
-            self.log(f"Failed to crop: {e}")  
+            self.log(f"Failed to crop image: {e}", level="ERROR")
             img = temp_img
-            
+
         return img
+
+    def get_dominant_border_color(self, img):
+        width, height = img.size
+        top_row = img.crop((0,0,width,1))
+        bottom_row = img.crop((0, height-1, width,height))
+        left_col = img.crop((0,0,1,height))
+        right_col = img.crop((width-1, 0,width, height))
+
+        all_border_pixels = []
+        all_border_pixels.extend(top_row.getdata())
+        all_border_pixels.extend(bottom_row.getdata())
+        all_border_pixels.extend(left_col.getdata())
+        all_border_pixels.extend(right_col.getdata())
+
+        return max(set(all_border_pixels), key=all_border_pixels.count) if all_border_pixels else (0,0,0)
+
 
     def text_clock_img(self, img, brightness_lower_part):
         # Check if there are no lyrics before proceeding
@@ -1174,7 +1264,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     lyric_time = lyric['seconds']
                     
                     if int(current_position) == lyric_time - 1:
-                        await self.create_lyrics_payloads(lyric['lyrics'], 11)
+                        await self.create_lyrics_payloads(lyric['lyrics'], 10)
                         next_lyric_time = self.lyrics[i + 1]['seconds'] if i + 1 < len(self.lyrics) else None
                         lyrics_diplay = (next_lyric_time - lyric_time) if next_lyric_time else lyric_time + 10
                         if lyrics_diplay > 9:
@@ -1206,18 +1296,19 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def create_lyrics_payloads(self, lyrics, x):
         # Split the lyrics into lines based on the max character limit
-        all_lines = self.split_string(self.get_display(lyrics) if lyrics and self.has_bidi(lyrics) else lyrics, x)[:5]  # Limit to a maximum of 5 lines
-        if len(all_lines) > 5:
+        
+        all_lines = self.split_string(self.get_display(lyrics) if lyrics and self.has_bidi(lyrics) else lyrics, x)
+        if len(all_lines) > 4:
             all_lines[4] += ' ' + ' '.join(all_lines[5:])
             all_lines = all_lines[:5]
         
-        start_y = (64 - len(all_lines) * 15) // 2
+        start_y = (64 - len(all_lines) * 11) // 2
         payloads = [
             {
                 "Command": "Draw/SendHttpText",
                 "TextId": i + 1,  # Unique TextId for each line
                 "x": 0,
-                "y": start_y + (i * 13),  # Adjust y position for each line
+                "y": start_y + (i * 11),  # Adjust y position for each line
                 "dir": 0,
                 "font": self.font,
                 "TextWidth": 64,
