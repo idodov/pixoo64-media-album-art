@@ -83,7 +83,6 @@ from appdaemon.plugins.hass import hassapi as hass
 
 # Constants
 AI_ENGINE = "https://pollinations.ai/p"
-BLK_SCR = b'x\x9c\xc11\x01\x00\x00\x00\xc2\xa0l\xeb_\xca\x18>@\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00o\x03\xda:@\xf1'
 TV_ICON_PATH = "/local/pixoo64/tv-icon-1.png"
 local_directory = "/homeassistant/www/pixoo64/"
 
@@ -106,12 +105,12 @@ bidi_marks = r"\u200E|\u200F"
 
 class Pixoo64_Media_Album_Art(hass.Hass):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)  # Call the parent class's __init__ method
-        self.image_lock = asyncio.Lock()  # Initialize a lock for image processing
-        self.pending_task = None  # To keep track of the last task
+        super().__init__(*args, **kwargs)
+        self.image_lock = asyncio.Lock()
+        self.pending_task = None
         self.clear_timer_task = None
         self.image_cache = OrderedDict()
-        self.cache_size = 15
+        self.cache_size = 25 #Number of images in cache
 
     async def initialize(self):
         """Initialize the app and set up state listeners."""
@@ -158,8 +157,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.crop_extra = self.args.get('pixoo', {}).get('crop_borders', {}).get("extra", True)
 
         # State variables
-        self.fallback = self.fail_txt = self.playing_radio = self.radio_logo = False
-        self.media_position = self.media_duration = 0
+        self.fallback = False
+        self.fail_txt = False
+        self.playing_radio = False
+        self.radio_logo = False
+        self.media_position = 0
+        self.media_duration = 0
         self.media_position_updated_at = None
 
         # Validate AI model
@@ -199,6 +202,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if self.show_lyrics:
             self.run_every(self.calculate_position, datetime.now(), 1)  # Run every second
         
+        #self.run_daily(self.clear_cache, "04:00:00")
+        
         # Update headers
         self.headers = {
             "Content-Type": "application/json",
@@ -216,12 +221,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def safe_state_change_callback(self, entity, attribute, old, new, kwargs):
         """Wrapper for state change callback with timeout protection"""
-        #if hasattr(self, 'is_processing') and self.is_processing:
         if self.is_processing:
             self.log(f"Ignoring new callback {new} - {old}", level="WARNING")
-            return  # Ignore if image already processing
+            return  # Ignore if already processing
 
-        #self.is_processing = True  # Set the flag to indicate processing has started
         try:
             # Create a task with timeout
             async with asyncio.timeout(self.callback_timeout):
@@ -231,8 +234,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             # Optionally reset any state or cleanup here
         except Exception as e:
             self.log(f"Error in callback: {str(e)}", level="ERROR")
-        #finally:
-            #self.is_processing = False  # Reset the flag when processing is done
+
 
     async def state_change_callback(self, entity, attribute, old, new, kwargs):
         """Main callback with early exit conditions"""
@@ -246,7 +248,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 await self.set_state(self.pixoo_sensor, state="off")
 
                 if self.full_control:
-                    await asyncio.sleep(5)  # Delay to not turn off during track changes
+                    await asyncio.sleep(10)  # Delay to not turn off during track changes
                     if await self.get_state(self.media_player) not in ["playing", "on"]:
                         await self.send_pixoo({
                             "Command": "Draw/CommandList",
@@ -374,15 +376,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                             text_track = text_track + "       "
                         text_string = self.convert_text(text_track) if artist else self.convert_text(title)
                         dir = 1 if self.has_bidi(text_string) else 0
-                        brightness_factor = 50  
+                        brightness_factor = 50
                         try:
-                            color_font = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
+                            color_font_rgb = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
+                            color_font = '#%02x%02x%02x' % color_font_rgb
                         except Exception as e:
-                            print(f"error font \n{traceback.format_exc()}")
-                            background_color_rgb = (200,200,200)
-                            color_font = (255,255,255)
+                            self.log(f"Error calculating color_font: {e}")
+                            color_font = '#ffffff'
 
-                        color_font = '#%02x%02x%02x' % color_font
                         color_font = color_font if self.font_c else recommended_font_color
 
                         await self.send_pixoo(payload)
@@ -407,7 +408,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                             }
                             moreinfo["ItemList"].append(text_temp)
 
-                        if self.show_clock and not self.fallback:
+                        if (self.show_clock and self.fallback == False):
                             textid +=1
                             x = 44 if self.clock_align == "Right" else 3
                             clock_item =  { 
@@ -428,7 +429,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         if (self.show_text or self.show_clock) and not (self.fallback or self.show_lyrics):
                             await self.send_pixoo(moreinfo)
 
-                        if self.fallback and self.fail_txt:
+                        if self.fail_txt:
                             payloads = self.create_payloads(normalized_artist, normalized_title, 13)
                             payload = {"Command":"Draw/CommandList", "CommandList": payloads}
                             await self.send_pixoo(payload)
@@ -492,25 +493,24 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         async with self.image_lock:
             self.pending_task = picture
 
-        #Check cache; if found, decompress and process immediately.
+        # Check cache; if found, return directly.  No decompression needed here.
         if picture in self.image_cache:
             self.log("Image found in cache")
             cached_item = self.image_cache.pop(picture)
             self.image_cache[picture] = cached_item  # Re-add to maintain LRU order
-            img = await self.process_image_data(zlib.decompress(cached_item['data']))
-            return img
+            return cached_item['img']
 
         try:
             async with aiohttp.ClientSession() as session:
                 url = picture if picture.startswith('http') else f"{self.ha_url}{picture}"
                 async with session.get(url) as response:
                     if response.status != 200:
-                        self.fail_txt = self.fallback = True
+                        self.fail_txt = True
+                        self.fallback = True
                         return None
 
                     image_data = await response.read()
-                    compressed_image_data = zlib.compress(image_data)  #Compress only if not cached
-                    img = await self.process_image_data(image_data)
+                    img = await self.process_image_data(image_data) # Process image *before* caching
 
                     async with self.image_lock:
                         if self.pending_task != picture:
@@ -519,14 +519,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     if img:
                         if len(self.image_cache) >= self.cache_size:
                             self.image_cache.popitem(last=False)
-                        self.image_cache[picture] = {'data': compressed_image_data, 'img': img}
-                        #self.log(f"Added image to cache: {picture}")
-
+                        self.image_cache[picture] = {'img': img}  #Only store the processed image
             return img
 
         except Exception as e:
             self.log(f"Error in get_image: {str(e)}\n{traceback.format_exc()}", level="ERROR")
-            self.fail_txt = self.fallback = True
+            self.fail_txt = True
+            self.fallback = True
             return None
 
     async def process_image_data(self, image_data):
@@ -561,7 +560,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     left = (width - new_size) // 2
                     top = (height - new_size) // 2
                     img = img.crop((left, top, left + new_size, top + new_size))
-                
 
                 if self.crop_borders and not self.radio_logo:
                     img = self.crop_image_borders(img)
@@ -587,11 +585,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self.log(f"Light Error: {self.light} - {e}\n{traceback.format_exc()}")
 
     def reset_img_values(self):
-        font_color = recommended_font_color = recommended_font_color_rgb = "#FFFFFF"
-        background_color  = most_common_color_alternative_rgb = most_common_color_alternative = "#0000FF"
-        background_color_rgb = tuple(random.randint(10, 200) for _ in range(3))
+        font_color_rgb = (255, 255, 255)  # White
+        recommended_font_color_rgb = (0, 0, 0) # Black
+        background_color_rgb = (0, 0, 0)  # Black
+        most_common_color_alternative_rgb = (0, 0, 0) #Black
         brightness = brightness_lower_part = 0
-        return font_color, recommended_font_color, recommended_font_color_rgb, background_color, most_common_color_alternative_rgb, most_common_color_alternative, background_color_rgb, brightness, brightness_lower_part
+        return font_color_rgb, recommended_font_color_rgb, recommended_font_color_rgb, brightness, brightness_lower_part, background_color_rgb, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb
 
     def img_values(self, img):
         font_color, recommended_font_color, recommended_font_color_rgb, background_color, most_common_color_alternative_rgb, most_common_color_alternative, background_color_rgb, brightness, brightness_lower_part = self.reset_img_values()
@@ -724,8 +723,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self.log(f"Error getting Spotify access token: {e}")
             return False
 
-
-
     async def get_spotify_album_id(self, artist, title):
         token = await self.get_spotify_access_token()
         if not token:
@@ -750,7 +747,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     if tracks:
                         best_album = None
                         earliest_year = float('inf')
-                        preferred_types = ["single", "ep"]
+                        preferred_types = ["single", "ep", "album"]
 
                         for track in tracks:
                             album = track.get('album')
@@ -774,8 +771,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                             return best_album['id']
                         else:
                             if tracks:
-                                self.log("No matching artist found on Spotify, returning the first album.")
+                                self.log("No matching artist found on Spotify, returning the first album that may be wrong.")
                                 return tracks[0]['album']['id']
+                                #self.log("Most likey album art from Spotify is wrong. Trying next method.")
+                                #return None
                             else:
                                 self.log("No suitable album found on Spotify.")
                                 return None
@@ -889,7 +888,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def get_final_url(self, picture, timeout=30):
         self.fail_txt = self.fallback = False
-
         if self.force_ai and not self.radio_logo:
             try:
                 ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
@@ -918,7 +916,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     if album_art:
                         result = await self.process_picture(album_art)
                         if result:
-                            self.log("Successfully found and processed the Album Art @ Discogs")
+                            self.log("Successfully processed the Album Art @ Discogs")
                             return result
                         else:
                             self.log("Failed to process Discogs image")
@@ -935,7 +933,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         if image_url:
                             result = await self.process_picture(image_url)
                             if result:
-                                self.log("Successfully found and processed the Album Art @ Spotify")
+                                self.log("Successfully processed the Album Art @ Spotify")
                                 return result
                         else:
                             self.log("Failed to process Spotify image")
@@ -979,14 +977,18 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 result = await self.process_picture(ai_url)
                 if result:
                     self.log("Successfully Generated AI Image")
+                    self.fail_txt = self.fallback = False
                     return result
             except Exception as e:
                 self.log(f"AI generation failed: {e}")
 
         # Ultimate fallback
         default_values = self.reset_img_values()
-        self.fail_txt = self.fallback = True
-        return (zlib.decompress(BLK_SCR).decode(), *default_values)
+        self.fail_txt = True
+        self.fallback = True
+        gif_base64 = self.gbase64(self.create_black_screen())
+        self.log("Ultimate fallback")
+        return gif_base64, *default_values
 
 
     def ensure_rgb(self, img):
@@ -1043,7 +1045,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     
     def most_vibrant_color(self, full_img):
         """Extract the most vibrant color from an image"""
-        full_img.thumbnail((64, 64), Image.Resampling.LANCZOS)
         color_counts = Counter(full_img.getdata())
         most_common_colors = color_counts.most_common()
         
@@ -1102,7 +1103,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     def crop_image_borders(self, img):
         temp_img = img
-
+        
         if self.crop_extra:
             img = img.filter(ImageFilter.BoxBlur(5))
             enhancer = ImageEnhance.Brightness(img)
@@ -1110,7 +1111,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         try:
             width, height = img.size
-            #More robust border detection (less sensitive to noise)
+
+            # More robust border detection (less sensitive to noise)
             border_color = self.get_dominant_border_color(img)
 
             # Create a mask to identify the non-border region
@@ -1137,16 +1139,31 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 right = min(width, center_x + half_crop_size)
                 bottom = min(height, center_y + half_crop_size)
 
-                img = temp_img.crop((left, top, right, bottom))
+                # Adjust the crop to ensure no borders
+                if left < 0:
+                    right -= left
+                    left = 0
+                if right > width:
+                    left -= (right - width)
+                    right = width
+                if top < 0:
+                    bottom -= top
+                    top = 0
+                if bottom > height:
+                    top -= (bottom - height)
+                    bottom = height
 
-            else: #Handle cases where no non-border pixels are found
-                img = temp_img.crop((0,0,64,64)) #Crop to a default square.
+                img = temp_img.crop((left, top, right, bottom))
+            else:
+                # Handle cases where no non-border pixels are found
+                img = temp_img.crop((0, 0, 64, 64))  # Crop to a default square
 
         except Exception as e:
             self.log(f"Failed to crop image: {e}", level="ERROR")
             img = temp_img
 
         return img
+
 
     def get_dominant_border_color(self, img):
         width, height = img.size
@@ -1198,9 +1215,17 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             return gif_base64
 
         except Exception as e:
-            gif_base64 = zlib.decompress(BLK_SCR).decode()
             self.fail_txt = self.fallback = True
-            return gif_base64
+            return None
+
+    def create_black_screen(self):
+        """Creates a zlib-compressed black screen image."""
+        img = Image.new("RGB", (64, 64), (0, 0, 0))  # Create a black image
+        buffer = BytesIO()
+        img.save(buffer, format="PNG")  # Save as PNG (or another suitable format)
+        #compressed_data = zlib.compress(buffer.getvalue())
+        return img
+
 
     def format_ai_image_prompt(self, artist, title):
         # List of prompt templates
@@ -1406,3 +1431,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         # Fallback if no suitable color is found
         return '#000000' if avg_brightness > 127 else '#ffffff'
+
+    def clear_cache(self, kwargs):
+        self.image_cache.clear()
+        self.log("Image cache cleared.")
