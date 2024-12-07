@@ -37,6 +37,7 @@ pixoo64_media_album_art:
         clock_align: Right                         # Clock align - Left or Right
         tv_icon: True                              # Shows TV icon when playing sound from TV
         lyrics: False                              # Show track lyrics. In this mode the show_text and clock feture will disable.
+        spotify_slide: False                       # Force album art slide (needs spotify_cliend_id & spotify_client_secret). Clock/Title disabed in this mode.
         show_text:
             enabled: False                         # Show media artist and title 
             clean_title: True                      # Remove "Remaster" labels, track number and file extentions from the title if any
@@ -65,8 +66,7 @@ import math
 
 # Third-party library imports
 import aiohttp
-from PIL import Image, ImageEnhance, ImageFilter
-
+from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageChops
 try:
     from unidecode import unidecode
     undicode_m = True
@@ -142,6 +142,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.show_clock = self.args.get('pixoo', {}).get("clock", True)
         self.clock_align = self.args.get('pixoo', {}).get("clock_align", "Left")
         self.tv_icon_pic = self.args.get('pixoo', {}).get("tv_icon", True)
+        self.spotify_slide = self.args.get('pixoo', {}).get("spotify_slide", False)
 
         # Text display settings
         self.show_lyrics = self.args.get('pixoo', {}).get("lyrics", False)
@@ -161,9 +162,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.fail_txt = False
         self.playing_radio = False
         self.radio_logo = False
+        self.spotify_slide_pass = False
         self.media_position = 0
         self.media_duration = 0
         self.media_position_updated_at = None
+        self.spotify_data = None
 
         # Validate AI model
         if self.ai_fallback not in ["flux", "turbo"]:
@@ -203,6 +206,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self.run_every(self.calculate_position, datetime.now(), 1)  # Run every second
         
         #self.run_daily(self.clear_cache, "04:00:00")
+        self.output_folder = "/homeassistant/www/"  # Folder to save GIF
         
         # Update headers
         self.headers = {
@@ -216,10 +220,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.is_processing = False
         self.lyrics = []
         self.lyrics_font_color = "#FF00AA"
-        self.callback_timeout = 30  # Increase the callback timeout limit
+        self.callback_timeout = 20  # Increase the callback timeout limit
         self.select_index = await self.get_current_channel_index()
 
-    async def safe_state_change_callback(self, entity, attribute, old, new, kwargs):
+    async def safe_state_change_callback(self, entity, attribute, old, new, kwargs, timeout=aiohttp.ClientTimeout(total=20)):
         """Wrapper for state change callback with timeout protection"""
         if self.is_processing:
             self.log(f"Ignoring new callback {new} - {old}", level="WARNING")
@@ -234,7 +238,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             # Optionally reset any state or cleanup here
         except Exception as e:
             self.log(f"Error in callback: {str(e)}", level="ERROR")
-
 
     async def state_change_callback(self, entity, attribute, old, new, kwargs):
         """Main callback with early exit conditions"""
@@ -292,6 +295,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             
             # Proceed with the main logic
             await self.pixoo_run(media_state)
+            
 
         except Exception as e:
             self.log(f"Error in update_attributes: {str(e)}\n{traceback.format_exc()}")
@@ -309,7 +313,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     self.media_duration = await self.get_state(self.media_player, attribute="media_duration", default=0)
                     original_title = title
                     title = self.clean_title(title) if self.clean_title_enabled else title
-
                     if title != "TV" and title is not None:
                         artist = await self.get_state(self.media_player, attribute="media_artist")
                         original_artist = artist
@@ -346,10 +349,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         else:
                             self.playing_radio = self.radio_logo = False
                             picture = original_picture
-                        gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = await self.get_final_url(picture)
+
+                        if not self.is_processing:
+                            gif_base64, font_color, recommended_font_color, brightness, brightness_lower_part, background_color, background_color_rgb, recommended_font_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = await self.get_final_url(picture)
 
                         new_attributes = {"artist": artist,"normalized_artist": normalized_artist, "media_title": title,"normalized_title": normalized_title, "font_color": font_color, "font_color_alternative": recommended_font_color, "background_color_brightness": brightness, "background_color": background_color, "color_alternative_rgb": most_common_color_alternative, "background_color_rgb": background_color_rgb, "recommended_font_color_rgb": recommended_font_color_rgb, "color_alternative": most_common_color_alternative_rgb,}
                         await self.set_state(self.pixoo_sensor, state="on", attributes=new_attributes)
+
                         payload = {
                             "Command": "Draw/CommandList",
                             "CommandList": [
@@ -385,11 +391,21 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                             color_font = '#ffffff'
 
                         color_font = color_font if self.font_c else recommended_font_color
-
+                                                
                         await self.send_pixoo(payload)
+                        
                         if self.light:
                             await self.control_light('on',background_color_rgb)
-                        
+
+                        if self.spotify_slide and not self.radio_logo:
+                            self.spotify_data = await self.get_spotify_json(artist, title)
+                            if self.spotify_data:
+                                await self.spotify_albums_slide()
+                                if self.spotify_slide_pass:
+                                    return
+                                else:
+                                    await self.send_pixoo(payload)
+
                         if self.show_text and not self.fallback and not self.radio_logo:
                             textid +=1
                             text_temp = { 
@@ -426,10 +442,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                                 }
                             moreinfo["ItemList"].append(clock_item)
 
-                        if (self.show_text or self.show_clock) and not (self.fallback or self.show_lyrics):
+                        if (self.show_text or self.show_clock) and not (self.fallback or self.show_lyrics or self.spotify_slide):
                             await self.send_pixoo(moreinfo)
 
-                        if self.fail_txt:
+                        if self.fail_txt and self.fallback:
                             payloads = self.create_payloads(normalized_artist, normalized_title, 13)
                             payload = {"Command":"Draw/CommandList", "CommandList": payloads}
                             await self.send_pixoo(payload)
@@ -465,13 +481,17 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                                     {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
                                 ]
                             }
-
+                        
                         await self.send_pixoo(payload)
                         if self.light:
                             await self.control_light('off')
 
         except Exception as e:
             self.log(f"Error in pixoo_run: {str(e)}\n{traceback.format_exc()}")
+        
+        finally:
+            await asyncio.sleep(0.10)
+        
 
     async def send_pixoo(self, payload_command):
         """Send command to Pixoo device"""
@@ -505,7 +525,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 url = picture if picture.startswith('http') else f"{self.ha_url}{picture}"
                 async with session.get(url) as response:
                     if response.status != 200:
-                        self.fail_txt = True
+                        #self.fail_txt = True
                         self.fallback = True
                         return None
 
@@ -578,7 +598,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def control_light(self, action, background_color_rgb=None):
         service_data = {'entity_id': self.light}
         if action == 'on':
-            service_data.update({'rgb_color': background_color_rgb, 'transition': 2})
+            service_data.update({'rgb_color': background_color_rgb, 'transition': 1, })
         try:
             await self.call_service(f'light/turn_{action}', **service_data)
         except Exception as e:
@@ -723,7 +743,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self.log(f"Error getting Spotify access token: {e}")
             return False
 
-    async def get_spotify_album_id(self, artist, title):
+    async def get_spotify_json(self, artist, title):
         token = await self.get_spotify_access_token()
         if not token:
             return None
@@ -736,51 +756,81 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         payload = {
             "q": f"track: {title} artist: {artist}",
             "type": "track",
-            "limit": 10
+            "limit": 20
         }
-
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, headers=spotify_headers, params=payload) as response:
                     response_json = await response.json()
                     tracks = response_json.get('tracks', {}).get('items', [])
                     if tracks:
-                        best_album = None
-                        earliest_year = float('inf')
-                        preferred_types = ["single", "ep", "album"]
-
-                        for track in tracks:
-                            album = track.get('album')
-                            album_type = album.get('album_type')
-                            release_date = album.get('release_date')
-                            year = int(release_date[:4]) if release_date else float('inf')
-                            artists = album.get('artists', [])
-                            album_artist = artists[0]['name'] if artists else ""
-
-                            if artist.lower() == album_artist.lower():
-                                #Corrected Prioritization:
-                                if album_type in preferred_types:
-                                    if year < earliest_year:  #Only choose the album if its year is earlier.
-                                        earliest_year = year
-                                        best_album = album
-                                elif year < earliest_year: #If not preferred type, choose based on year alone.
-                                    earliest_year = year
-                                    best_album = album
-
-                        if best_album:
-                            return best_album['id']
-                        else:
-                            if tracks:
-                                self.log("No matching artist found on Spotify, returning the first album that may be wrong.")
-                                return tracks[0]['album']['id']
-                                #self.log("Most likey album art from Spotify is wrong. Trying next method.")
-                                #return None
-                            else:
-                                self.log("No suitable album found on Spotify.")
-                                return None
+                        return response_json
                     else:
                         self.log("No tracks found on Spotify.")
                         return None
+
+        except (IndexError, KeyError) as e:
+            self.log(f"Error parsing Spotify track info: {e}")
+            return None
+        except Exception as e:
+            self.log(f"Error getting Spotify album ID: {e}")
+            return None
+        finally:
+            await asyncio.sleep(0.5)
+
+
+    async def spotify_best_album(self, tracks, artist):
+        best_album = None
+        earliest_year = float('inf')
+        preferred_types = ["single", "ep", "album"]
+
+        for track in tracks:
+            album = track.get('album')
+            album_type = album.get('album_type')
+            release_date = album.get('release_date')
+            year = int(release_date[:4]) if release_date else float('inf')
+            artists = album.get('artists', [])
+            album_artist = artists[0]['name'] if artists else ""
+
+            if artist.lower() == album_artist.lower():
+                #Corrected Prioritization:
+                if album_type in preferred_types:
+                    if year < earliest_year:  #Only choose the album if its year is earlier.
+                        earliest_year = year
+                        best_album = album
+                elif year < earliest_year: #If not preferred type, choose based on year alone.
+                    earliest_year = year
+                    best_album = album
+
+        if best_album:
+            return best_album['id']
+        else:
+            if tracks:
+                self.spotify_defualt_album = tracks[0]['album']['id']
+                self.log("Most likey album art from Spotify is wrong. Trying next method.")
+                #return self.spotify_defualt_album
+                return None
+            else:
+                self.log("No suitable album found on Spotify.")
+                return None
+
+    async def get_spotify_album_id(self, artist, title):
+        token = await self.get_spotify_access_token()
+        if not token:
+            return None
+
+        self.spotify_defualt_album = None
+        try:
+            self.spotify_data = []
+            response_json = await self.get_spotify_json(artist, title)
+            self.spotify_data = response_json
+            tracks = response_json.get('tracks', {}).get('items', [])
+            if tracks:
+                best_album = await self.spotify_best_album(tracks, artist)
+                return best_album
+            else:
+                self.log("No tracks found on Spotify.")
+                return None
 
         except (IndexError, KeyError) as e:
             self.log(f"Error parsing Spotify track info: {e}")
@@ -887,7 +937,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
 
     async def get_final_url(self, picture, timeout=30):
-        self.fail_txt = self.fallback = False
+        self.fail_txt = False
+        self.fallback = False
+
         if self.force_ai and not self.radio_logo:
             try:
                 ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
@@ -906,23 +958,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         return result
             except Exception as e:
                 self.log(f"Original picture processing failed: {e}")
+            self.log(f"looking for {self.ai_artist} {self.ai_title}")
 
             """ Fallback begins """
-            # Try Discogs:
-            if self.discogs:
-                self.log("Trying to find album art @ Discogs")
-                try:
-                    album_art = await self.search_discogs_album_art()
-                    if album_art:
-                        result = await self.process_picture(album_art)
-                        if result:
-                            self.log("Successfully processed the Album Art @ Discogs")
-                            return result
-                        else:
-                            self.log("Failed to process Discogs image")
-                except Exception as e:
-                    self.log(f"Discogs fallback failed with error: {str(e)}")
-
             # Try Spotify
             if self.spotify_client_id and self.spotify_client_secret:
                 self.log("Trying to find album art @ Spotify")
@@ -940,7 +978,22 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 except Exception as e:
                     self.log(f"Spotify fallback failed with error: {str(e)}")
 
-            #Try Last.fm:
+            # Try Discogs:
+            if self.discogs:
+                self.log("Trying to find album art @ Discogs")
+                try:
+                    album_art = await self.search_discogs_album_art()
+                    if album_art:
+                        result = await self.process_picture(album_art)
+                        if result:
+                            self.log("Successfully processed the Album Art @ Discogs")
+                            return result
+                        else:
+                            self.log("Failed to process Discogs image")
+                except Exception as e:
+                    self.log(f"Discogs fallback failed with error: {str(e)}")
+
+            # Try Last.fm:
             if self.lastfm:
                 self.log("Trying to find album art @ Last.fm")
                 try:
@@ -954,6 +1007,17 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                             self.log("Failed to process Last.fm image")
                 except Exception as e:
                     self.log(f"Last.fm fallback failed with error: {str(e)}")
+
+            # Try Defult Spotify Album
+            if self.spotify_defualt_album:
+                try:
+                    image_url = await self.get_spotify_album_image_url(self.spotify_defualt_album)
+                    result = await self.process_picture(image_url)
+                    if result:
+                        self.log("Sending Spotify defualt image")
+                        return result
+                except Exception as e:
+                    self.log("Faild to load Spotify defualt image")
 
             # Try MusicBrainz
             if self.musicbrainz:
@@ -970,17 +1034,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 except Exception as e:
                     self.log(f"MusicBrainz fallback failed with error: {str(e)}")
 
+
             # Fallback to AI generation
             try:
                 self.log("Trying to Generate AI album art")
                 ai_url = self.format_ai_image_prompt(self.ai_artist, self.ai_title)
+                self.fail_txt = False
+                self.fallback = False
                 result = await self.process_picture(ai_url)
                 if result:
                     self.log("Successfully Generated AI Image")
-                    self.fail_txt = self.fallback = False
                     return result
             except Exception as e:
                 self.log(f"AI generation failed: {e}")
+
 
         # Ultimate fallback
         default_values = self.reset_img_values()
@@ -1182,6 +1249,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
 
     def text_clock_img(self, img, brightness_lower_part):
+        if self.spotify_slide:
+            return img
+        
         # Check if there are no lyrics before proceeding
         if self.show_lyrics and self.lyrics != [] and self.media_position_updated_at != None and self.text_bg:
             enhancer_lp = ImageEnhance.Brightness(img)
@@ -1211,11 +1281,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 pixels = list(img.getdata())
             b64 = base64.b64encode(bytearray(pixels))
             gif_base64 = b64.decode("utf-8")
-            self.fallback = self.fail_text = False
+            self.fallback = False
+            self.fail_text = False
             return gif_base64
+            
 
         except Exception as e:
-            self.fail_txt = self.fallback = True
+            self.fail_txt = True
+            self.fallback = True
             return None
 
     def create_black_screen(self):
@@ -1435,3 +1508,180 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     def clear_cache(self, kwargs):
         self.image_cache.clear()
         self.log("Image cache cleared.")
+
+
+
+    """ Spotify Album Art Slide """
+    async def get_album_list(self):
+        """Retrieves album art URLs, filtering and prioritizing albums."""
+        if not self.spotify_data:
+            return []
+
+        try:
+            if not isinstance(self.spotify_data, dict):
+                self.log("Unexpected Spotify data format.  Expected a dictionary.")
+                return []
+
+            tracks = self.spotify_data.get('tracks', {}).get('items', [])
+            albums = {}  # Use a dictionary to store albums for easier filtering and sorting
+            for track in tracks:
+                album = track.get('album', {})
+                album_id = album.get('id')
+                artists = album.get('artists', [])
+                
+                #Check for 'Various Artists' and skip
+                if any(artist.get('name', '').lower() == 'various artists' for artist in artists):
+                    continue
+                
+                #Check if artist name matches
+                if self.ai_artist.lower() not in [artist.get('name', '').lower() for artist in artists]:
+                    continue
+                
+                if album_id not in albums:
+                    albums[album_id] = album
+
+            #Prioritize singles, EPs, Albums, Live Albums, Compilations
+            sorted_albums = sorted(albums.values(), key=lambda x: (
+                x.get("album_type") == "single",  #Singles first
+                x.get("album_type") == "ep",    #EPs second
+                x.get("album_type") == "album",  #Albums third
+                x.get("album_type") == "livealbum", #Live albums fourth (If supported)
+                x.get("album_type") == "compilation" #Compilations last
+            ))
+
+
+            album_urls = []
+            album_base64 = []
+            for album in sorted_albums:
+                images = album.get("images", [])
+                if images:
+                    #album_urls.append(images[0]["url"])
+                    base64_data = await self.get_slide_img(images[0]["url"])
+                    album_base64.append(base64_data)
+            return album_base64
+
+
+        except (KeyError, IndexError, TypeError, AttributeError) as e:
+            self.log(f"Error processing Spotify data: {e}")
+            return []
+
+
+
+    async def get_slide_img(self, picture):
+        """Fetches, processes, and returns base64-encoded image data."""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(picture) as response:
+                    if response.status != 200:
+                        self.log(f"Error fetching image {picture}: {response.status}")
+                        return None
+
+                    image_data = await response.read()
+
+        except Exception as e:
+            self.log(f"Error processing image {picture}: {e}")
+            return None
+        
+        try:
+            with Image.open(BytesIO(image_data)) as img:
+                img = self.ensure_rgb(img)
+                
+                # Ensure the image is square
+                width, height = img.size
+                if height < width:  # Check if height is less than width
+                    # Calculate the border size
+                    border_size = (width - height) // 2
+                    background_color = img.getpixel((1, 1))
+                    
+                    new_img = Image.new("RGB", (width, width), background_color)  # Create a square image
+                    new_img.paste(img, (0, border_size))  # Paste the original image onto the new image
+                    img = new_img  # Update img to the new image
+                elif width != height:
+                    new_size = min(width, height)
+                    left = (width - new_size) // 2
+                    top = (height - new_size) // 2
+                    img = img.crop((left, top, left + new_size, top + new_size))
+                    
+                if self.contrast:
+                    enhancer = ImageEnhance.Contrast(img)
+                    img = enhancer.enhance(1.5)
+                    
+                img = img.resize((64, 64), Image.Resampling.LANCZOS)
+                return self.gbase64(img)
+        except Exception as e:
+                return None
+
+    async def send_pixoo_animation_frame(self, command, pic_num, pic_width, pic_offset, pic_id, pic_speed, pic_data):
+        """Sends a single frame of an animation to the Pixoo device."""
+        payload = {
+        "Command": command,
+        "PicNum": pic_num,
+        "PicWidth": pic_width,
+        "PicOffset": pic_offset,
+        "PicID": pic_id,
+        "PicSpeed": pic_speed,
+        "PicData": pic_data
+        }
+        # Send the payload to the Pixoo device (assuming you have a send_payload method)
+        response = await self.send_payload(payload)
+        return response
+
+    async def spotify_albums_slide(self):
+        """Fetches and processes images, printing base64 data."""
+        self.spotify_slide_pass = True
+        album_urls = await self.get_album_list()
+        if not album_urls:
+            self.log("No albums found for slide")
+            
+            self.spotify_slide_pass = False
+            #await self.send_payload({"Command":"Draw/ResetHttpGifId"})
+            await self.send_payload({"Command": "Channel/SetIndex", "SelectIndex": 4})
+            return
+
+        frames = len(album_urls)
+        if frames < 2:
+            self.spotify_slide_pass = False
+            #await self.send_payload({"Command":"Draw/ResetHttpGifId"})
+            await self.send_payload({"Command": "Channel/SetIndex", "SelectIndex": 4})
+            return
+
+        self.log(f"Creating album slide from spotify with {frames} frames for {self.ai_artist}")
+        pic_offset = 0
+        await self.send_payload({"Command":"Draw/ResetHttpGifId"})
+        for album_url in album_urls:
+            try:
+                if album_url:
+                    pic_speed = 5000  # Example speed, adjust as needed
+                    await self.send_pixoo_animation_frame(
+                    command="Draw/SendHttpGif",
+                    pic_num=frames,
+                    pic_width=64,
+                    pic_offset=pic_offset,
+                    pic_id=1,
+                    pic_speed=pic_speed,
+                    pic_data=album_url
+                    )
+
+                # Increment pic_id for the next animation frame
+                    pic_offset += 1
+                else:
+                    print(f"Failed to process image: {album_url}")
+                    break
+
+            except Exception as e:
+                print(f"Error processing image {album_url}: {e}")
+                break
+
+    async def send_payload(self, payload_command):
+        """Send command to Pixoo device"""
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(self.url, headers=self.headers, json=payload_command, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                    if response.status != 200:
+                        self.log(f"Failed to send REST: {response.status}")
+                    else:
+                        pass
+        except Exception as e:
+            self.log(f"Error sending command to Pixoo: {str(e)}\n{traceback.format_exc()}")
+
+
