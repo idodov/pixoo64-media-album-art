@@ -11,6 +11,7 @@ Additionally, the script supports lyrics display and uses AI-generated images as
 - **Synchronized Lyrics Display**: Displays synchronized lyrics of the song.
 - **Display Clock**: Shows the current time.
 - **Artist and Track Title Display**: Shows the artist and track title.
+- **Album Arts Slider**: Shows a various album arts for the playing title.
 - **Full Fallback Support**: If album art doesn't exist or can't be fetched, the script provides fallback options. These fallbacks support API services like MusicBrainz, Spotify, Discogs, and Last.FM. If all else fails, the script creates a dedicated AI image using [pollinations.ai](https://pollinations.ai), ensuring that 99% of the time, an image will be displayed on the Pixoo64 screen while music is playing.
 
 The script is compatible with speaker systems such as Chromecast, AirPlay 2, and Sonos, and fully supports services like Spotify, Tidal, Apple Music, YouTube Music, MixCloud, TuneIn, Sonos Radio, and more!
@@ -100,6 +101,7 @@ pixoo64_media_album_art:
         clock_align: Right                         # Clock align - Left or Right
         tv_icon: True                              # Shows TV icon when playing sound from TV
         lyrics: False                              # Show lyrics if avalible. In this mode the show_text fetures will disabled
+        spotify_slide: False                       # To enable the slider, you must integrate Spotify API support by providing API keys for the client ID and client secret.
         show_text:
             enabled: False                         # Show media artist and title 
             clean_title: True                      # Remove "Remaster" labels, track number and file extentions from the title if any
@@ -133,6 +135,7 @@ pixoo64_media_album_art:
 | `clock_align` | Align the clock to `Left` or `Right` | `Left` |
 | `tv_icon` | Show TV art when playing sound from TV | `True` |
 | `lyrics` | Display sync lyrics | `True` |
+| `spotify_slide` | Shows album arts for the playing title taken from Spotify API. To enable the slider, you must integrate Spotify API support by providing API keys for the client ID and client secret. In this mode, the clock, title, and crop features will be disabled. |  `False` or `True` |
 | `show_text - enabled` | Show media info with image | `False` |
 | `show_text - clean_title` | Remove "Remaster" labels, track numbers, and file extensions from the title if any | `True` |
 | `show_text - text_background` | Change background of text area (support lytics mode also) | `True` |
@@ -155,6 +158,9 @@ pixoo64_media_album_art:
 >
 > ### Display Lyrics
 > For accessibility, when lyrics are available and displayed above the image, the image will appear 50% darker when `text_background` and `lyrics` is `True` (apps.yaml). Lyrics feture is not support radio stations.
+>
+> ### Spotify Slider
+> The Spotify album slide function will elevate the Pixoo64 to a new level by searching for album art that features the currently playing track and emphasizes the playing artist. To enable this mode, you need to add Spotify keys (client ID and client secret) to `apps.yaml`. Additionally, under the Pixoo arguments in `apps.yaml`, ensure that `spotify_slide` is set to `True`.
 ____________
 ## You’re all set!
 **Make sure that `input_boolean.pixoo64_album_art` is turned `on`. The next time you play a track, the album cover art will be displayed, and all the usable picture data will be stored in a new sensor.**
