@@ -81,36 +81,37 @@ pixoo64_media_album_art:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
-        ha_url: "http://homeassistant.local:8123"  # Home Assistant URL
-        media_player: "media_player.era300"        # Media player entity ID
-        toggle: "input_boolean.pixoo64_album_art"  # Boolean sensor to control script execution (Optional)
-        pixoo_sensor: "sensor.pixoo64_media_data"  # Sensor to store media data (Optional)
-        light: "light.strip_stone"                 # RGB light entity ID (if any) (Optional)
-        ai_fallback: turbo                         # Create alternative AI image when fallback - use model 'flex' or 'turbo'
-        force_ai: False                            # Show only AI Images
-        musicbrainz: True                          # Get fallback image from MusicBrainz 
-        spotify_client_id: False                   # client_id key API KEY from developers.spotify.com
-        spotify_client_secret: False               # client_id_secret API KEY
-        last.fm: False                             # Last.fm API KEY from https://www.last.fm/api/account/create
-        discogs: False                             # Discogs API KEY from https://www.discogs.com/settings/developers
+        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
+        media_player: "media_player.era300"         # The entity ID of your media player.
+        toggle: "input_boolean.pixoo64_album_art"   # (Optional) An input boolean to enable or disable the script's execution.
+        pixoo_sensor: "sensor.pixoo64_media_data"   # (Optional) A sensor to store extracted media data.
+        light: "light.strip_stone"                  # (Optional) The entity ID of an RGB light to synchronize with the album art colors.
+        ai_fallback: "turbo"                        # The AI model to use for generating alternative album art when needed (supports 'flux' or 'turbo').
+        force_ai: False                             # If True, only AI-generated images will be displayed.
+        musicbrainz: True                           # If True, attempts to find a fallback image on MusicBrainz if other sources fail.
+        spotify_client_id: False                    # Your Spotify API client ID (needed for Spotify features). Obtain from https://developers.spotify.com.
+        spotify_client_secret: False                # Your Spotify API client secret (needed for Spotify features).
+        last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create.
+        discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers.
     pixoo:
-        url: "192.168.86.21"                       # Pixoo device URL
-        full_control: True                         # Control display on/off with play/pause
-        contrast: True                             # Apply 50% contrast filter
-        clock: True                                # Show clock top corner
-        clock_align: Right                         # Clock align - Left or Right
-        tv_icon: True                              # Shows TV icon when playing sound from TV
-        lyrics: False                              # Show lyrics if avalible. In this mode the show_text fetures will disabled
-        spotify_slide: False                       # To enable the slider, you must integrate Spotify API support by providing API keys for the client ID and client secret.
+        url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
+        full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
+        contrast: True                              # If True, applies a 50% contrast filter to the images displayed on the Pixoo.
+        clock: True                                 # If True, a clock is displayed in the top corner of the screen.
+        clock_align: "Right"                        # Clock alignment: "Left" or "Right".
+        tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
+        lyrics: False                               # If True, attempts to display lyrics on the Pixoo64 (show_text and clock will be disabled).
+        limit_colors: False                         # Reduces the number of colors in the picture from 4 to 256, or set it to False for original colors.
+        spotify_slide: False                        # If True, forces an album art slide (requires a Spotify client ID and secret). Note: clock and title will be disabled in this mode.
+        images_cache: 25                            # The number of processed images to keep in the memory cache. Use wisely to avoid memory issues (each image is approximately 17KB).
         show_text:
-            enabled: False                         # Show media artist and title 
-            clean_title: True                      # Remove "Remaster" labels, track number and file extentions from the title if any
-            text_background: True                  # Change background color or better text display with image
-            font: 2                                # Pixoo internal font type (0-7) for fallback text when there is no image
-            color: False                           # Use alternative font color
+            enabled: False                          # If True, displays the artist and title of the current track.
+            clean_title: True                       # If True, removes "Remastered," track numbers, and file extensions from the title.
+            text_background: True                   # If True, adjusts the background color behind the text for improved visibility.
+            font: 2                                 # The font to use for text (Pixoo64 built-in fonts in ultimate fallback screen, 0-7).
         crop_borders:
-            enabled: True                          # Crop image borders if present
-            extra: True                            # Apply enhanced border crop
+            enabled: True                           # If True, attempts to crop any borders from the album art.
+            extra: True                             # If True, applies an enhanced border cropping algorithm.
 ```
 > [!WARNING]
 > **Only save it once you’ve made the described changes to the settings.**
@@ -135,12 +136,13 @@ pixoo64_media_album_art:
 | `clock_align` | Align the clock to `Left` or `Right` | `Left` |
 | `tv_icon` | Show TV art when playing sound from TV | `True` |
 | `lyrics` | Display sync lyrics | `True` |
+| `limit_colors` | Reduces the number of colors in the picture from 4 to 256, or set it to False for original colors | `4` to `256` or `False` |
 | `spotify_slide` | Shows album arts for the playing title taken from Spotify API. To enable the slider, you must integrate Spotify API support by providing API keys for the client ID and client secret. In this mode, the clock, title, and crop features will be disabled. |  `False` or `True` |
+| `images_cache` | The number of processed images to keep in the memory cache. Use wisely to avoid memory issues (each image is approximately 17KB) | `1` to `500` |
 | `show_text - enabled` | Show media info with image | `False` |
 | `show_text - clean_title` | Remove "Remaster" labels, track numbers, and file extensions from the title if any | `True` |
 | `show_text - text_background` | Change background of text area (support lytics mode also) | `True` |
 | `show_text - font` | Pixoo internal font type (0-7). Used in fallback screen only | `2` |
-| `show_text - color` | Use alternative font color | `False` |
 | `crop_borders - enabled` | Crop image borders if present | `True` |
 | `crop_borders - extra` | Apply enhanced border cropping | `True` |
 
@@ -225,37 +227,38 @@ The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assi
 | `media_title` | The original title of the media |
 | `normalized_title` | The media title in Latin letters |
 | `font_color` | The color of the font |
-| `font_color_alternative` | An alternative color for the font |
 | `background_color_brightness` | The brightness level of the background color |
 | `background_color` | The color of the lower part in background |
 | `background_color_rgb` | The RGB values of the background color (lower part) |
 | `color_alternative` |  The most common color of the background |
-| `color_alternative_rgb` | The RGB values of the most common background color |
+| `images_in_cache` | Current number of images in memory cache |
+| `image_memory_cache` | Memory used in KB or MB | 
+| `process_duration` | The time until the image send to the screen from the time the player start |
+| `spotify_frames` | Number of frames in animation |
 
 Here’s an examples of the sensor attributes:
 
 ```yaml
-artist: Björk & Trio Gudmundar Ingolfssonar
-normalized_artist: Bjork & Trio Gudmundar Ingolfssonar
-media_title: Það Sést Ekki Sætari Mey
-normalized_title: Thad Sest Ekki Saetari Mey
-font_color: "#00ff00"
-font_color_alternative: "#37457a"
-background_color_brightness: 173
-background_color: "#c8ba85"
-color_alternative_rgb:
-  - 198
-  - 185
-  - 132
+artist: Katy Perry
+normalized_artist: Katy Perry
+media_title: OK
+normalized_title: OK
+font_color: "#7fff00"
+background_color_brightness: 128
+background_color: "#003cb2"
+color_alternative_rgb: "#4f7cb7"
 background_color_rgb:
-  - 200
-  - 186
-  - 133
-recommended_font_color_rgb:
-  - 55
-  - 69
-  - 122
-color_alternative: "#c6b984"
+  - 0
+  - 60
+  - 178
+color_alternative:
+  - 120
+  - 59
+  - 11
+images_in_cache: 7
+image_memory_cache: 114.71 KB
+process_duration: 2.49 seconds
+spotify_frames: 0
 ```
 Arabic Title When Normalized (letters changed to English):
 ```yaml
