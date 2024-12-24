@@ -101,6 +101,7 @@ pixoo64_media_album_art:
         clock_align: "Right"                        # Clock alignment: "Left" or "Right".
         tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
         lyrics: False                               # If True, attempts to display lyrics on the Pixoo64 (show_text and clock will be disabled).
+        lyrics_font: 2                              # Recommend values: 2, 4, 32, 52, 58, 62, 158, 186, 190, 590. More values can be found at https://app.divoom-gz.com/Device/GetTimeDialFontList (you need ID value)
         limit_colors: False                         # Reduces the number of colors in the picture from 4 to 256, or set it to False for original colors.
         spotify_slide: False                        # If True, forces an album art slide (requires a Spotify client ID and secret). Note: clock and title will be disabled in this mode.
         images_cache: 25                            # The number of processed images to keep in the memory cache. Use wisely to avoid memory issues (each image is approximately 17KB).
@@ -136,6 +137,7 @@ pixoo64_media_album_art:
 | `clock_align` | Align the clock to `Left` or `Right` | `Left` |
 | `tv_icon` | Show TV art when playing sound from TV | `True` |
 | `lyrics` | Display sync lyrics | `True` |
+| `lyrics_font` | Font to display the lyrics. More values can be found here: [DIVOOM PIXOO64 FONTS JSON](https://app.divoom-gz.com/Device/GetTimeDialFontList) (you need ID value) | Recommend values: `2`, `4`, `32`, `52`, `58`, `62`, `158`, `186`, `190`, `590` |
 | `limit_colors` | Reduces the number of colors in the picture from 4 to 256, or set it to False for original colors | `4` to `256` or `False` |
 | `spotify_slide` | Shows album arts for the playing title taken from Spotify API. To enable the slider, you must integrate Spotify API support by providing API keys for the client ID and client secret. In this mode, the clock, title, and crop features will be disabled. |  `False` or `True` |
 | `images_cache` | The number of processed images to keep in the memory cache. Use wisely to avoid memory issues (each image is approximately 17KB) | `1` to `500` |
