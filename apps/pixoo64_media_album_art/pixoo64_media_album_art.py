@@ -39,7 +39,8 @@ pixoo64_media_album_art:
         clock_align: "Right"                        # Clock alignment: "Left" or "Right".
         tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
         lyrics: False                               # If True, attempts to display lyrics on the Pixoo64 (show_text and clock will be disabled).
-        limit_colors: False                         # If True, reduces the number of colors in the picture from 4 to 256, or set it to False for original colors.
+        lyrics_font: 2                              # Recommend values: 2, 4, 32, 52, 58, 62, 158, 186, 190, 590. More values can be found at https://app.divoom-gz.com/Device/GetTimeDialFontList (you need ID value)
+        limit_colors: False                         # Reduces the number of colors in the picture from 4 to 256, or set it to False for original colors.
         spotify_slide: False                        # If True, forces an album art slide (requires a Spotify client ID and secret). Note: clock and title will be disabled in this mode.
         images_cache: 25                            # The number of processed images to keep in the memory cache. Use wisely to avoid memory issues (each image is approximately 17KB).
         show_text:
@@ -86,7 +87,7 @@ from appdaemon.plugins.hass import hassapi as hass
 # Configure the logger
 import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
-logger = logging.getLogger(__name__)
+_LOGGER = logging.getLogger(__name__)
 
 # Constants
 AI_ENGINE = "https://pollinations.ai/p"
@@ -182,6 +183,7 @@ class Config:
         # Text display settings
         self.limit_color: bool = pixoo_config.get("limit_colors", False)
         self.show_lyrics: bool = pixoo_config.get("lyrics", False)
+        self.lyrics_font: int = pixoo_config.get("lyrics_font", 2)
         self.show_text: bool = show_text_config.get("enabled", False)
         self.clean_title_enabled: bool = show_text_config.get("clean_title", True)
         self.font: int = show_text_config.get("font", 2)
@@ -208,11 +210,11 @@ class PixooDevice:
             async with aiohttp.ClientSession() as session:
                 async with session.post(self.config.pixoo_url, headers=self.headers, json=payload_command, timeout=aiohttp.ClientTimeout(total=10)) as response:
                     if response.status != 200:
-                        logger.error(f"Failed to send REST: {response.status}")
+                        _LOGGER.error(f"Failed to send REST: {response.status}")
                     else:
                         await asyncio.sleep(0.25)
         except Exception as e:
-            logger.error(f"Error sending command to Pixoo: {str(e)}\n{traceback.format_exc()}")
+            _LOGGER.error(f"Error sending command to Pixoo: {str(e)}\n{traceback.format_exc()}")
 
     async def get_current_channel_index(self):
         channel_command = {
@@ -230,7 +232,7 @@ class PixooDevice:
                     response_data = json.loads(response_text)
                     return response_data.get('SelectIndex', 1)
         except Exception as e:
-            logger.error(f"Failed to get channel index from Pixoo: {str(e)}")
+            _LOGGER.error(f"Failed to get channel index from Pixoo: {str(e)}")
             return 1  # Default fallback value
 
 
@@ -288,12 +290,12 @@ class ImageProcessor:
                         processed_data = await self.process_image_data(image_data, media_data)  # Process image *before* caching
                         return processed_data
             except Exception as e:
-                logger.error(f"Error in get_image: {str(e)}\n{traceback.format_exc()}")
+                _LOGGER.error(f"Error in get_image: {str(e)}\n{traceback.format_exc()}")
                 return None
 
         # Check cache; if found, return directly with all data.
-        if cache_key in self.image_cache and not spotify_slide:
-            logger.info("Image found in cache")
+        if cache_key in self.image_cache and not spotify_slide and not media_data.playing_tv:
+            _LOGGER.info("Image found in cache")
             cached_item = self.image_cache.pop(cache_key)
             self.image_cache[cache_key] = cached_item  # Re-add to maintain LRU order
             return cached_item
@@ -317,7 +319,7 @@ class ImageProcessor:
                         media_data.image_cache_count = self._cache_size
                     return processed_data
         except Exception as e:
-            logger.error(f"Error in get_image: {str(e)}\n{traceback.format_exc()}")
+            _LOGGER.error(f"Error in get_image: {str(e)}\n{traceback.format_exc()}")
             return None
 
 
@@ -383,7 +385,7 @@ class ImageProcessor:
                 }
 
         except Exception as e:
-            logger.error(f"Error processing image: {str(e)}")
+            _LOGGER.error(f"Error processing image: {str(e)}")
             return None
 
 
@@ -393,7 +395,7 @@ class ImageProcessor:
                 img = img.convert("RGB")
             return img
         except Exception as e:
-            logger.error(f"Error converting image to RGB: {e}")
+            _LOGGER.error(f"Error converting image to RGB: {e}")
             return None
 
     def crop_image_borders(self, img, radio_logo):
@@ -458,7 +460,7 @@ class ImageProcessor:
                 img = temp_img.crop((0, 0, 64, 64))  # Crop to a default square
 
         except Exception as e:
-            logger.error(f"Failed to crop image: {e}")
+            _LOGGER.error(f"Failed to crop image: {e}")
             img = temp_img
 
         return img
@@ -488,7 +490,7 @@ class ImageProcessor:
             gif_base64 = b64.decode("utf-8")
             return gif_base64
         except Exception as e:
-            logger.error(f"Error converting image to base64: {e}")
+            _LOGGER.error(f"Error converting image to base64: {e}")
             return None
 
     def text_clock_img(self, img, brightness_lower_part, media_data):
@@ -496,7 +498,7 @@ class ImageProcessor:
             return img
 
         # Check if there are no lyrics before proceeding
-        if media_data.lyrics and self.config.show_lyrics and self.lyrics_font_color != [] and brightness_lower_part != None and self.config.text_bg and not media_data.playing_radio:
+        if media_data.lyrics and self.config.show_lyrics and self.lyrics_font_color != [] and brightness_lower_part != None and self.config.text_bg and not media_data.playing_radio and not media_data.playing_tv:
             enhancer_lp = ImageEnhance.Brightness(img)
             img = enhancer_lp.enhance(0.55)  # self.brightness_full)
             return img
@@ -605,7 +607,7 @@ class ImageProcessor:
             return max(L1, L2) / min(L1, L2)
 
         # Check if the color is sufficiently distinct from all colors in the image
-        def is_distinct_color(color, threshold=50):
+        def is_distinct_color(color, threshold=110):
             return all(math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color, img_color))) > threshold for img_color in image_palette)
 
         # Define a set of colorful candidate colors (modified for brightness)
@@ -665,8 +667,8 @@ class MediaData:
         self.spotify_frames = 0
         self.media_position_updated_at = None
         self.spotify_data = None
-        self.ai_artist = None
-        self.ai_title = None
+        self.ai_artist = ""
+        self.ai_title = ""
         self.album = None
         self.lyrics = []
         self.picture = None
@@ -738,19 +740,22 @@ class MediaData:
                     self.playing_radio = self.radio_logo = False
                     self.picture = original_picture
             else:
-                normalized_artist = normalized_title = "TV"
+                self.ai_artist = self.ai_title = normalized_artist = normalized_title = "TV"
                 self.playing_tv = True
+
                 if self.config.tv_icon_pic:
                     self.picture = TV_ICON_PATH
+                    #self.current_image_task = None
                 else:
                     self.picture = "TV_IS_ON"
+                    
 
             self.normalized_artist = normalized_artist
             self.normalized_title = normalized_title
             return self
 
         except Exception as e:
-            logger.error(f"Error updating Media Data: {str(e)}\n{traceback.format_exc()}")
+            _LOGGER.error(f"Error updating Media Data: {str(e)}\n{traceback.format_exc()}")
             return None
         
     def format_ai_image_prompt(self, artist, title):
@@ -812,10 +817,10 @@ class FallbackService:
     async def get_final_url(self, picture, media_data):
         self.fail_txt = False
         self.fallback = False
-        
-        if self.config.force_ai and not media_data.radio_logo:
+
+        if self.config.force_ai and not media_data.radio_logo and not media_data.playing_tv:
             try:
-                logger.info("Trying to Generate AI album art. It may take few seconds")
+                _LOGGER.info("Trying to Generate AI album art. It may take few seconds")
                 ai_url = media_data.format_ai_image_prompt(media_data.ai_artist, media_data.ai_title)
                 self.fail_txt = False
                 self.fallback = False
@@ -825,12 +830,12 @@ class FallbackService:
                     timeout=25
                 )
                     if result:
-                        logger.info("Successfully Generated AI Image")
+                        _LOGGER.info("Successfully Generated AI Image")
                         return result
                 except asyncio.TimeoutError:
-                    logger.warning("AI image generation timed out after 25 seconds")
+                    _LOGGER.warning("AI image generation timed out after 25 seconds")
             except Exception as e:
-                logger.error(f"AI generation failed: {e}")
+                _LOGGER.error(f"AI generation failed: {e}")
 
         else:
         # Process original picture
@@ -840,10 +845,10 @@ class FallbackService:
                     if result:
                         return result
             except Exception as e:
-                logger.error(f"Original picture processing failed: {e}")
+                _LOGGER.error(f"Original picture processing failed: {e}")
 
             """ Fallback begins """
-            logger.info(f"Looking for {media_data.ai_artist} - {media_data.ai_title}")
+            _LOGGER.info(f"Looking for {media_data.ai_artist} - {media_data.ai_title}")
             self.spotify_first_album = None
             
             # Try Spotify
@@ -859,12 +864,12 @@ class FallbackService:
                         if image_url:
                             result = await self.image_processor.get_image(image_url, media_data, media_data.spotify_slide_pass)
                             if result:
-                                logger.info("Successfully processed the Album Art @ Spotify")
+                                _LOGGER.info("Successfully processed the Album Art @ Spotify")
                                 return result
                         else:
-                            logger.error("Failed to process Spotify image")
+                            _LOGGER.error("Failed to process Spotify image")
                 except Exception as e:
-                    logger.error(f"Spotify fallback failed with error: {str(e)}")
+                    _LOGGER.error(f"Spotify fallback failed with error: {str(e)}")
 
             # Try Discogs:
             if self.config.discogs:
@@ -873,12 +878,12 @@ class FallbackService:
                     if discogs_art:
                         result = await self.image_processor.get_image(discogs_art, media_data, media_data.spotify_slide_pass)
                         if result:
-                            logger.info("Successfully processed the Album Art @ Discogs")
+                            _LOGGER.info("Successfully processed the Album Art @ Discogs")
                             return result
                         else:
-                            logger.error("Failed to process Discogs image")
+                            _LOGGER.error("Failed to process Discogs image")
                 except Exception as e:
-                    logger.error(f"Discogs fallback failed with error: {str(e)}")
+                    _LOGGER.error(f"Discogs fallback failed with error: {str(e)}")
 
             # Try Last.fm:
             if self.config.lastfm:
@@ -887,12 +892,12 @@ class FallbackService:
                     if lastfm_art:
                         result = await self.image_processor.get_image(lastfm_art, media_data, media_data.spotify_slide_pass)
                         if result:
-                            logger.info("Successfully found and processed the Album Art @ Last.fm")
+                            _LOGGER.info("Successfully found and processed the Album Art @ Last.fm")
                             return result
                         else:
-                            logger.error("Failed to process Last.fm image")
+                            _LOGGER.error("Failed to process Last.fm image")
                 except Exception as e:
-                    logger.error(f"Last.fm fallback failed with error: {str(e)}")
+                    _LOGGER.error(f"Last.fm fallback failed with error: {str(e)}")
 
             # Try MusicBrainz
             if self.config.musicbrainz:
@@ -905,20 +910,20 @@ class FallbackService:
                             timeout=10
                             )
                             if result:
-                                logger.info("Successfully found and processed the Album Art @ MusicBrainz")
+                                _LOGGER.info("Successfully found and processed the Album Art @ MusicBrainz")
                                 return result
                             else:
-                                logger.error("Failed to process MusicBrainz image")
+                                _LOGGER.error("Failed to process MusicBrainz image")
                         except asyncio.TimeoutError:
-                            logger.warning("MusicBrainz timed out after 10 seconds")
+                            _LOGGER.warning("MusicBrainz timed out after 10 seconds")
                 
                 except Exception as e:
-                    logger.error(f"MusicBrainz fallback failed with error: {str(e)}")
+                    _LOGGER.error(f"MusicBrainz fallback failed with error: {str(e)}")
 
 
             # Fallback to AI generation
             try:
-                logger.info("Trying to Generate AI album art. Will quit if fail after 20 seconds")
+                _LOGGER.info("Trying to Generate AI album art. Will quit if fail after 20 seconds")
                 ai_url = media_data.format_ai_image_prompt(media_data.ai_artist, media_data.ai_title)
                 self.fail_txt = False
                 self.fallback = False
@@ -928,30 +933,30 @@ class FallbackService:
                     timeout=20
                 )
                     if result:
-                        logger.info("Successfully Generated AI Image")
+                        _LOGGER.info("Successfully Generated AI Image")
                         return result
                 except asyncio.TimeoutError:
-                    logger.warning("AI image generation timed out after 20 seconds")
+                    _LOGGER.warning("AI image generation timed out after 20 seconds")
             except Exception as e:
-                logger.error(f"AI generation failed: {e}")
+                _LOGGER.error(f"AI generation failed: {e}")
 
             # Last try on spotify:
             if self.spotify_first_album:
                 try:
                     result = await self.image_processor.get_image(self.spotify_first_album, media_data, media_data.spotify_slide_pass)
                     if result:
-                        logger.info("Successfully processed the defualt Album Art @ Spotify")
+                        _LOGGER.info("Successfully processed the defualt Album Art @ Spotify")
                         return result
 
                 except Exception as e:
-                    logger.error(f"Spotify fallback failed with error: {str(e)}")
+                    _LOGGER.error(f"Spotify fallback failed with error: {str(e)}")
 
 
         # Ultimate fallback
         self.fail_txt = True
         self.fallback = True
         black_screen = self.image_processor.gbase64(self.create_black_screen())
-        logger.info("Ultimate fallback")
+        _LOGGER.info("Ultimate fallback")
         return {
             'base64_image': black_screen, 
             'font_color': '#ff00ff', 
@@ -980,12 +985,12 @@ class FallbackService:
                 # Get the release ID
                 async with session.get(search_url, params=params, headers=headers, timeout=10) as response:
                     if response.status != 200:
-                        logger.error(f"MusicBrainz API error: {response.status}")
+                        _LOGGER.error(f"MusicBrainz API error: {response.status}")
                         return None
 
                     data = await response.json()
                     if not data.get("releases"):
-                        logger.info("No releases found in MusicBrainz")
+                        _LOGGER.info("No releases found in MusicBrainz")
                         return None
 
                     release_id = data["releases"][0]["id"]
@@ -994,7 +999,7 @@ class FallbackService:
                     cover_art_url = f"https://coverartarchive.org/release/{release_id}"
                     async with session.get(cover_art_url, headers=headers, timeout=20) as art_response:
                         if art_response.status != 200:
-                            logger.error(f"MusicBrainz - Cover art archive error: {art_response.status}\n{cover_art_url}")
+                            _LOGGER.error(f"MusicBrainz - Cover art archive error: {art_response.status}\n{cover_art_url}")
                             return None
 
                         art_data = await art_response.json()
@@ -1003,11 +1008,11 @@ class FallbackService:
                             if image.get("front", False):
                                 return image.get("thumbnails", {}).get("250")
 
-                        logger.info("MusicBrainz - No front cover found in cover art archive")
+                        _LOGGER.info("MusicBrainz - No front cover found in cover art archive")
                         return None
 
         except asyncio.TimeoutError:
-            logger.error("MusicBrainz request timed out")
+            _LOGGER.error("MusicBrainz request timed out")
     
     async def search_discogs_album_art(self, ai_artist, ai_title):
         base_url = "https://api.discogs.com/database/search"
@@ -1046,16 +1051,16 @@ class FallbackService:
                             if album_art_url:
                                 return album_art_url
                             else:
-                                logger.info("Album art URL not found in best Discogs result.")
+                                _LOGGER.info("Album art URL not found in best Discogs result.")
                                 return None
                         else:
-                            logger.info("No suitable album found on Discogs.")
+                            _LOGGER.info("No suitable album found on Discogs.")
                             return None
                     else:
-                        logger.info("No results found for the specified artist and track @ Discogs.")
+                        _LOGGER.info("No results found for the specified artist and track @ Discogs.")
                         return None
                 else:
-                    logger.error(f"Discogs API request failed: {response.status} - {response.reason}")
+                    _LOGGER.error(f"Discogs API request failed: {response.status} - {response.reason}")
                     return None
 
 
@@ -1077,7 +1082,7 @@ class FallbackService:
                     if album_art_url:
                         return album_art_url[-1]["#text"]
                     else:
-                        logger.info("No suitable album found on Last.FM.")
+                        _LOGGER.info("No suitable album found on Last.FM.")
                 return None
     
     def create_black_screen(self):
@@ -1108,14 +1113,14 @@ class LyricsProvider:
                         lyrics_data = await response.json()
                         # Store the lyrics and seconds in a list of dictionaries
                         self.lyrics = [{'seconds': line['seconds'], 'lyrics': line['lyrics']} for line in lyrics_data]
-                        logger.info(f"Retrieved lyrics for {artist} - {title}")
+                        _LOGGER.info(f"Retrieved lyrics for {artist} - {title}")
                         return self.lyrics
                     else:
-                        logger.error(f"Failed to fetch lyrics: {response.status}")
+                        _LOGGER.error(f"Failed to fetch lyrics: {response.status}")
                         self.lyrics = []
                         return []  # Reset lyrics if fetching fails
         except Exception as e:
-            logger.error(f"Error fetching lyrics: {str(e)}")
+            _LOGGER.error(f"Error fetching lyrics: {str(e)}")
             return [] # Reset lyrics on error
     
     async def calculate_position(self, media_data, hass):
@@ -1144,35 +1149,48 @@ class LyricsProvider:
                             await PixooDevice(self.config, None).send_command({"Command": "Draw/ClearHttpText"})
                         break
 
+
     async def create_lyrics_payloads(self, lyrics, x, hass):
-        # Split the lyrics into lines based on the max character limit
+        if not lyrics:
+            return
         
         all_lines = split_string(self.get_display(lyrics) if lyrics and self.has_bidi(lyrics) else lyrics, x)
+
         if len(all_lines) > 4:
             all_lines[4] += ' ' + ' '.join(all_lines[5:])
             all_lines = all_lines[:5]
-        
-        start_y = (64 - len(all_lines) * 11) // 2
-        payloads = [
-            {
-                "Command": "Draw/SendHttpText",
-                "TextId": i + 1,  # Unique TextId for each line
+
+        screen_width = 64 
+        screen_height = 64
+        font_height = 12
+        item_list = []
+
+        start_y = (screen_height - len(all_lines) * font_height) // 2
+
+        for i, line in enumerate(all_lines):
+            y = start_y + (i * font_height)
+            
+            item_list.append({
+                "TextId": i + 1,
+                "type": 22,
                 "x": 0,
-                "y": start_y + (i * 11),  # Adjust y position for each line
-                "dir": 0,
-                "font": self.config.font,
+                "y": y,
+                "dir": 1 if self.has_bidi(line) else 0,
+                "font": self.config.lyrics_font,
                 "TextWidth": 64,
-                "speed": 80,
+                "Textheight": 16,
+                "speed": 100,
+                "align": 2,
                 "TextString": line,
                 "color": self.image_processor.lyrics_font_color,
-                "align": 2
-            }
-            for i, line in enumerate(all_lines)
-        ]
-        # Clear text command 
+            })
+
+        payload = {
+            "Command": "Draw/SendHttpItemList",
+            "ItemList": item_list
+        }
         clear_text_command = {"Command": "Draw/ClearHttpText"}
-        full_command_list = [clear_text_command] + payloads
-        payload = {"Command": "Draw/CommandList", "CommandList": full_command_list}
+        await PixooDevice(self.config, None).send_command(clear_text_command)
         await PixooDevice(self.config, None).send_command(payload)
 
     def has_bidi(self, text):
@@ -1185,7 +1203,7 @@ class LyricsProvider:
         try:
             return get_display(text) if text and self.has_bidi(text) else text
         except Exception as e:
-            logger.error(f"To display RTL text you need to add bidi-algorithm package: {e}.")
+            _LOGGER.error(f"To display RTL text you need to add bidi-algorithm package: {e}.")
             return text
 
 class SpotifyService:
@@ -1218,7 +1236,7 @@ class SpotifyService:
                     }
                     return access_token
         except Exception as e:
-            logger.error(f"Error getting Spotify access token: {e}")
+            _LOGGER.error(f"Error getting Spotify access token: {e}")
             return False
 
     async def get_spotify_json(self, artist, title):
@@ -1244,14 +1262,14 @@ class SpotifyService:
                     if tracks:
                         return response_json
                     else:
-                        logger.info("No tracks found on Spotify.")
+                        _LOGGER.info("No tracks found on Spotify.")
                         return None
 
         except (IndexError, KeyError) as e:
-            logger.error(f"Error parsing Spotify track info: {e}")
+            _LOGGER.error(f"Error parsing Spotify track info: {e}")
             return None
         except Exception as e:
-            logger.error(f"Error getting Spotify album ID: {e}")
+            _LOGGER.error(f"Error getting Spotify album ID: {e}")
             return None
         finally:
             await asyncio.sleep(0.5)
@@ -1283,11 +1301,11 @@ class SpotifyService:
             return best_album['id'], first_album
         else:
             if tracks:
-                logger.info("Most likey album art from Spotify is wrong.")
+                _LOGGER.info("Most likey album art from Spotify is wrong.")
                 #return  tracks[0]['album']['id']
                 return None, first_album
             else:
-                logger.info("No suitable album found on Spotify.")
+                _LOGGER.info("No suitable album found on Spotify.")
                 return None, first_album
 
 
@@ -1304,14 +1322,14 @@ class SpotifyService:
                 best_album, first_album = await self.spotify_best_album(tracks, artist)
                 return best_album, first_album
             else:
-                logger.info("No tracks found on Spotify.")
+                _LOGGER.info("No tracks found on Spotify.")
                 return None
 
         except (IndexError, KeyError) as e:
-            logger.error(f"Error parsing Spotify track info: {e}")
+            _LOGGER.error(f"Error parsing Spotify track info: {e}")
             return None
         except Exception as e:
-            logger.error(f"Error getting Spotify album ID: {e}")
+            _LOGGER.error(f"Error getting Spotify album ID: {e}")
             return None
         finally:
             await asyncio.sleep(0.5)
@@ -1332,10 +1350,10 @@ class SpotifyService:
                     response_json = await response.json()
                     return response_json['images'][0]['url']
         except (IndexError, KeyError):
-            logger.info("Album image not found on Spotify.")
+            _LOGGER.info("Album image not found on Spotify.")
             return None
         except Exception as e:
-            logger.error(f"Error getting Spotify album image URL: {e}")
+            _LOGGER.error(f"Error getting Spotify album image URL: {e}")
             return None
         finally:
             await asyncio.sleep(0.5)
@@ -1348,7 +1366,7 @@ class SpotifyService:
 
         try:
             if not isinstance(self.spotify_data, dict):
-                logger.error("Unexpected Spotify data format.  Expected a dictionary.")
+                _LOGGER.error("Unexpected Spotify data format.  Expected a dictionary.")
                 return []
 
             tracks = self.spotify_data.get('tracks', {}).get('items', [])
@@ -1391,7 +1409,7 @@ class SpotifyService:
 
 
         except (KeyError, IndexError, TypeError, AttributeError) as e:
-            logger.error(f"Error processing Spotify data: {e}")
+            _LOGGER.error(f"Error processing Spotify data: {e}")
             return []
 
 
@@ -1402,13 +1420,13 @@ class SpotifyService:
             async with aiohttp.ClientSession() as session:
                 async with session.get(picture) as response:
                     if response.status != 200:
-                        logger.error(f"Error fetching image {picture}: {response.status}")
+                        _LOGGER.error(f"Error fetching image {picture}: {response.status}")
                         return None
 
                     image_raw_data = await response.read()
 
         except Exception as e:
-            logger.error(f"Error processing image {picture}: {e}")
+            _LOGGER.error(f"Error processing image {picture}: {e}")
             return None
         
         try:
@@ -1456,7 +1474,7 @@ class SpotifyService:
                 img = img.convert("RGB")
             return img
         except Exception as e:
-            logger.error(f"Error converting image to RGB: {e}")
+            _LOGGER.error(f"Error converting image to RGB: {e}")
             return None
 
     async def send_pixoo_animation_frame(self, pixoo_device, command, pic_num, pic_width, pic_offset, pic_id, pic_speed, pic_data):
@@ -1478,7 +1496,7 @@ class SpotifyService:
         media_data.spotify_slide_pass = True
         album_urls = await self.get_album_list(media_data)
         if not album_urls:
-            logger.info("No albums found for slide")
+            _LOGGER.info("No albums found for slide")
             media_data.spotify_frames = 0
             media_data.spotify_slide_pass = False
             return
@@ -1490,9 +1508,10 @@ class SpotifyService:
             media_data.spotify_frames = 0
             return
 
-        logger.info(f"Creating album slide from spotify with {frames} frames for {media_data.ai_artist}")
+        _LOGGER.info(f"Creating album slide from spotify with {frames} frames for {media_data.ai_artist}")
         pic_offset = 0
-        await pixoo_device.send_command({"Command":"Draw/ResetHttpGifId"})
+        await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": [ {"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"} ]})
+
         for album_url in album_urls:
             try:
                 if album_url:
@@ -1511,11 +1530,11 @@ class SpotifyService:
                 # Increment pic_id for the next animation frame
                     pic_offset += 1
                 else:
-                    logger.error(f"Failed to process image: {album_url}")
+                    _LOGGER.error(f"Failed to process image: {album_url}")
                     break
 
             except Exception as e:
-                logger.error(f"Error processing image {album_url}: {e}")
+                _LOGGER.error(f"Error processing image {album_url}: {e}")
                 break
 
 class Pixoo64_Media_Album_Art(hass.Hass):
@@ -1541,14 +1560,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         async def download_file(file_name, url):
             local_file_path = os.path.join(LOCAL_DIRECTORY, file_name)
             if not os.path.exists(local_file_path):
-                logger.info(f"Downloading {file_name} from {url}...")  # Log the download action
+                _LOGGER.info(f"Downloading {file_name} from {url}...")  # Log the download action
                 async with aiohttp.ClientSession() as session:
                     async with session.get(url) as response:
                         if response.status == 200:
                             with open(local_file_path, 'wb') as file:
                                 file.write(await response.read())
                         else:
-                            logger.error(f"Failed to download {file_name}: {response.status}")  # Log failure
+                            _LOGGER.error(f"Failed to download {file_name}: {response.status}")  # Log failure
 
         # Create a list of download tasks
         download_tasks = [download_file(file_name, url) for file_name, url in FILES.items()]
@@ -1577,10 +1596,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             async with asyncio.timeout(self.callback_timeout):
                 await self.state_change_callback(entity, attribute, old, new, kwargs)
         except asyncio.TimeoutError:
-            logger.warning("Callback timed out - cancelling operation")
+            _LOGGER.warning("Callback timed out - cancelling operation")
             # Optionally reset any state or cleanup here
         except Exception as e:
-            logger.error(f"Error in callback: {str(e)}")
+            _LOGGER.error(f"Error in callback: {str(e)}")
 
     async def state_change_callback(self, entity, attribute, old, new, kwargs):
         """Main callback with early exit conditions"""
@@ -1594,7 +1613,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 await self.set_state(self.media_data_sensor, state="off")
 
                 if self.config.full_control:
-                    await asyncio.sleep(10)  # Delay to not turn off during track changes
+                    await asyncio.sleep(5)  # Delay to not turn off during track changes
                     if await self.get_state(self.config.media_player) not in ["playing", "on"]:
                         await self.pixoo_device.send_command({
                             "Command": "Draw/CommandList",
@@ -1614,7 +1633,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             await self.update_attributes(entity, attribute, old, new, kwargs)
 
         except Exception as e:
-            logger.error(f"Error in state change callback: {str(e)}")
+            _LOGGER.error(f"Error in state change callback: {str(e)}")
 
     async def update_attributes(self, entity, attribute, old, new, kwargs):
         """Modified to be more efficient"""
@@ -1635,7 +1654,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             
 
         except Exception as e:
-            logger.error(f"Error in update_attributes: {str(e)}\n{traceback.format_exc()}")
+            _LOGGER.error(f"Error in update_attributes: {str(e)}\n{traceback.format_exc()}")
 
     async def pixoo_run(self, media_state, media_data):
         """Add timeout protection to pixoo_run"""
@@ -1654,7 +1673,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     self.current_image_task = asyncio.create_task(self._process_and_display_image(media_data))
 
         except Exception as e:
-            logger.error(f"Error in pixoo_run: {str(e)}\n{traceback.format_exc()}")
+            _LOGGER.error(f"Error in pixoo_run: {str(e)}\n{traceback.format_exc()}")
         
         finally:
             await asyncio.sleep(0.10)
@@ -1667,14 +1686,27 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         "CommandList": [
                             {"Command": "Draw/ClearHttpText"},
                             {"Command": "Draw/ResetHttpGifId"},
-                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index},
-                        ]
+                            {"Command": "Channel/OnOffScreen", "OnOff": 1},
+                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index} ]
                         })
             await self.pixoo_device.send_command(payload)
+            if self.config.light:
+                await self.control_light('off')
             return
-        
+
         try:
             start_time = time.perf_counter()
+            if media_data.picture == TV_ICON_PATH and media_data.spotify_slide_pass:
+                payload = ({
+                        "Command": "Draw/CommandList",
+                        "CommandList": [
+                            {"Command": "Draw/ClearHttpText"},
+                            {"Command": "Draw/ResetHttpGifId"},
+                            {"Command": "Channel/OnOffScreen", "OnOff": 1},
+                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index} ]
+                        })
+                await self.pixoo_device.send_command(payload)
+
             processed_data = await self.fallback_service.get_final_url(media_data.picture, media_data)
             if not processed_data:
                 return
@@ -1709,8 +1741,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 }
                 
             
-            if self.config.spotify_slide and not media_data.radio_logo:
-                spotify_service = SpotifyService(self.config, )
+            if self.config.spotify_slide and not media_data.radio_logo and not media_data.playing_tv:
+                spotify_service = SpotifyService(self.config)
                 spotify_service.spotify_data = await spotify_service.get_spotify_json(media_data.ai_artist, media_data.ai_title)
                 if spotify_service.spotify_data:
                     start_time = time.perf_counter()
@@ -1728,12 +1760,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     else:
                         #await self.pixoo_device.send_command({"Command": "Draw/ClearHttpText"})
                         #await self.pixoo_device.send_command({"Command":"Draw/ResetHttpGifId"})
+                        #await self.pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": [ {"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"} ]})
                         await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": self.select_index}) # Avoid Animation Glitch
                         
             payload = {
             "Command": "Draw/CommandList",
             "CommandList": [
                 {"Command": "Channel/OnOffScreen", "OnOff": 1},
+                {"Command": "Draw/ClearHttpText"},
                 {"Command": "Draw/ResetHttpGifId"},
                 {
                     "Command": "Draw/SendHttpGif",
@@ -1741,12 +1775,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     "PicWidth": 64,
                     "PicOffset": 0,
                     "PicID": 0,
-                    "PicSpeed": 1000,
+                    "PicSpeed": 10000,
                     "PicData": base64_image
                 }]}
 
             await self.pixoo_device.send_command(payload)
-
+            
             end_time = time.perf_counter()
             duration = end_time - start_time
             media_data.process_duration = f"{duration:.2f} seconds"
@@ -1754,7 +1788,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             await self.set_state(self.media_data_sensor, state="on", attributes=new_attributes)
 
             textid = 0
+            text_string = None
             text_track = (media_data.ai_artist + " - " + media_data.ai_title) 
+
             if len(text_track) > 14:
                 text_track = text_track + "       "
             text_string = LyricsProvider(self.config, self.image_processor).get_display(text_track) if media_data.ai_artist else LyricsProvider(self.config, self.image_processor).get_display(media_data.ai_title)
@@ -1764,7 +1800,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 color_font_rgb = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
                 color_font = '#%02x%02x%02x' % color_font_rgb
             except Exception as e:
-                logger.error(f"Error calculating color_font: {e}")
+                _LOGGER.error(f"Error calculating color_font: {e}")
                 color_font = '#ffff00'
             
             moreinfo = {
@@ -1772,7 +1808,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "ItemList": []
             }
 
-            if self.config.show_text and not self.fallback_service.fallback and not media_data.radio_logo and not media_data.playing_tv:
+            if text_string and self.config.show_text and not self.fallback_service.fallback and not media_data.radio_logo and not media_data.playing_tv:
                 textid +=1
                 text_temp = { 
                     "TextId":textid, 
@@ -1836,11 +1872,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 payload = {"Command":"Draw/CommandList", "CommandList": payloads}
                 await self.pixoo_device.send_command(payload)
         except asyncio.CancelledError:
-            logger.info("Image processing task cancelled.")
+            _LOGGER.info("Image processing task cancelled.")
         except Exception as e:
-            logger.error(f"Error in _process_and_display_image: {str(e)}\n{traceback.format_exc()}")
+            _LOGGER.error(f"Error in _process_and_display_image: {str(e)}\n{traceback.format_exc()}")
         finally:
             self.current_image_task = None # Reset the task variable
+
 
     async def control_light(self, action, background_color_rgb=None):
         service_data = {'entity_id': self.config.light}
@@ -1849,7 +1886,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         try:
             await self.call_service(f'light/turn_{action}', **service_data)
         except Exception as e:
-            logger.error(f"Light Error: {self.config.light} - {e}\n{traceback.format_exc()}")
+            _LOGGER.error(f"Light Error: {self.config.light} - {e}\n{traceback.format_exc()}")
 
     def create_payloads(self, normalized_artist, normalized_title, x):
         artist_lines = split_string(normalized_artist, x)
