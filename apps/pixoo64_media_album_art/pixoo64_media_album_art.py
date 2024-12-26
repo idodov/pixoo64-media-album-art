@@ -371,7 +371,6 @@ class ImageProcessor:
                 img = self.special_mode(img) if self.config.special_mode else img.resize((64, 64), Image.Resampling.LANCZOS)
                 
                 font_color, brightness, brightness_lower_part, background_color, background_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.img_values(img)
-                
                 img = self.text_clock_img(img, brightness_lower_part, media_data) if not self.config.special_mode else img 
                 base64_image = self.gbase64(img)
             
@@ -396,7 +395,7 @@ class ImageProcessor:
             return None
         
         output_size = (64, 64)
-        album_size = (32, 32) if self.config.show_text else (55, 55)
+        album_size = (32, 32) if self.config.show_text else (54, 54)
         background = Image.new('RGB', output_size, 'black')
         album_art = img.resize(album_size, Image.Resampling.LANCZOS)
 
@@ -407,25 +406,26 @@ class ImageProcessor:
         x = (output_size[0] - album_size[0]) // 2
         y = 9  # Top padding
 
-        # Create the gradient on the left side, within 32 pixels height
-        for i in range(x):
-            gradient_color = (
-                int(left_color[0] * (x - i) / x),
-                int(left_color[1] * (x - i) / x),
-                int(left_color[2] * (x - i) / x)
-            )
-            for j in range(y, y + album_size[1]):
-                background.putpixel((i, j), gradient_color)
+        if album_size == (32, 32):
+            # Create the gradient on the left side, within 32 pixels height
+            for i in range(x):
+                gradient_color = (
+                    int(left_color[0] * (x - i) / x),
+                    int(left_color[1] * (x - i) / x),
+                    int(left_color[2] * (x - i) / x)
+                )
+                for j in range(y, y + album_size[1]):
+                    background.putpixel((i, j), gradient_color)
 
-        # Create the gradient on the right side, within 32 pixels height
-        for i in range(x + album_size[0], output_size[0]):
-            gradient_color = (
-                int(right_color[0] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
-                int(right_color[1] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
-                int(right_color[2] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0])))
-            )
-            for j in range(y, y + album_size[1]):
-                background.putpixel((i, j), gradient_color)
+            # Create the gradient on the right side, within 32 pixels height
+            for i in range(x + album_size[0], output_size[0]):
+                gradient_color = (
+                    int(right_color[0] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
+                    int(right_color[1] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
+                    int(right_color[2] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0])))
+                )
+                for j in range(y, y + album_size[1]):
+                    background.putpixel((i, j), gradient_color)
 
         # Paste the album art on the background
         background.paste(album_art, (x, y))
@@ -459,7 +459,7 @@ class ImageProcessor:
 
         temp_img = img
 
-        if self.config.crop_extra or self.config.special_mode: # Force extra crop if special_mode is true
+        if self.config.crop_extra or (self.config.special_mode and self.config.show_text): # Force extra crop if special_mode is true and text is enabled
             #img = img.convert('P', palette=Image.ADAPTIVE, colors=16).convert('RGB')
             img = img.filter(ImageFilter.BoxBlur(5))
             enhancer = ImageEnhance.Brightness(img)
@@ -549,7 +549,7 @@ class ImageProcessor:
             return None
 
     def text_clock_img(self, img, brightness_lower_part, media_data):
-        if self.config.spotify_slide or media_data.playing_radio or media_data.playing_tv or self.config.special_mode:
+        if media_data.playing_tv or self.config.special_mode:
             return img
 
         # Check if there are no lyrics before proceeding
@@ -893,7 +893,15 @@ class FallbackService:
                 _LOGGER.error(f"AI generation failed: {e}")
 
         else:
-        # Process original picture
+            if picture == TV_ICON_PATH:
+                try:
+                    result = await self.image_processor.get_image(picture, media_data, False)
+                    if result:
+                        return result
+                except Exception as e:
+                    _LOGGER.error(f"TV picture processing failed: {e}")
+                
+            # Process original picture
             try:
                 if not media_data.playing_radio or media_data.radio_logo:
                     result = await self.image_processor.get_image(picture, media_data, media_data.spotify_slide_pass)
