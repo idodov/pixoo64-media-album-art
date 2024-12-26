@@ -49,6 +49,7 @@ pixoo64_media_album_art:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
         full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
         contrast: True                              # If True, applies a 50% contrast filter to the images displayed on the Pixoo.
+        special_mode: False                         # Show day, time and temperature above in upper bar.
         clock: True                                 # If True, a clock is displayed in the top corner of the screen.
         clock_align: "Right"                        # Clock alignment: "Left" or "Right".
         tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
