@@ -35,6 +35,7 @@ pixoo64_media_album_art:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
         full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
         contrast: True                              # If True, applies a 50% contrast filter to the images displayed on the Pixoo.
+        special_mode: False                         # Show day, time and temperature above in upper bar.
         clock: True                                 # If True, a clock is displayed in the top corner of the screen.
         clock_align: "Right"                        # Clock alignment: "Left" or "Right".
         tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
@@ -174,6 +175,7 @@ class Config:
         self.pixoo_url: str = f"{pixoo_url}:80/post" if not pixoo_url.endswith(':80/post') else pixoo_url
         self.full_control: bool = pixoo_config.get("full_control", True)
         self.contrast: bool = pixoo_config.get("contrast", False)
+        self.special_mode: bool = pixoo_config.get("special_mode", False)
         self.show_clock: bool = pixoo_config.get("clock", True)
         self.clock_align: str = pixoo_config.get("clock_align", "Left")
         self.tv_icon_pic: bool = pixoo_config.get("tv_icon", True)
@@ -355,7 +357,7 @@ class ImageProcessor:
                     top = (height - new_size) // 2
                     img = img.crop((left, top, left + new_size, top + new_size))
 
-                if self.config.crop_borders and not media_data.radio_logo: # Added condition
+                if (self.config.crop_borders or self.config.special_mode) and not media_data.radio_logo:
                     img = self.crop_image_borders(img, media_data.radio_logo)
 
                 if self.config.contrast:
@@ -366,11 +368,11 @@ class ImageProcessor:
                     colors = int(self.config.limit_color)
                     img = img_adptive(img, colors)
 
-                img = img.resize((64, 64), Image.Resampling.LANCZOS)
+                img = self.special_mode(img) if self.config.special_mode else img.resize((64, 64), Image.Resampling.LANCZOS)
                 
                 font_color, brightness, brightness_lower_part, background_color, background_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative = self.img_values(img)
                 
-                img = self.text_clock_img(img, brightness_lower_part, media_data)
+                img = self.text_clock_img(img, brightness_lower_part, media_data) if not self.config.special_mode else img 
                 base64_image = self.gbase64(img)
             
                 return {
@@ -388,6 +390,59 @@ class ImageProcessor:
             _LOGGER.error(f"Error processing image: {str(e)}")
             return None
 
+    def special_mode(self, img):
+        if img is None:
+            print("Error: Provided image is None.")
+            return None
+        
+        output_size = (64, 64)
+        album_size = (32, 32) if self.config.show_text else (55, 55)
+        background = Image.new('RGB', output_size, 'black')
+        album_art = img.resize(album_size, Image.Resampling.LANCZOS)
+
+        # Get the colors for the gradient
+        left_color = album_art.getpixel((0, album_size[1] // 2))
+        right_color = album_art.getpixel((album_size[0] - 1, album_size[1] // 2))
+
+        x = (output_size[0] - album_size[0]) // 2
+        y = 9  # Top padding
+
+        # Create the gradient on the left side, within 32 pixels height
+        for i in range(x):
+            gradient_color = (
+                int(left_color[0] * (x - i) / x),
+                int(left_color[1] * (x - i) / x),
+                int(left_color[2] * (x - i) / x)
+            )
+            for j in range(y, y + album_size[1]):
+                background.putpixel((i, j), gradient_color)
+
+        # Create the gradient on the right side, within 32 pixels height
+        for i in range(x + album_size[0], output_size[0]):
+            gradient_color = (
+                int(right_color[0] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
+                int(right_color[1] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
+                int(right_color[2] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0])))
+            )
+            for j in range(y, y + album_size[1]):
+                background.putpixel((i, j), gradient_color)
+
+        # Paste the album art on the background
+        background.paste(album_art, (x, y))
+
+        return background
+
+
+
+    def special_mode2(self, img):
+        output_size=(64, 64)
+        album_size=(32, 32)
+        background = Image.new('RGB', output_size, 'black')
+        album_art = img.resize(album_size, Image.Resampling.LANCZOS)
+        x = (output_size[0] - album_size[0]) // 2
+        y = 9  # Top padding
+        background.paste(album_art, (x, y))
+        return background
 
     def ensure_rgb(self, img):
         try:
@@ -404,7 +459,7 @@ class ImageProcessor:
 
         temp_img = img
 
-        if self.config.crop_extra:
+        if self.config.crop_extra or self.config.special_mode: # Force extra crop if special_mode is true
             #img = img.convert('P', palette=Image.ADAPTIVE, colors=16).convert('RGB')
             img = img.filter(ImageFilter.BoxBlur(5))
             enhancer = ImageEnhance.Brightness(img)
@@ -494,11 +549,11 @@ class ImageProcessor:
             return None
 
     def text_clock_img(self, img, brightness_lower_part, media_data):
-        if self.config.spotify_slide:
+        if self.config.spotify_slide or media_data.playing_radio or media_data.playing_tv or self.config.special_mode:
             return img
 
         # Check if there are no lyrics before proceeding
-        if media_data.lyrics and self.config.show_lyrics and self.lyrics_font_color != [] and brightness_lower_part != None and self.config.text_bg and not media_data.playing_radio and not media_data.playing_tv:
+        if media_data.lyrics and self.config.show_lyrics and self.config.text_bg and self.lyrics_font_color != None and brightness_lower_part != None:
             enhancer_lp = ImageEnhance.Brightness(img)
             img = enhancer_lp.enhance(0.55)  # self.brightness_full)
             return img
@@ -687,7 +742,7 @@ class MediaData:
 
             title = self.clean_title(title) if self.config.clean_title_enabled else title
 
-            if self.config.show_lyrics:
+            if self.config.show_lyrics and not self.config.special_mode:
                 artist = await hass.get_state(self.config.media_player, attribute="media_artist")
                 self.lyrics = await LyricsProvider(self.config, self.image_processor).get_lyrics(artist, title, self.image_processor)  # Fetch lyrics here
             else:
@@ -1459,7 +1514,46 @@ class SpotifyService:
                 
                 img = img.resize((64, 64), Image.Resampling.LANCZOS)
 
-                if show_lyrics_is_on and not playing_radio_is_on:
+                if self.config.special_mode:
+                    output_size=(64, 64)
+                    album_size = (32, 32) if self.config.show_text else (55, 55)
+                    background = Image.new('RGB', output_size, 'black')
+                    album_art = img.resize(album_size, Image.Resampling.LANCZOS)
+                    x = (output_size[0] - album_size[0]) // 2
+                    y = 9  # Top padding
+                    #background.paste(album_art, (x, y)) # For no gradient 
+                    #img = background
+
+                    # Get the colors for the gradient
+                    left_color = album_art.getpixel((0, album_size[1] // 2))
+                    right_color = album_art.getpixel((album_size[0] - 1, album_size[1] // 2))
+
+                    # Create the gradient on the left side, within 32 pixels height
+                    for i in range(x):
+                        gradient_color = (
+                            int(left_color[0] * (x - i) / x),
+                            int(left_color[1] * (x - i) / x),
+                            int(left_color[2] * (x - i) / x)
+                        )
+                        for j in range(y, y + album_size[1]):
+                            background.putpixel((i, j), gradient_color)
+
+                    # Create the gradient on the right side, within 32 pixels height
+                    for i in range(x + album_size[0], output_size[0]):
+                        gradient_color = (
+                            int(right_color[0] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
+                            int(right_color[1] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
+                            int(right_color[2] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0])))
+                        )
+                        for j in range(y, y + album_size[1]):
+                            background.putpixel((i, j), gradient_color)
+
+                    # Paste the album art on the background
+                    background.paste(album_art, (x, y))
+                    img = background
+
+
+                if show_lyrics_is_on and not playing_radio_is_on and not self.config.special_mode:
                     enhancer_lp = ImageEnhance.Brightness(img)
                     img = enhancer_lp.enhance(0.55)
                 
@@ -1684,9 +1778,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             payload = ({
                         "Command": "Draw/CommandList",
                         "CommandList": [
+                            {"Command": "Channel/OnOffScreen", "OnOff": 1},
                             {"Command": "Draw/ClearHttpText"},
                             {"Command": "Draw/ResetHttpGifId"},
-                            {"Command": "Channel/OnOffScreen", "OnOff": 1},
                             {"Command": "Channel/SetIndex", "SelectIndex": self.select_index} ]
                         })
             await self.pixoo_device.send_command(payload)
@@ -1700,9 +1794,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 payload = ({
                         "Command": "Draw/CommandList",
                         "CommandList": [
+                            {"Command": "Channel/OnOffScreen", "OnOff": 1},
                             {"Command": "Draw/ClearHttpText"},
                             {"Command": "Draw/ResetHttpGifId"},
-                            {"Command": "Channel/OnOffScreen", "OnOff": 1},
                             {"Command": "Channel/SetIndex", "SelectIndex": self.select_index} ]
                         })
                 await self.pixoo_device.send_command(payload)
@@ -1740,7 +1834,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "spotify_frames": media_data.spotify_frames
                 }
                 
-            
+
             if self.config.spotify_slide and not media_data.radio_logo and not media_data.playing_tv:
                 spotify_service = SpotifyService(self.config)
                 spotify_service.spotify_data = await spotify_service.get_spotify_json(media_data.ai_artist, media_data.ai_title)
@@ -1756,7 +1850,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         new_attributes["process_duration"] = media_data.process_duration
                         new_attributes["spotify_frames"] = media_data.spotify_frames
                         await self.set_state(self.media_data_sensor, state="on", attributes=new_attributes)
-                        return
+                        #return
                     else:
                         #await self.pixoo_device.send_command({"Command": "Draw/ClearHttpText"})
                         #await self.pixoo_device.send_command({"Command":"Draw/ResetHttpGifId"})
@@ -1779,8 +1873,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     "PicData": base64_image
                 }]}
 
-            await self.pixoo_device.send_command(payload)
-            
+            if not media_data.spotify_slide_pass:
+                await self.pixoo_device.send_command(payload) 
+
             end_time = time.perf_counter()
             duration = end_time - start_time
             media_data.process_duration = f"{duration:.2f} seconds"
@@ -1808,7 +1903,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "ItemList": []
             }
 
-            if text_string and self.config.show_text and not self.fallback_service.fallback and not media_data.radio_logo and not media_data.playing_tv:
+            if text_string and self.config.show_text and not self.fallback_service.fallback and not media_data.radio_logo and not media_data.playing_tv and not self.config.special_mode:
                 textid +=1
                 text_temp = { 
                     "TextId":textid, 
@@ -1826,7 +1921,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 }
                 moreinfo["ItemList"].append(text_temp)
 
-            if (self.config.show_clock and self.fallback_service.fallback == False):
+            if (self.config.show_clock and not self.fallback_service.fallback and not self.config.special_mode):
                 textid +=1
                 x = 44 if self.config.clock_align == "Right" else 3
                 clock_item =  { 
@@ -1844,7 +1939,47 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     }
                 moreinfo["ItemList"].append(clock_item)
 
-            if (self.config.show_text or self.config.show_clock) and not (self.fallback_service.fallback or self.config.show_lyrics or self.config.spotify_slide):
+            if (self.config.show_text or self.config.show_clock) and not (self.fallback_service.fallback or self.config.show_lyrics or self.config.spotify_slide or self.config.special_mode):
+                await self.pixoo_device.send_command(moreinfo)
+
+            if self.config.special_mode and not self.fallback_service.fail_txt and not self.fallback_service.fallback:
+                day = {
+                    "TextId":1, "type":14, "x":0, "y":2,
+                    "dir":0, "font":18, "TextWidth":33,
+                    "Textheight":6, "speed":100, "align":1,
+                    "color": color_font }
+                
+                clock = { "TextId":2, "type":5, "x":0, "y":2,
+                    "dir":0, "font":18, "TextWidth":64,
+                    "Textheight":6, "speed":100, "align":2,
+                    "color": background_color }
+                
+                temperature = { "TextId":3, "type":17, "x":0, "y":2,
+                    "dir":0, "font":18, "TextWidth":64, "Textheight":6,
+                    "speed":100, "align":3, "color": color_font }
+                
+                dir = 1 if LyricsProvider(self.config, self.image_processor).has_bidi(media_data.ai_artist) else 0
+                text = get_display(media_data.ai_artist) if dir == 1 else media_data.ai_artist
+                artist = {
+                    "TextId":4, "type":22, "x":0, "y":42,
+                    "dir": dir, "font":190, "TextWidth":64,
+                    "Textheight":16, "speed":100, "align":2,
+                    "TextString": text, "color": color_font }
+                
+                dir = 1 if LyricsProvider(self.config, self.image_processor).has_bidi(media_data.ai_title) else 0
+                text = get_display(media_data.ai_title) if dir == 1 else media_data.ai_title
+                title = {
+                    "TextId":5, "type":22, "x":0, "y":52, "dir": dir,
+                    "font": 190, #2, 4, 32, 52, 58, 62, 158, 186, 190, 590
+                    "TextWidth":64, "Textheight":16, "speed":100, "align":2,
+                    "TextString": text, "color": background_color }
+
+                moreinfo["ItemList"].append(day)
+                moreinfo["ItemList"].append(clock)
+                moreinfo["ItemList"].append(temperature)
+                if self.config.show_text:
+                    moreinfo["ItemList"].append(artist)
+                    moreinfo["ItemList"].append(title)
                 await self.pixoo_device.send_command(moreinfo)
 
             if self.fallback_service.fail_txt and self.fallback_service.fallback:
