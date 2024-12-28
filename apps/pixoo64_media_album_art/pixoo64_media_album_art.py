@@ -56,6 +56,7 @@ pixoo64_media_album_art:
 import sys
 import asyncio
 import base64
+import io
 import os
 import re
 import json
@@ -70,7 +71,7 @@ from io import BytesIO
 
 # Third-party library imports
 import aiohttp
-from PIL import Image, ImageEnhance, ImageFilter
+from PIL import Image, ImageEnhance, ImageFilter, ImageDraw
 try:
     from unidecode import unidecode
     undicode_m = True
@@ -198,7 +199,8 @@ class Config:
         # Fixing args if needed
         if self.ai_fallback not in ["flux", "turbo"]:
             self.ai_fallback = "turbo"
-        
+
+        self.album_pause_duration = 5
 
 class PixooDevice:
     def __init__(self, config, headers):
@@ -395,18 +397,28 @@ class ImageProcessor:
             return None
         
         output_size = (64, 64)
-        album_size = (32, 32) if self.config.show_text else (54, 54)
-        background = Image.new('RGB', output_size, 'black')
+        album_size = (34, 34) if self.config.show_text else (56, 56)
+        #background = Image.new('RGB', output_size, 'black')
         album_art = img.resize(album_size, Image.Resampling.LANCZOS)
 
         # Get the colors for the gradient
         left_color = album_art.getpixel((0, album_size[1] // 2))
         right_color = album_art.getpixel((album_size[0] - 1, album_size[1] // 2))
+                    
+        # Select a darker color for the background
+        dark_background_color = (
+        min(left_color[0], right_color[0]) // 2,
+        min(left_color[1], right_color[1]) // 2,
+        min(left_color[2], right_color[2]) // 2
+        )
+        if album_size == (34, 34):
+            dark_background_color = (0, 0, 0)
+        background = Image.new('RGB', output_size, dark_background_color)
 
         x = (output_size[0] - album_size[0]) // 2
-        y = 9  # Top padding
+        y = 8  # Top padding
 
-        if album_size == (32, 32):
+        if album_size == (34, 34):
             # Create the gradient on the left side, within 32 pixels height
             for i in range(x):
                 gradient_color = (
@@ -436,7 +448,7 @@ class ImageProcessor:
 
     def special_mode2(self, img):
         output_size=(64, 64)
-        album_size=(32, 32)
+        album_size=(34, 34)
         background = Image.new('RGB', output_size, 'black')
         album_art = img.resize(album_size, Image.Resampling.LANCZOS)
         x = (output_size[0] - album_size[0]) // 2
@@ -537,6 +549,7 @@ class ImageProcessor:
 
     def gbase64(self, img):
         try:
+            img = img.convert("RGB")
             if img.mode == "RGB":
                 pixels = [item for p in list(img.getdata()) for item in p]
             else:
@@ -549,7 +562,7 @@ class ImageProcessor:
             return None
 
     def text_clock_img(self, img, brightness_lower_part, media_data):
-        if media_data.playing_tv or self.config.special_mode:
+        if media_data.playing_tv or self.config.special_mode or self.config.spotify_slide:
             return img
 
         # Check if there are no lyrics before proceeding
@@ -727,11 +740,13 @@ class MediaData:
         self.album = None
         self.lyrics = []
         self.picture = None
+        self.select_index_original = 0
         self.normalized_artist = None
         self.normalized_title = None
         self.image_processor = image_processor
     
     async def update(self, hass):
+        self.select_index_original = await hass.get_state(self.config.pixoo_sensor, attribute="pixoo_channel")
         try:
             media_state = await hass.get_state(self.config.media_player)
             if media_state not in ["playing", "on"]:
@@ -1422,9 +1437,9 @@ class SpotifyService:
             await asyncio.sleep(0.5)
     
     """ Spotify Album Art Slide """
-    async def get_album_list(self, media_data):
+    async def get_album_list(self, media_data, returntype):
         """Retrieves album art URLs, filtering and prioritizing albums."""
-        if not self.spotify_data:
+        if not self.spotify_data or media_data.playing_tv:
             return []
 
         try:
@@ -1465,10 +1480,14 @@ class SpotifyService:
             for album in sorted_albums:
                 images = album.get("images", [])
                 if images:
-                    #album_urls.append(images[0]["url"])
+                    album_urls.append(images[0]["url"])
                     base64_data = await self.get_slide_img(images[0]["url"], show_lyrics_is_on, playing_radio_is_on)
                     album_base64.append(base64_data)
-            return album_base64
+
+            if returntype == "b64":
+                return album_base64 
+            else:
+                return album_urls
 
 
         except (KeyError, IndexError, TypeError, AttributeError) as e:
@@ -1524,51 +1543,41 @@ class SpotifyService:
 
                 if self.config.special_mode:
                     output_size=(64, 64)
-                    album_size = (32, 32) if self.config.show_text else (55, 55)
-                    background = Image.new('RGB', output_size, 'black')
+                    album_size = (34, 34) if self.config.show_text else (56, 56)
+                    
                     album_art = img.resize(album_size, Image.Resampling.LANCZOS)
                     x = (output_size[0] - album_size[0]) // 2
-                    y = 9  # Top padding
-                    #background.paste(album_art, (x, y)) # For no gradient 
-                    #img = background
+                    y = 8  # Top padding
 
                     # Get the colors for the gradient
                     left_color = album_art.getpixel((0, album_size[1] // 2))
                     right_color = album_art.getpixel((album_size[0] - 1, album_size[1] // 2))
+                    
+                    # Select a darker color for the background
+                    dark_background_color = (
+                        min(left_color[0], right_color[0]) // 2,
+                        min(left_color[1], right_color[1]) // 2,
+                        min(left_color[2], right_color[2]) // 2
+                    )
+                    if self.config.show_text:
+                        dark_background_color = (0, 0, 0)
 
-                    # Create the gradient on the left side, within 32 pixels height
-                    for i in range(x):
-                        gradient_color = (
-                            int(left_color[0] * (x - i) / x),
-                            int(left_color[1] * (x - i) / x),
-                            int(left_color[2] * (x - i) / x)
-                        )
-                        for j in range(y, y + album_size[1]):
-                            background.putpixel((i, j), gradient_color)
-
-                    # Create the gradient on the right side, within 32 pixels height
-                    for i in range(x + album_size[0], output_size[0]):
-                        gradient_color = (
-                            int(right_color[0] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
-                            int(right_color[1] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
-                            int(right_color[2] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0])))
-                        )
-                        for j in range(y, y + album_size[1]):
-                            background.putpixel((i, j), gradient_color)
+                    background = Image.new('RGB', output_size, dark_background_color)
 
                     # Paste the album art on the background
                     background.paste(album_art, (x, y))
                     img = background
 
-
                 if show_lyrics_is_on and not playing_radio_is_on and not self.config.special_mode:
                     enhancer_lp = ImageEnhance.Brightness(img)
                     img = enhancer_lp.enhance(0.55)
                 
-                return ImageProcessor(self.config, ).gbase64(img)
+                return ImageProcessor(self.config).gbase64(img)
 
         except Exception as e:
-                return None
+            _LOGGER.error(f"Error processing image {picture}: {e}")
+            return None
+
 
     def ensure_rgb(self, img):
         try:
@@ -1590,13 +1599,14 @@ class SpotifyService:
         "PicSpeed": pic_speed,
         "PicData": pic_data
         }
-        response = await pixoo_device.send_command(payload)
+        response = await PixooDevice(self.config, None).send_command(payload)
         return response
+
 
     async def spotify_albums_slide(self, pixoo_device, media_data):
         """Fetches and processes images, printing base64 data."""
         media_data.spotify_slide_pass = True
-        album_urls = await self.get_album_list(media_data)
+        album_urls = await self.get_album_list(media_data, returntype="b64")
         if not album_urls:
             _LOGGER.info("No albums found for slide")
             media_data.spotify_frames = 0
@@ -1612,7 +1622,8 @@ class SpotifyService:
 
         _LOGGER.info(f"Creating album slide from spotify with {frames} frames for {media_data.ai_artist}")
         pic_offset = 0
-        await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": [ {"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"} ]})
+        await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": 
+            [ {"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"} ]})
 
         for album_url in album_urls:
             try:
@@ -1638,6 +1649,106 @@ class SpotifyService:
             except Exception as e:
                 _LOGGER.error(f"Error processing image {album_url}: {e}")
                 break
+    
+    async def spotify_album_art_animation(self, pixoo_device, media_data, start_time=None):
+        """Creates and sends a static slide show with 3 albums to the Pixoo device."""
+        #_LOGGER.info(f"spotify_album_art_animation - media_data.playing_tv: {media_data.playing_tv}, media_data.spotify_slide_pass: {media_data.spotify_slide_pass}")
+
+        if media_data.playing_tv:
+            return
+        
+        try:
+            album_urls = await self.get_album_list(media_data, returntype="url")
+            #_LOGGER.info(f"spotify_album_art_animation - album_urls: {album_urls}")
+
+            if not album_urls:
+                _LOGGER.info("spotify_album_art_animation - No albums found for slide.")
+                media_data.spotify_frames = 0
+                return
+
+            num_albums = len(album_urls)
+            slide_fallback = False
+            if num_albums < 3:
+                _LOGGER.info("spotify_album_art_animation - Not enough albums to create animation.")
+                media_data.spotify_frames = 0
+                media_data.spotify_slide_pass = False
+                return
+
+            images = []
+            for album_url in album_urls:
+                #_LOGGER.info(f"spotify_album_art_animation - Processing album_url: {album_url}")
+                try:
+                    async with aiohttp.ClientSession() as session:
+                        async with session.get(album_url) as response:
+                            if response.status != 200:
+                                _LOGGER.error(f"Error fetching image {album_url}: {response.status}")
+                                return
+                            image_data = await response.read()
+                            img = Image.open(BytesIO(image_data))
+                            img = img.resize((34, 34), Image.Resampling.LANCZOS)
+                            images.append(img)
+                            #_LOGGER.info(f"spotify_album_art_animation - Image loaded successfully from {album_url}")
+                except Exception as e:
+                    _LOGGER.error(f"spotify_album_art_animation - Error decoding or processing image in animation: {e}")
+                    return
+            
+            total_frames = min(num_albums, 60)
+            media_data.spotify_frames = total_frames
+
+            await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": 
+                [ {"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"} ]})
+
+            pixoo_frames = []
+
+            for index in range(total_frames):
+                    try:
+                        canvas = Image.new("RGB", (64, 64), (0, 0, 0))
+                        
+                        left_index = (index - 1) % num_albums
+                        center_index = index % num_albums
+                        right_index = (index + 1) % num_albums
+
+                        x_positions = [1, 15, 51] # Corrected x positions
+                        #_LOGGER.info(f"spotify_album_art_animation - Frame {index}: x_positions={x_positions}, indexes=({left_index}, {center_index}, {right_index})")
+                        
+                        for album_index, x in zip([left_index, center_index, right_index], x_positions):
+                            try:
+                                canvas.paste(images[album_index], (x, 8))
+                            except Exception as e:
+                                _LOGGER.error(f"spotify_album_art_animation - Error pasting image in animation {e}")
+                                return
+                                
+
+                        base64_image = ImageProcessor(self.config).gbase64(canvas)
+                        pixoo_frames.append(base64_image)
+
+                    except Exception as e:
+                        _LOGGER.error(f"spotify_album_art_animation - Error creating frame: {e}")
+                        return
+
+            pic_offset = 0
+            pic_speed = int(self.config.album_pause_duration * 1000) #convert to ms
+            _LOGGER.info(f"spotify_album_art_animation - sending {total_frames} frames")
+            for i, frame in enumerate(pixoo_frames):
+                #_LOGGER.info(f"spotify_album_art_animation - sending frame index:{i}, offset:{pic_offset}, pic_speed:{pic_speed}")
+                await self.send_pixoo_animation_frame(
+                    pixoo_device=pixoo_device,
+                    command="Draw/SendHttpGif",
+                    pic_num=total_frames,
+                    pic_width=64,
+                    pic_offset=pic_offset,
+                    pic_id=1,
+                    pic_speed=pic_speed,
+                    pic_data=frame
+                )
+                
+                pic_offset += 1
+            media_data.spotify_slide_pass = True
+        except Exception as e:
+            _LOGGER.error(f"spotify_album_art_animation - Error in spotify_album_art_animation: {e}")
+            media_data.spotify_frames = 0
+            return
+
 
 class Pixoo64_Media_Album_Art(hass.Hass):
     def __init__(self, *args, **kwargs):
@@ -1713,22 +1824,28 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             media_state = await self.get_state(self.config.media_player)
             if media_state in ["off", "idle", "pause", "paused"]:
                 await self.set_state(self.media_data_sensor, state="off")
-
+                await asyncio.sleep(5)  # Delay to not turn off during track changes
                 if self.config.full_control:
-                    await asyncio.sleep(5)  # Delay to not turn off during track changes
                     if await self.get_state(self.config.media_player) not in ["playing", "on"]:
                         await self.pixoo_device.send_command({
                             "Command": "Draw/CommandList",
                             "CommandList": [
-                                {"Command": "Draw/ClearHttpText"},
-                                {"Command": "Draw/ResetHttpGifId"},
                                 {"Command": "Channel/SetIndex", "SelectIndex": self.select_index},
                                 {"Command": "Channel/OnOffScreen", "OnOff": 0}
                             ]
                         })
-                        await self.set_state(self.media_data_sensor, state="off")
-                        if self.config.light:
-                            await self.control_light('off')
+                else:
+                    await self.pixoo_device.send_command({
+                        "Command": "Draw/CommandList",
+                        "CommandList": [
+                            {"Command": "Draw/ClearHttpText"},
+                            {"Command": "Draw/ResetHttpGifId"},
+                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
+                            ]
+                        })
+                await self.set_state(self.media_data_sensor, state="off")
+                if self.config.light:
+                    await self.control_light('off')
                 return
 
             # If we get here, proceed with the main logic
@@ -1764,6 +1881,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             async with asyncio.timeout(self.callback_timeout):
                 # Get current channel index
                 self.select_index = await self.pixoo_device.get_current_channel_index()
+                self.select_index = media_data.select_index_original if self.select_index == 4 else self.select_index
+                
                 if media_state in ["playing", "on"]:
                     
                     # Cancel any ongoing image processing task
@@ -1798,16 +1917,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         try:
             start_time = time.perf_counter()
-            if media_data.picture == TV_ICON_PATH and media_data.spotify_slide_pass:
-                payload = ({
-                        "Command": "Draw/CommandList",
-                        "CommandList": [
-                            {"Command": "Channel/OnOffScreen", "OnOff": 1},
-                            {"Command": "Draw/ClearHttpText"},
-                            {"Command": "Draw/ResetHttpGifId"},
-                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index} ]
-                        })
-                await self.pixoo_device.send_command(payload)
+
 
             processed_data = await self.fallback_service.get_final_url(media_data.picture, media_data)
             if not processed_data:
@@ -1839,9 +1949,19 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "images_in_cache": media_data.image_cache_count,
                 "image_memory_cache": media_data.image_cache_memory,
                 "process_duration": media_data.process_duration,
-                "spotify_frames": media_data.spotify_frames
+                "spotify_frames": media_data.spotify_frames,
+                "pixoo_channel": self.select_index
                 }
                 
+            payload = {
+                "Command": "Draw/CommandList",
+                "CommandList": [
+                    {"Command": "Channel/OnOffScreen", "OnOff": 1},
+                    {"Command": "Draw/ClearHttpText"},
+                    {"Command": "Draw/ResetHttpGifId"},
+                    {"Command": "Draw/SendHttpGif",
+                        "PicNum": 1, "PicWidth": 64, "PicOffset": 0,
+                        "PicID": 0, "PicSpeed": 10000, "PicData": base64_image }]}
 
             if self.config.spotify_slide and not media_data.radio_logo and not media_data.playing_tv:
                 spotify_service = SpotifyService(self.config)
@@ -1849,38 +1969,18 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if spotify_service.spotify_data:
                     start_time = time.perf_counter()
                     media_data.spotify_frames = 0
-                    await spotify_service.spotify_albums_slide(self.pixoo_device, media_data)
-                
+
+                    if self.config.special_mode and self.config.show_text:
+                        await spotify_service.spotify_album_art_animation(self.pixoo_device, media_data)
+                    else:
+                        await spotify_service.spotify_albums_slide(self.pixoo_device, media_data)
+
                     if media_data.spotify_slide_pass:
-                        end_time = time.perf_counter()
-                        duration = end_time - start_time
-                        media_data.process_duration = f"{duration:.2f} seconds"
                         new_attributes["process_duration"] = media_data.process_duration
                         new_attributes["spotify_frames"] = media_data.spotify_frames
-                        await self.set_state(self.media_data_sensor, state="on", attributes=new_attributes)
-                        #return
                     else:
-                        #await self.pixoo_device.send_command({"Command": "Draw/ClearHttpText"})
-                        #await self.pixoo_device.send_command({"Command":"Draw/ResetHttpGifId"})
-                        #await self.pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": [ {"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"} ]})
-                        await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": self.select_index}) # Avoid Animation Glitch
+                        await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4}) # Avoid Animation Glitch
                         
-            payload = {
-            "Command": "Draw/CommandList",
-            "CommandList": [
-                {"Command": "Channel/OnOffScreen", "OnOff": 1},
-                {"Command": "Draw/ClearHttpText"},
-                {"Command": "Draw/ResetHttpGifId"},
-                {
-                    "Command": "Draw/SendHttpGif",
-                    "PicNum": 1,
-                    "PicWidth": 64,
-                    "PicOffset": 0,
-                    "PicID": 0,
-                    "PicSpeed": 10000,
-                    "PicData": base64_image
-                }]}
-
             if not media_data.spotify_slide_pass:
                 await self.pixoo_device.send_command(payload) 
 
@@ -1914,18 +2014,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if text_string and self.config.show_text and not self.fallback_service.fallback and not media_data.radio_logo and not media_data.playing_tv and not self.config.special_mode:
                 textid +=1
                 text_temp = { 
-                    "TextId":textid, 
-                    "type":22, 
-                    "x":0, 
-                    "y":48, 
-                    "dir":dir, 
-                    "font":2, 
-                    "TextWidth":64, 
-                    "Textheight":16, 
-                    "speed":100, 
-                    "align":2, 
-                    "TextString": text_string, 
-                    "color":color_font 
+                    "TextId":textid, "type":22, "x":0, "y":48, 
+                    "dir":dir, "font":2, "TextWidth":64, "Textheight":16, 
+                    "speed":100, "align":2, "TextString": text_string, "color":color_font 
                 }
                 moreinfo["ItemList"].append(text_temp)
 
@@ -1933,37 +2024,30 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 textid +=1
                 x = 44 if self.config.clock_align == "Right" else 3
                 clock_item =  { 
-                    "TextId":textid, 
-                    "type":5, 
-                    "x":x, 
-                    "y":3, 
-                    "dir":0, 
-                    "font":18, 
-                    "TextWidth":32, 
-                    "Textheight":16, 
-                    "speed":100, 
-                    "align":1, 
-                    "color":color_font 
-                    }
+                    "TextId":textid, "type":5, "x":x, "y":3, 
+                    "dir":0, "font":18, "TextWidth":32, "Textheight":16, 
+                    "speed":100, "align":1, "color":color_font 
+                }
                 moreinfo["ItemList"].append(clock_item)
 
             if (self.config.show_text or self.config.show_clock) and not (self.fallback_service.fallback or self.config.show_lyrics or self.config.spotify_slide or self.config.special_mode):
                 await self.pixoo_device.send_command(moreinfo)
+                return
 
             if self.config.special_mode and not self.fallback_service.fail_txt and not self.fallback_service.fallback:
                 day = {
-                    "TextId":1, "type":14, "x":0, "y":2,
+                    "TextId":1, "type":14, "x":4, "y":1,
                     "dir":0, "font":18, "TextWidth":33,
                     "Textheight":6, "speed":100, "align":1,
                     "color": color_font }
                 
-                clock = { "TextId":2, "type":5, "x":0, "y":2,
+                clock = { "TextId":2, "type":5, "x":0, "y":1,
                     "dir":0, "font":18, "TextWidth":64,
                     "Textheight":6, "speed":100, "align":2,
                     "color": background_color }
                 
-                temperature = { "TextId":3, "type":17, "x":0, "y":2,
-                    "dir":0, "font":18, "TextWidth":64, "Textheight":6,
+                temperature = { "TextId":3, "type":17, "x":40, "y":1,
+                    "dir":0, "font":18, "TextWidth":20, "Textheight":6,
                     "speed":100, "align":3, "color": color_font }
                 
                 dir = 1 if LyricsProvider(self.config, self.image_processor).has_bidi(media_data.ai_artist) else 0
@@ -1985,7 +2069,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 moreinfo["ItemList"].append(day)
                 moreinfo["ItemList"].append(clock)
                 moreinfo["ItemList"].append(temperature)
-                if self.config.show_text:
+                if self.config.show_text and not media_data.playing_tv:
                     moreinfo["ItemList"].append(artist)
                     moreinfo["ItemList"].append(title)
                 await self.pixoo_device.send_command(moreinfo)
@@ -1999,12 +2083,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         {"Command": "Draw/ResetHttpGifId"},
                         {
                             "Command": "Draw/SendHttpGif",
-                            "PicNum": 1,
-                            "PicWidth": 64,
-                            "PicOffset": 0,
-                            "PicID": 0,
-                            "PicSpeed": 1000,
-                            "PicData": black_pic
+                            "PicNum": 1, "PicWidth": 64,
+                            "PicOffset": 0, "PicID": 0,
+                            "PicSpeed": 1000, "PicData": black_pic
                         }
                     ]
                 }
@@ -2044,14 +2125,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         payloads = [
             {
                 "Command": "Draw/SendHttpText",
-                "TextId": i + 1,
-                "x": 0,
-                "y": start_y + i * 15,
-                "dir": 0,
-                "font": self.config.font,
-                "TextWidth": 64,
-                "speed": 80,
-                "TextString": line,
+                "TextId": i + 1, "x": 0, "y": start_y + i * 15,
+                "dir": 0, "font": self.config.font, "TextWidth": 64,
+                "speed": 80, "TextString": line,
                 "color": "#a0e5ff" if i < len(artist_lines) else "#f9ffa0",
                 "align": 2
             }
