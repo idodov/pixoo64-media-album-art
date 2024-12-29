@@ -9,23 +9,37 @@ APPDAEMON CONFIGURATION
 
 # Required python packages:
 python_packages:
-  - pillow
-  - unidecode
-  - python-bidi
+    - pillow
+    - unidecode 
+    - python-bidi
 
 # appdaemon/apps/apps.yaml
 -----
+# Basic Configuration
+# -------------------
+pixoo64_media_album_art:
+    module: pixoo64_media_album_art
+    class: Pixoo64_Media_Album_Art
+    home_assistant:
+        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
+        media_player: "media_player.living_room"    # The entity ID of your media player.
+    pixoo:
+        url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
+
+
+# Full Configuration
+# ------------------
 pixoo64_media_album_art:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
         ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
         media_player: "media_player.era300"         # The entity ID of your media player.
-        toggle: "input_boolean.pixoo64_album_art"   # (Optional) An input boolean to enable or disable the script's execution.
-        pixoo_sensor: "sensor.pixoo64_media_data"   # (Optional) A sensor to store extracted media data.
-        light: "light.strip_stone"                  # (Optional) The entity ID of an RGB light to synchronize with the album art colors.
+        toggle: "input_boolean.pixoo64_album_art"   # An input boolean to enable or disable the script's execution.
+        pixoo_sensor: "sensor.pixoo64_media_data"   # A sensor to store extracted media data.
+        light: "light.living_room"                  # The entity ID of an RGB light to synchronize with the album art colors.
         ai_fallback: "turbo"                        # The AI model to use for generating alternative album art when needed (supports 'flux' or 'turbo').
-        force_ai: False                             # If True, only AI-generated images will be displayed.
+        force_ai: False                             # If True, only AI-generated images will be displayed all the time.
         musicbrainz: True                           # If True, attempts to find a fallback image on MusicBrainz if other sources fail.
         spotify_client_id: False                    # Your Spotify API client ID (needed for Spotify features). Obtain from https://developers.spotify.com.
         spotify_client_secret: False                # Your Spotify API client secret (needed for Spotify features).
@@ -155,7 +169,7 @@ class Config:
         crop_borders_config = pixoo_config.get('crop_borders', {})
 
         # Home Assistant settings
-        self.media_player: str = ha_config.get("media_player", "media_player.era300")
+        self.media_player: str = ha_config.get("media_player", "media_player.living_room")
         self.toggle: str = ha_config.get("toggle", "input_boolean.pixoo64_album_art")
         self.ha_url: str = ha_config.get("ha_url", "http://homeassistant.local:8123")
         self.pixoo_sensor: str = ha_config.get("pixoo_sensor", "sensor.pixoo64_media_data")
@@ -177,16 +191,16 @@ class Config:
         self.full_control: bool = pixoo_config.get("full_control", True)
         self.contrast: bool = pixoo_config.get("contrast", False)
         self.special_mode: bool = pixoo_config.get("special_mode", False)
-        self.show_clock: bool = pixoo_config.get("clock", True)
+        self.show_clock: bool = pixoo_config.get("clock", False)
         self.clock_align: str = pixoo_config.get("clock_align", "Left")
         self.tv_icon_pic: bool = pixoo_config.get("tv_icon", True)
         self.spotify_slide: bool = pixoo_config.get("spotify_slide", False)
-        self.images_cache: int = max(1, min(int(pixoo_config.get("images_cache", 1)), 500))
+        self.images_cache: int = max(1, min(int(pixoo_config.get("images_cache", 10)), 100))
 
         # Text display settings
         self.limit_color: bool = pixoo_config.get("limit_colors", False)
         self.show_lyrics: bool = pixoo_config.get("lyrics", False)
-        self.lyrics_font: int = pixoo_config.get("lyrics_font", 2)
+        self.lyrics_font: int = pixoo_config.get("lyrics_font", 190)
         self.show_text: bool = show_text_config.get("enabled", False)
         self.clean_title_enabled: bool = show_text_config.get("clean_title", True)
         self.font: int = show_text_config.get("font", 2)
@@ -216,7 +230,7 @@ class PixooDevice:
                     if response.status != 200:
                         _LOGGER.error(f"Failed to send REST: {response.status}")
                     else:
-                        await asyncio.sleep(0.25)
+                        await asyncio.sleep(0.20)
         except Exception as e:
             _LOGGER.error(f"Error sending command to Pixoo: {str(e)}\n{traceback.format_exc()}")
 
@@ -1652,22 +1666,17 @@ class SpotifyService:
     
     async def spotify_album_art_animation(self, pixoo_device, media_data, start_time=None):
         """Creates and sends a static slide show with 3 albums to the Pixoo device."""
-        #_LOGGER.info(f"spotify_album_art_animation - media_data.playing_tv: {media_data.playing_tv}, media_data.spotify_slide_pass: {media_data.spotify_slide_pass}")
-
         if media_data.playing_tv:
             return
         
         try:
             album_urls = await self.get_album_list(media_data, returntype="url")
-            #_LOGGER.info(f"spotify_album_art_animation - album_urls: {album_urls}")
-
             if not album_urls:
                 _LOGGER.info("spotify_album_art_animation - No albums found for slide.")
                 media_data.spotify_frames = 0
                 return
 
             num_albums = len(album_urls)
-            slide_fallback = False
             if num_albums < 3:
                 _LOGGER.info("spotify_album_art_animation - Not enough albums to create animation.")
                 media_data.spotify_frames = 0
@@ -1676,7 +1685,6 @@ class SpotifyService:
 
             images = []
             for album_url in album_urls:
-                #_LOGGER.info(f"spotify_album_art_animation - Processing album_url: {album_url}")
                 try:
                     async with aiohttp.ClientSession() as session:
                         async with session.get(album_url) as response:
@@ -1687,7 +1695,6 @@ class SpotifyService:
                             img = Image.open(BytesIO(image_data))
                             img = img.resize((34, 34), Image.Resampling.LANCZOS)
                             images.append(img)
-                            #_LOGGER.info(f"spotify_album_art_animation - Image loaded successfully from {album_url}")
                 except Exception as e:
                     _LOGGER.error(f"spotify_album_art_animation - Error decoding or processing image in animation: {e}")
                     return
@@ -1701,36 +1708,41 @@ class SpotifyService:
             pixoo_frames = []
 
             for index in range(total_frames):
-                    try:
-                        canvas = Image.new("RGB", (64, 64), (0, 0, 0))
-                        
-                        left_index = (index - 1) % num_albums
-                        center_index = index % num_albums
-                        right_index = (index + 1) % num_albums
+                try:
+                    canvas = Image.new("RGB", (64, 64), (0, 0, 0))
+                    
+                    left_index = (index - 1) % num_albums
+                    center_index = index % num_albums
+                    right_index = (index + 1) % num_albums
 
-                        x_positions = [1, 15, 51] # Corrected x positions
-                        #_LOGGER.info(f"spotify_album_art_animation - Frame {index}: x_positions={x_positions}, indexes=({left_index}, {center_index}, {right_index})")
-                        
-                        for album_index, x in zip([left_index, center_index, right_index], x_positions):
-                            try:
-                                canvas.paste(images[album_index], (x, 8))
-                            except Exception as e:
-                                _LOGGER.error(f"spotify_album_art_animation - Error pasting image in animation {e}")
-                                return
-                                
+                    x_positions = [1, 16, 51] # Corrected x positions
+                    
+                    for album_index, x in zip([left_index, center_index, right_index], x_positions):
+                        try:
+                            album_img = images[album_index]
+                            if album_index != center_index:
+                                album_img = album_img.filter(ImageFilter.GaussianBlur(2))
+                                enhancer = ImageEnhance.Brightness(album_img)
+                                album_img = enhancer.enhance(0.5)
+                            else:
+                                draw = ImageDraw.Draw(album_img)
+                                draw.rectangle([0, 0, album_img.width, album_img.height], outline="black", width=1)
+                            canvas.paste(album_img, (x, 8))
+                        except Exception as e:
+                            _LOGGER.error(f"spotify_album_art_animation - Error pasting image in animation {e}")
+                            return
 
-                        base64_image = ImageProcessor(self.config).gbase64(canvas)
-                        pixoo_frames.append(base64_image)
+                    base64_image = ImageProcessor(self.config).gbase64(canvas)
+                    pixoo_frames.append(base64_image)
 
-                    except Exception as e:
-                        _LOGGER.error(f"spotify_album_art_animation - Error creating frame: {e}")
-                        return
+                except Exception as e:
+                    _LOGGER.error(f"spotify_album_art_animation - Error creating frame: {e}")
+                    return
 
             pic_offset = 0
             pic_speed = int(self.config.album_pause_duration * 1000) #convert to ms
             _LOGGER.info(f"spotify_album_art_animation - sending {total_frames} frames")
             for i, frame in enumerate(pixoo_frames):
-                #_LOGGER.info(f"spotify_album_art_animation - sending frame index:{i}, offset:{pic_offset}, pic_speed:{pic_speed}")
                 await self.send_pixoo_animation_frame(
                     pixoo_device=pixoo_device,
                     command="Draw/SendHttpGif",
