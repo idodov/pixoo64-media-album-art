@@ -2,15 +2,12 @@
 Divoom Pixoo64 Album Art Display
 --------------------------------
 This script automatically displays the album art of the currently playing track on your Divoom Pixoo64 screen.
-It also extracts useful information, such as the artist's name and the dominant color from the album art, which can be used for additional automation within your Home Assistant setup.
 Additionally, this script supports AI-based image creation. It is designed to generate and display alternative album cover art when the original art is unavailable or when using music services (like SoundCloud) from which the script cannot retrieve album art.
 
 APPDAEMON CONFIGURATION
-
-# Required python packages:
+# Required python packages (pillow is mandatory while python-bidi is opotinal and used to display RTL texts like Arabic or Hebrew exc,):
 python_packages:
     - pillow
-    - unidecode 
     - python-bidi
 
 # appdaemon/apps/apps.yaml
@@ -62,7 +59,7 @@ pixoo64_media_album_art:
             enabled: False                          # If True, displays the artist and title of the current track.
             clean_title: True                       # If True, removes "Remastered," track numbers, and file extensions from the title.
             text_background: True                   # If True, adjusts the background color behind the text for improved visibility.
-            font: 2                                 # The font to use for text (Pixoo64 built-in fonts in ultimate fallback screen, 0-7).
+            special_mode_spotify_slider: False      # Create animation album art slider
         crop_borders:
             enabled: True                           # If True, attempts to crop any borders from the album art.
             extra: True                             # If True, applies an enhanced border cropping algorithm.
@@ -86,15 +83,12 @@ from io import BytesIO
 # Third-party library imports
 import aiohttp
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw
-try:
-    from unidecode import unidecode
-    undicode_m = True
-except ImportError:
-    print("The 'unidecoed' module is not installed or not available. Special chars might not display")
-    undicode_m = False
+
 try:
     from bidi import get_display
+    bidi_support = True
 except ImportError:
+    bidi_support = False
     print("The 'bidi.algorithm' module is not installed or not available. RTL texts will display reverce")
 
 # Home Assistant plugins
@@ -203,8 +197,8 @@ class Config:
         self.lyrics_font: int = pixoo_config.get("lyrics_font", 190)
         self.show_text: bool = show_text_config.get("enabled", False)
         self.clean_title_enabled: bool = show_text_config.get("clean_title", True)
-        self.font: int = show_text_config.get("font", 2)
         self.text_bg: bool = show_text_config.get("text_background", True)
+        self.special_mode_spotify_slider: bool = show_text_config.get("special_mode_spotify_slider", False)
 
         # Image processing settings
         self.crop_borders: bool = crop_borders_config.get("enabled", True)
@@ -755,8 +749,6 @@ class MediaData:
         self.lyrics = []
         self.picture = None
         self.select_index_original = 0
-        self.normalized_artist = None
-        self.normalized_title = None
         self.image_processor = image_processor
     
     async def update(self, hass):
@@ -787,12 +779,6 @@ class MediaData:
                 artist = await hass.get_state(self.config.media_player, attribute="media_artist")
                 original_artist = artist
                 artist = artist if artist else ""
-                if undicode_m:
-                    normalized_title = unidecode(title)
-                    normalized_artist = unidecode(artist) if artist else ""
-                else:
-                    normalized_title = title
-                    normalized_artist = artist if artist else ""
                 self.ai_title = title
                 self.ai_artist = artist
                 self.picture = await hass.get_state(self.config.media_player, attribute="entity_picture")
@@ -824,7 +810,7 @@ class MediaData:
                     self.playing_radio = self.radio_logo = False
                     self.picture = original_picture
             else:
-                self.ai_artist = self.ai_title = normalized_artist = normalized_title = "TV"
+                self.ai_artist = self.ai_title = "TV"
                 self.playing_tv = True
 
                 if self.config.tv_icon_pic:
@@ -833,9 +819,6 @@ class MediaData:
                 else:
                     self.picture = "TV_IS_ON"
                     
-
-            self.normalized_artist = normalized_artist
-            self.normalized_title = normalized_title
             return self
 
         except Exception as e:
@@ -1292,11 +1275,12 @@ class LyricsProvider:
     
     def get_display(self, text):
         """Convert text for display, handling RTL languages"""
-        try:
-            return get_display(text) if text and self.has_bidi(text) else text
-        except Exception as e:
+        if not bidi_support:
             _LOGGER.error(f"To display RTL text you need to add bidi-algorithm package: {e}.")
             return text
+        else:
+            return get_display(text) # if text and self.has_bidi(text) else text
+
 
 class SpotifyService:
     def __init__(self, config):
@@ -1762,6 +1746,73 @@ class SpotifyService:
             return
 
 
+    async def create_album_slider(self, media_data):
+        album_urls = await self.get_album_list(media_data, returntype="url")
+        if not album_urls or len(album_urls) < 3:
+            _LOGGER.info("Not enough albums to create slider.")
+            return None
+
+        album_urls = album_urls[:10]  # Limit to 10 albums
+        canvas_width = 34 * (len(album_urls))
+        canvas = Image.new("RGB", (canvas_width, 64), (0, 0, 0))
+
+        for i, album_url in enumerate(album_urls):
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(album_url) as response:
+                        if response.status != 200:
+                            _LOGGER.error(f"Error fetching image {album_url}: {response.status}")
+                            return None
+                        image_data = await response.read()
+                        img = Image.open(BytesIO(image_data))
+                        img = img.resize((34, 34), Image.Resampling.LANCZOS)
+                        canvas.paste(img, (34 * i, 8))
+            except Exception as e:
+                _LOGGER.error(f"Error processing image {album_url}: {e}")
+                return None
+
+        return canvas
+
+    async def create_slider_animation(self, media_data):
+        canvas = await self.create_album_slider(media_data)
+        if not canvas:
+            return None
+
+        frames = []
+        total_frames = (canvas.width) // 3  # Move 3 pixels per frame
+        for i in range(total_frames):
+            frame = canvas.crop((i * 3, 0, i * 3 + 64, 64))
+            frame = frame.resize((64, 64), Image.Resampling.LANCZOS)
+            base64_image = ImageProcessor(self.config).gbase64(frame)
+            frames.append(base64_image)
+
+        return frames
+
+    async def send_slider_animation(self, pixoo_device, media_data):
+        media_data.spotify_slide_pass = False
+        frames = await self.create_slider_animation(media_data)
+        if not frames:
+            return
+
+        await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": 
+            [ {"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"} ]})
+
+        pic_offset = 0
+        for i, frame in enumerate(frames):
+            await self.send_pixoo_animation_frame(
+                pixoo_device=pixoo_device,
+                command="Draw/SendHttpGif",
+                pic_num=len(frames),
+                pic_width=64,
+                pic_offset=pic_offset,
+                pic_id=0,
+                pic_speed=750,
+                pic_data=frame
+            )
+            pic_offset += 1
+        media_data.spotify_slide_pass = True
+
+
 class Pixoo64_Media_Album_Art(hass.Hass):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1836,7 +1887,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             media_state = await self.get_state(self.config.media_player)
             if media_state in ["off", "idle", "pause", "paused"]:
                 await self.set_state(self.media_data_sensor, state="off")
-                await asyncio.sleep(5)  # Delay to not turn off during track changes
+                await asyncio.sleep(8)  # Delay to not turn off during track changes
                 if self.config.full_control:
                     if await self.get_state(self.config.media_player) not in ["playing", "on"]:
                         await self.pixoo_device.send_command({
@@ -1929,8 +1980,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         try:
             start_time = time.perf_counter()
-
-
             processed_data = await self.fallback_service.get_final_url(media_data.picture, media_data)
             if not processed_data:
                 return
@@ -1949,9 +1998,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 
             new_attributes = {
                 "artist": media_data.ai_artist,
-                "normalized_artist": media_data.normalized_artist, 
                 "media_title": media_data.ai_title,
-                "normalized_title": media_data.normalized_title, 
                 "font_color": font_color, 
                 "background_color_brightness": brightness,  
                 "background_color": background_color, 
@@ -1983,7 +2030,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     media_data.spotify_frames = 0
 
                     if self.config.special_mode and self.config.show_text:
-                        await spotify_service.spotify_album_art_animation(self.pixoo_device, media_data)
+                        if self.config.special_mode_spotify_slider:
+                            await spotify_service.send_slider_animation(self.pixoo_device, media_data)
+                        else:
+                            await spotify_service.spotify_album_art_animation(self.pixoo_device, media_data)
                     else:
                         await spotify_service.spotify_albums_slide(self.pixoo_device, media_data)
 
@@ -2093,20 +2143,18 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     "CommandList": [
                         {"Command": "Channel/OnOffScreen", "OnOff": 1},
                         {"Command": "Draw/ResetHttpGifId"},
-                        {
+                    ]
+                }
+                await self.pixoo_device.send_command(payload)
+                await self.pixoo_device.send_command({
                             "Command": "Draw/SendHttpGif",
                             "PicNum": 1, "PicWidth": 64,
                             "PicOffset": 0, "PicID": 0,
                             "PicSpeed": 1000, "PicData": black_pic
-                        }
-                    ]
-                }
-                await self.pixoo_device.send_command(payload)
-                normalized_title = unidecode(media_data.ai_title) if undicode_m else media_data.ai_title
-                normalized_artist = unidecode(media_data.ai_artist) if undicode_m else media_data.ai_artist
-                payloads = self.create_payloads(normalized_artist, normalized_title, 13)
-                payload = {"Command":"Draw/CommandList", "CommandList": payloads}
-                await self.pixoo_device.send_command(payload)
+                        })
+                payloads = self.create_payloads(media_data.ai_artist, media_data.ai_title, 11)
+                #payload = {"Command":"Draw/CommandList", "CommandList": payloads}
+                await self.pixoo_device.send_command(payloads)
         except asyncio.CancelledError:
             _LOGGER.info("Image processing task cancelled.")
         except Exception as e:
@@ -2124,28 +2172,45 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         except Exception as e:
             _LOGGER.error(f"Light Error: {self.config.light} - {e}\n{traceback.format_exc()}")
 
-    def create_payloads(self, normalized_artist, normalized_title, x):
-        artist_lines = split_string(normalized_artist, x)
-        title_lines = split_string(normalized_title, x)
+
+    def create_payloads(self, artist, title, x):
+        artist_lines = split_string(artist, x)
+        title_lines = split_string(title, x)
         all_lines = artist_lines + title_lines
-        
-        if len(all_lines) > 4:
-            all_lines[3] += ' ' + ' '.join(all_lines[4:])
-            all_lines = all_lines[:4]
-        
-        start_y = (64 - len(all_lines) * 15) // 2
-        payloads = [
-            {
-                "Command": "Draw/SendHttpText",
-                "TextId": i + 1, "x": 0, "y": start_y + i * 15,
-                "dir": 0, "font": self.config.font, "TextWidth": 64,
-                "speed": 80, "TextString": line,
-                "color": "#a0e5ff" if i < len(artist_lines) else "#f9ffa0",
-                "align": 2
+        moreinfo = {
+                "Command": "Draw/SendHttpItemList",
+                "ItemList": []
             }
-            for i, line in enumerate(all_lines)
-        ]
+        if len(all_lines) > 5:
+            all_lines[4] += ' ' + ' '.join(all_lines[5:])
+            all_lines = all_lines[:5]
+        
+        start_y = (64 - len(all_lines) * 12) // 2
+        item_list = []
+        for i, line in enumerate(all_lines):
+            text_string = line if not LyricsProvider(self.config, self.image_processor).has_bidi(line) else LyricsProvider(self.config, self.image_processor).get_display(line)
+            y = start_y + (i * 12)
+            
+            item_list.append({
+                "TextId": i + 1,
+                "type": 22,
+                "x": 0,
+                "y": y,
+                "dir": 1 if LyricsProvider(self.config, self.image_processor).has_bidi(line) else 0,
+                "font": 190,
+                "TextWidth": 64,
+                "Textheight": 16,
+                "speed": 100,
+                "align": 2,
+                "TextString": text_string,
+                "color": "#a0e5ff" if i < len(artist_lines) else "#f9ffa0",
+            })
+
+        payloads = {
+            "Command": "Draw/SendHttpItemList",
+            "ItemList": item_list
+        }
         return payloads
-    
+
     async def calculate_position(self, kwargs):
         await LyricsProvider(self.config, self.image_processor).calculate_position(self.media_data, self)
