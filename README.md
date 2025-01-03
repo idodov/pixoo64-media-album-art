@@ -1,122 +1,162 @@
-### Album Art Display on PIXOO64
-Elevate your musical experience on the DIVOOM PIXOO64 screen with this powerful Appdaemon script for Home Assistant. This script fetches and displays the album cover art of the currently playing track. By default, the album art will automatically appear on the Pixoo64 screen when a track is playing.
+# PIXOO64 Media Album Art Display
 
-Additionally, the script supports lyrics display and uses AI-generated images as a fallback if no album art is found.
+This AppDaemon script for Home Assistant enhances your music experience by displaying relevant information on your DIVOOM PIXOO64 screen. When you play music, this script automatically fetches and displays the album art of the currently playing track. If the album art is not available, it can generate an image using AI, ensuring a visually engaging experience. Additionally, the script supports displaying synchronized lyrics, artist and track information, and can even synchronize an RGB light's color to match the album art.
 
 ## Examples
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
  
-#### Key Features:
-- **Image Cropping**: The script cuts out wide borders from album art to present the main object on the screen.
-- **Synchronized Lyrics Display**: Displays synchronized lyrics of the song.
-- **Display Clock**: Shows the current time.
-- **Artist and Track Title Display**: Shows the artist and track title.
-- **Album Arts Slider**: Shows a various album arts for the playing title.
-- **Full Fallback Support**: If album art doesn't exist or can't be fetched, the script provides fallback options. These fallbacks support API services like MusicBrainz, Spotify, Discogs, and Last.FM. If all else fails, the script creates a dedicated AI image using [pollinations.ai](https://pollinations.ai), ensuring that 99% of the time, an image will be displayed on the Pixoo64 screen while music is playing.
+Here's a breakdown of the main functionalities:
 
-The script is compatible with speaker systems such as Chromecast, AirPlay 2, and Sonos, and fully supports services like Spotify, Tidal, Apple Music, YouTube Music, MixCloud, TuneIn, Sonos Radio, and more!
+*   **Dynamic Album Art Display:** When a track starts playing, the script queries your media player to find the associated album art and displays it on your PIXOO64. The image is scaled and prepared for the PIXOO64's 64x64 pixel display.
+*   **Intelligent Fallback System:** If album art is not directly available (e.g., from some streaming services), the script attempts to retrieve it using several fallback methods. This includes searching online databases (like Spotify, Discogs, Last.fm, MusicBrainz) and, if all else fails, generating a unique image using an AI art generator.
+*   **Lyrics Synchronization:** For supported media sources, the script can fetch and display synchronized lyrics. The lyrics are displayed in a readable format, and the display advances as the song progresses. (Note: This feature is not available for all media sources.)
+*   **Real-Time Information Display:** In addition to album art and lyrics, the script displays the current time, the artist's name and the title of the current track on the screen, allowing you to view track information quickly.
+*  **Spotify Album Slide**: This feature allows you to experience a slideshow of different album covers related to the current track. It uses the Spotify API to search for relevant albums and cycles through them on your PIXOO64.
+*   **Dynamic Lighting:**  If you have an RGB light set up in your Home Assistant, this script can synchronize the light's color with the primary color of the displayed album art, adding an extra layer of immersion to your listening experience.
+* **Special Mode**:  An optional display mode that combines the album art with a clock, current day and the temperature and can also display the artist name and the title.
 
-#### More Features & Functional Advantages:
-- **Image Enhancer**: Amplifies the color vibrancy of the image for a more striking display.
-- **Sensor Data Storage**: Stores all extracted data in a dedicated sensor entity within Home Assistant for further automation possibilities.
-- **RTL Support**: Displays the artist’s name or song title correctly in right-to-left languages.
-- **Title Normalization**: Normalizes titles and artist names for easier integration with automations and consistent display. For instance, “Beyoncé” would be normalized to “Beyonce”.
-- **Light Dynamic Color Integration**: Uses the dominant color from the album art to set the background color on any RGB light.
+By combining these features, the script aims to create a seamless and enhanced experience for users who want to integrate their PIXOO64 with their music playback setup. It not only visualizes the music but provides additional contextual and visual elements.
+
+## Key Features
+
+*   **Automatic Album Art Display:** Shows album art on your PIXOO64 when music plays.
+*   **Lyrics Display:** Option to display synchronized lyrics.
+*   **AI Image Fallback:** Generates alternative images when album art isn't found.
+*   **Cropped Images:** Removes borders from album art for better display.
+*   **Synced Lights:** Matches any connected RGB light color to the album art's dominant color.
+*   **Text Information:** Displays artist and track titles, clock.
+*  **Spotify Album Slide**: Shows album arts for the playing title, taken from Spotify.
+*   **Wide Compatibility:** Supports various media players and services.
+
 
 ## Prerequisites
 1. [DIVOOM PIXOO64](https://www.aliexpress.com/item/1005003116676867.html)
 2. Home Assistant (with add-on functionality)
 3. AppDaemon (Home Assistant add-on)
+
 ## Installation
-> [!TIP]
-> Create a **Toggle Helper** in Home Assistant. For example, `input_boolean.pixoo64_album_art` can be used to control when the script runs. This means that whenever the player starts a track, the album art will appear if the toggle is on. Establish this helper within the Home Assistant User Interface or YAML code. It’s best to do this prior to installation.
-> **Ensure that the helper sensor is created prior to executing the script for the first time.**
-1. Install **AppDaemon** from the Home Assistant add-on store.
-2. On the AppDaemon [Configuration page](http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config), install the **`pillow`**, **`python-bidi`** *(optional)* and **`unidecode`** *(optional)* Python packages.
 
-> [!IMPORTANT]
-> Not installing the packadges may cause the script not work
-```yaml
-# http://homeassistant.local:8123/hassio/addon/a0d7b954_appdaemon/config
-system_packages: []
-python_packages:
-  - pillow
-  - unidecode
-  - python-bidi
-init_commands: []
-```
-### Manual Download
-1. Download the Python file from [This Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py).
-2. Place the downloaded file inside the `appdaemon/apps` directory and proceed to the final step
-### HACS Download
-1. In Home Assistant: Navigate to `Settings` > `Integrations` > `HACS` > `Configure` and enable `AppDaemon apps discovery & tracking`. After enabling, return to the main HACS screen.
-   * ![{D6AD7841-B9A6-460A-A1C6-B1C680188B66}](https://github.com/user-attachments/assets/18a39041-57a8-4acd-89e9-7ce44874c894)
+This section will guide you through installing and setting up the PIXOO64 Media Album Art Display script. Please follow these steps carefully.
 
-2. Navigate to the `Custom Repositories` page and add the following repository as `AppDaemon`: `https://github.com/idodov/pixoo64-media-album-art/`
-3. Return to the main `HACS` screen and search for `PIXOO64 Media Album Art`.  Click on `Download`
-> [!IMPORTANT]  
-> In AppDaemon, make sure to specify the apps directory in `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`.
-> Also, remember to transfer all files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`.
-```yaml
-#/addon_configs/a0d7b954_appdaemon/appdaemon.yaml
----
-appdaemon:
-  app_dir: /homeassistant/appdaemon/apps/
-```
-_________
-## Final Step - Configuration
-Open `/appdaemon/apps/apps.yaml` and add this code:
-> [!TIP]
->  If you’re using the File Editor add-on, it’s set up by default to only allow file access to the main Home Assistant directory. However, the AppDaemon add-on files are located in the root directory. To access these files, follow these steps:
-1. Go to `Settings` > `Add-ons` > `File Editor` > `Configuration`
-2. Toggle off the `Enforce Basepath` option.
-3. In the File Editor, click on the arrow next to the directory name (which will be ‘homeassistant’). This should give you access to the root directory where the AppDaemon add-on files are located at `/addon_configs/a0d7b954_appdaemon/`.
+1.  **Install AppDaemon:**
+    *   Open Home Assistant in your web browser.
+    *   Navigate to "Settings" -> "Add-ons."
+    *   Click on the "Add-on Store" button (lower right).
+    *   Search for "AppDaemon" and install it.
+    *   After installation, start the AppDaemon add-on.
 
-![arrow](https://github.com/idodov/RedAlert/assets/19820046/e57ea52d-d677-45b0-90c4-87723c5ddfea)
+2.  **Install Required Python Packages:**
+    *   Go to the AppDaemon add-on configuration page (found in the same add-ons page where you started AppDaemon).
+    *   Locate the section for "Python packages."
+    *   Add `pillow` to the list. It's mandatory for image processing.
+    *   Optionally add `python-bidi`. This is required if you need to correctly display right-to-left text, such as Arabic or Hebrew.
+    *   Save the changes. This will install the necessary Python libraries.
+        <pre>
+        <code>
+        python_packages:
+          - pillow
+          - python-bidi  # Optional: Required for RTL text support (e.g. Arabic, Hebrew)
+        </code>
+        </pre>
 
-```yaml
-# appdaemon/apps/apps.yaml
----
-pixoo64_media_album_art:
-    module: pixoo64_media_album_art
-    class: Pixoo64_Media_Album_Art
-    home_assistant:
-        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
-        media_player: "media_player.era300"         # The entity ID of your media player.
-        toggle: "input_boolean.pixoo64_album_art"   # (Optional) An input boolean to enable or disable the script's execution.
-        pixoo_sensor: "sensor.pixoo64_media_data"   # (Optional) A sensor to store extracted media data.
-        light: "light.strip_stone"                  # (Optional) The entity ID of an RGB light to synchronize with the album art colors.
-        ai_fallback: "turbo"                        # The AI model to use for generating alternative album art when needed (supports 'flux' or 'turbo').
-        force_ai: False                             # If True, only AI-generated images will be displayed.
-        musicbrainz: True                           # If True, attempts to find a fallback image on MusicBrainz if other sources fail.
-        spotify_client_id: False                    # Your Spotify API client ID (needed for Spotify features). Obtain from https://developers.spotify.com.
-        spotify_client_secret: False                # Your Spotify API client secret (needed for Spotify features).
-        last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create.
-        discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers.
-    pixoo:
-        url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
-        full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
-        contrast: True                              # If True, applies a 50% contrast filter to the images displayed on the Pixoo.
-        special_mode: False                         # Show day, time and temperature above in upper bar.
-        clock: True                                 # If True, a clock is displayed in the top corner of the screen.
-        clock_align: "Right"                        # Clock alignment: "Left" or "Right".
-        tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
-        lyrics: False                               # If True, attempts to display lyrics on the Pixoo64 (show_text and clock will be disabled).
-        lyrics_font: 2                              # Recommend values: 2, 4, 32, 52, 58, 62, 158, 186, 190, 590. More values can be found at https://app.divoom-gz.com/Device/GetTimeDialFontList (you need ID value)
-        limit_colors: False                         # Reduces the number of colors in the picture from 4 to 256, or set it to False for original colors.
-        spotify_slide: False                        # If True, forces an album art slide (requires a Spotify client ID and secret). Note: clock and title will be disabled in this mode.
-        images_cache: 25                            # The number of processed images to keep in the memory cache. Use wisely to avoid memory issues (each image is approximately 17KB).
-        show_text:
-            enabled: False                          # If True, displays the artist and title of the current track.
-            clean_title: True                       # If True, removes "Remastered," track numbers, and file extensions from the title.
-            text_background: True                   # If True, adjusts the background color behind the text for improved visibility.
-            font: 2                                 # The font to use for text (Pixoo64 built-in fonts in ultimate fallback screen, 0-7).
-        crop_borders:
-            enabled: True                           # If True, attempts to crop any borders from the album art.
-            extra: True                             # If True, applies an enhanced border cropping algorithm.
-```
-> [!WARNING]
-> **Only save it once you’ve made the described changes to the settings.**
+3.  **Create a Toggle Helper:**
+    *   In Home Assistant, go to "Settings" -> "Devices & Services".
+    *   Click on "Helpers".
+    *   Click on the "Create Helper" button (lower right).
+    *   Select "Toggle" and give it an appropriate name (e.g., `PIXOO64 Album Art Toggle`).
+    *   Note the `entity_id` of this helper (e.g., `input_boolean.pixoo64_album_art`); you will need it later for configuration.
+
+4.  **Download the Script:**
+    *   You can install the script either through HACS (Home Assistant Community Store, which is the recommended method) or by manually downloading the Python file.
+
+        *   **HACS (Recommended):**
+            *   If you don't have HACS installed, follow the instructions on [HACS's GitHub page](https://hacs.xyz/) to install it.
+            *   After HACS is set up, go to the HACS page in Home Assistant.
+            *   **If "AppDaemon" type repositories are not found, you will need to enable AppDaemon apps discovery & tracking in the HACS settings**. Navigate to `Settings` -> `Integrations` -> `HACS` -> `Configure` and enable `AppDaemon apps discovery & tracking`.
+            *   Click on "Custom Repositories" and add `https://github.com/idodov/pixoo64-media-album-art` as an "AppDaemon" repository.
+            *   Search for and download `PIXOO64 Media Album Art` in HACS.
+            *   **Important:** After installing through HACS, you **MUST** manually transfer all the files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`. This step is necessary because HACS places files in the `/addon_configs` directory, while AppDaemon expects them in the `/homeassistant` directory.
+            * Open `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` to configute it (add `app_dir` line under `appdaemon:`):
+            <pre>
+            <code>
+               appdaemon:
+                   app_dir: /homeassistant/appdaemon/apps/
+             </code>
+             </pre>
+
+
+        *   **Manual Download:**
+            *   Alternatively, you can download the Python script directly from the GitHub repository:
+                [https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py)
+            *   Place this file into the directory `/addon_configs/a0d7b954_appdaemon/apps` 
+
+5.  **Configure AppDaemon:**
+
+    *   You will need to modify the `apps.yaml` file to activate the script.
+    *   This file is typically located in the `/appdaemon/apps` directory that you added in the previous step.
+    *   You can use a **Basic Configuration** for a quick start, or a **Full Configuration** for all features:
+
+        *   **Basic Configuration:**
+            *   For a minimal setup, add the following to your `/appdaemon/apps/apps.yaml` file, adjusting the `ha_url`, `media_player`, and `url` parameters to match your setup:
+            <pre>
+             <code>
+            pixoo64_media_album_art:
+                module: pixoo64_media_album_art
+                class: Pixoo64_Media_Album_Art
+                home_assistant:
+                    ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
+                    media_player: "media_player.living_room"    # The entity ID of your media player.
+                pixoo:
+                    url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
+            </code>
+            </pre>
+        *   **Full Configuration:**
+            *   For all features, add this to your `/appdaemon/apps/apps.yaml` file. You'll need to adjust the values to match your Home Assistant setup and PIXOO64's IP address. See the next section for parameter details.
+            <pre>
+            <code>
+                pixoo64_media_album_art:
+                    module: pixoo64_media_album_art
+                    class: Pixoo64_Media_Album_Art
+                    home_assistant:
+                        ha_url: "http://homeassistant.local:8123"  # Your Home Assistant URL
+                        media_player: "media_player.your_player"   # Your media player entity ID
+                        toggle: "input_boolean.pixoo64_album_art"  # The toggle you created
+                        pixoo_sensor: "sensor.pixoo64_media_data"  # (Optional) Sensor to store extracted data
+                        light: "light.your_rgb_light"  # (Optional) RGB light entity ID
+                        ai_fallback: "turbo"  # 'flux' or 'turbo' for AI image generation
+                        force_ai: False # If true, only AI images will show
+                        musicbrainz: True # Search MusicBrainz for missing album art
+                        spotify_client_id: False  # Your Spotify API client ID (See below for instructions)
+                        spotify_client_secret: False # Your Spotify API client Secret (See below for instructions)
+                        last.fm: False  # Your Last.fm API key (See below for instructions)
+                        discogs: False   # Your Discogs API key (See below for instructions)
+                    pixoo:
+                        url: "192.168.1.100" # Your PIXOO64 IP address
+                        full_control: True  # Control display on/off based on playback
+                        contrast: True  # Apply 50% contrast to the image
+                        special_mode: False # Show day, time and temperature in upper bar
+                        clock: True   # Show a clock
+                        clock_align: "Right"  # "Left" or "Right"
+                        tv_icon: True   # Show a TV icon when audio is from a TV source
+                        lyrics: False # Show Lyrics when available
+                        lyrics_font: 2 # Lyrics font ID, look up from https://app.divoom-gz.com/Device/GetTimeDialFontList (you need ID value)
+                        limit_colors: False  # reduce the number of colors in the picture
+                        spotify_slide: False # Use Spotify's album art slider, disables clock and title, need spotify keys
+                        images_cache: 25 # Number of images stored in memory
+                        show_text:
+                            enabled: False # Enable / Disable text below image
+                            clean_title: True # Remove "Remaster" labels, track numbers, and file extensions from the title if any
+                            text_background: True # Change background of text area
+                            special_mode_spotify_slider: False #Use spotify animation when special_mode is on
+                        crop_borders:
+                            enabled: True # Crop image borders if present
+                            extra: True # Apply enhanced border cropping
+             </code>
+             </pre>
+
+    *  **Important**: After changing `apps.yaml`, make sure to restart AppDaemon.
+
+With these steps completed, you have installed and set up the script and can now configure it to fit your needs.
 
 | Parameter | Description | Example Values |
 | --- | --- | --- |
@@ -146,7 +186,7 @@ pixoo64_media_album_art:
 | `show_text - enabled` | Show media info with image | `False` |
 | `show_text - clean_title` | Remove "Remaster" labels, track numbers, and file extensions from the title if any | `True` |
 | `show_text - text_background` | Change background of text area (support lytics mode also) | `True` |
-| `show_text - font` | Pixoo internal font type (0-7). Used in fallback screen only | `2` |
+| `special_mode_spotify_slider` |  Use spotify animation when special_mode is on and show text is enabled | `False` |
 | `crop_borders - enabled` | Crop image borders if present | `True` |
 | `crop_borders - extra` | Apply enhanced border cropping | `True` |
 
@@ -174,22 +214,42 @@ ____________
 ![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
 _____________
 
-## Fallback Image
+## Fallback Image Handling
 
-When there's no image associated with the music file, or if the image can't be fetched, the fallback function will activate. By default, the supported fallbacks are MusicBrainz and the AI Image generator because neither requires an API key. However, these services are not 100% reliable, so it's recommended to use any of the APIs that this script supports (Spotify/Discogs/Last.fm). **You can choose to use one, two, or all three.** The fallback will first try to find the album art on Discogs, and if it fails, it will try Spotify, then Last.fm. No matter what, 99.9% of the time when a track is played, the Pixoo64 will present artwork graphics.
+When the script cannot directly obtain the album art for the currently playing track, it activates a sophisticated fallback system to ensure that your PIXOO64 still displays relevant visual information. The script attempts several methods, in the following order, to find an image:
 
-### There are four types of fallbacks:
+1.  **Original Album Art:** The script first tries to use the album art URL provided by the media player. This is the primary and most direct method, and is usually successful for most local media and some streaming services.
 
-1. **Getting the Album API**: This is the most recommended option because servers are fast and reliable. You can choose one or more options. To use this method, you'll need keys. Instructions on how to obtain them are provided beyond this text.
+2.  **API Services (Spotify, Discogs, Last.fm):** If the original album art is unavailable, the script attempts to find album art by querying these services using their respective APIs.
+    *   **Spotify:** If you have provided your Spotify API credentials, the script will search for the current track and its associated album art in the Spotify database. Spotify is often a reliable source for music from mainstream streaming services.
+    *  **Discogs:** Using a personal Discogs API key, the script searches for the release information of the current track and fetches the cover image from the Discogs database. Discogs is useful for finding album art for more obscure or independently released music.
+    *  **Last.fm:** If you provide your Last.fm API key, the script will query Last.fm to get the information of the currently playing track and it's album art.
+    *   The script tries these services in the order listed above (Spotify, Discogs, Last.fm), using the first image URL it successfully retrieves.
+
+3.  **MusicBrainz:** If API services fail, the script queries the MusicBrainz database, an open-source music encyclopedia. MusicBrainz is often a good source of album art URLs, especially for less common tracks.
+    *   This search uses the artist's name and track title. If it finds a matching release, it fetches a URL for the album's cover art from the Cover Art Archive (a sister project).
+    *   **Note:** MusicBrainz server connections can sometimes be slow, which may result in a brief delay before the album art appears.
+
+4.  **AI Image Generation:** If all previous methods fail, the script resorts to generating an image with artificial intelligence using [pollinations.ai](https://pollinations.ai).
+    *   The script generates a unique image based on the artist and track title, creating an abstract interpretation if album art is truly unavailable, ensuring a visual representation even with less common tracks.
+    *   **Note:** This is a free service, and can sometimes have longer loading times or can be unavailable, but the script is designed to handle these situations.
+        *   You can select `flux` or `turbo` as an AI model. The `turbo` model tends to produce more vibrant images, while `flux` provides a more artistic and colorful style.
+
+5.  **Black Screen with Text:** As a final resort, if the script is unable to generate or fetch an image, it will display a black screen and the artist and title information of the current track on the PIXOO64.
+
+This multi-layered approach ensures that your PIXOO64 displays some form of visual content in virtually every scenario. The script will always try to find an image through the more accurate APIs and online databases, before generating one using AI or falling back to a simple text representation.
+
+> [!NOTE]
+> **Fetching Album Art from MusicBrainz**: MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
+> 
+> **Generating Art with Special AI**: In this scenario, the script will attempt to generate an alternative version of the album art using generative AI. This option will trigger only if the Spotify API fails (or is unavailable) and/or no album art is found, or there is a timeout from the MusicBrainz service. Be aware that as it is a free AI generative service, it may also be laggy or sometimes unavailable.
+
+## API KEYS
+**Getting the Album API**: This is the most recommended option because servers are fast and reliable. You can choose one or more options. To use this method, you'll need at least one of the keys. Instructions on how to obtain them are provided beyond this text.
    - **Spotify**: the Client ID and the Client Secret.
    - **Discogs**: Personal API Key
    - **Last.FM**: API Key
-   
-2. **Fetching Album Art from MusicBrainz**: MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
 
-3. **Generating Art with Special AI**: In this scenario, the script will attempt to generate an alternative version of the album art using generative AI. This option will trigger only if the Spotify API fails (or is unavailable) and/or no album art is found, or there is a timeout from the MusicBrainz service. Be aware that as it is a free AI generative service, it may also be laggy or sometimes unavailable.
-
-4. **Fallback Text Display**: If no image is available at all, text displaying the artist's name and the track title will be shown.
 
 ## Guide to help you get your Spotify Client ID and Client Secret from the developer site:
 
@@ -227,14 +287,13 @@ The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assi
 | Attribute | Description |
 |---|---|
 | `artist` | The original name of the artist |
-| `normalized_artist` | The artist's name in Latin letters |
 | `media_title` | The original title of the media |
-| `normalized_title` | The media title in Latin letters |
 | `font_color` | The color of the font |
 | `background_color_brightness` | The brightness level of the background color |
 | `background_color` | The color of the lower part in background |
 | `background_color_rgb` | The RGB values of the background color (lower part) |
 | `color_alternative` |  The most common color of the background |
+| `color_alternative_rgb` | The RGB values of the most common color of the background |
 | `images_in_cache` | Current number of images in memory cache |
 | `image_memory_cache` | Memory used in KB or MB | 
 | `process_duration` | The time until the image send to the screen from the time the player start |
@@ -242,11 +301,10 @@ The sensor  `sensor.pixoo64_media_data` is a virtual entity created in Home Assi
 
 Here’s an examples of the sensor attributes:
 
-```yaml
+<pre>
+<code>
 artist: Katy Perry
-normalized_artist: Katy Perry
 media_title: OK
-normalized_title: OK
 font_color: "#7fff00"
 background_color_brightness: 128
 background_color: "#003cb2"
@@ -263,14 +321,8 @@ images_in_cache: 7
 image_memory_cache: 114.71 KB
 process_duration: 2.49 seconds
 spotify_frames: 0
-```
-Arabic Title When Normalized (letters changed to English):
-```yaml
-....
-media_title: آمين
-normalized_title: amyn
-....
-```
+</code>
+</pre>
 
 __________
 > [!NOTE]
