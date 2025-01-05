@@ -63,8 +63,10 @@ This section will guide you through installing and setting up the PIXOO64 Media 
     *   In Home Assistant, go to "Settings" -> "Devices & Services".
     *   Click on "Helpers".
     *   Click on the "Create Helper" button (lower right).
-    *   Select "Toggle" and give it an appropriate name (e.g., `PIXOO64 Album Art Toggle`).
+    *   Select "Toggle" and give it an appropriate name (e.g., `PIXOO64 Album Art`).
     *   Note the `entity_id` of this helper (e.g., `input_boolean.pixoo64_album_art`); you will need it later for configuration.
+        Make sure that the new helper entity is toggled on. If not, the script won't work! The reason for this is that sometimes you may want to disable the script, so to do that, just toggle off the helper.
+       
 
 4.  **Download the Script:**
     *   You can install the script either through HACS (Home Assistant Community Store, which is the recommended method) or by manually downloading the Python file.
@@ -76,7 +78,7 @@ This section will guide you through installing and setting up the PIXOO64 Media 
             *   Click on "Custom Repositories" and add `https://github.com/idodov/pixoo64-media-album-art` as an "AppDaemon" repository.
             *   Search for and download `PIXOO64 Media Album Art` in HACS.
             *   **Important:** After installing through HACS, you **MUST** manually transfer all the files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`. This step is necessary because HACS places files in the `/addon_configs` directory, while AppDaemon expects them in the `/homeassistant` directory.
-            * Open `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` to configute it (add `app_dir` line under `appdaemon:`):
+            * Open `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` to configute it (add `app_dir` line under `appdaemon:`). Do not remove any lines from the file, just add the new line:
             <pre>
             <code>
                appdaemon:
@@ -88,16 +90,17 @@ This section will guide you through installing and setting up the PIXOO64 Media 
         *   **Manual Download:**
             *   Alternatively, you can download the Python script directly from the GitHub repository:
                 [https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py)
-            *   Place this file into the directory `/addon_configs/a0d7b954_appdaemon/apps` 
+            *   Place this file into the directory `/addon_configs/a0d7b954_appdaemon/apps`
+            *   Note that in this method you won't get updates.
 
 5.  **Configure AppDaemon:**
 
     *   You will need to modify the `apps.yaml` file to activate the script.
     *   This file is typically located in the `/appdaemon/apps` directory that you added in the previous step.
-    *   You can use a **Basic Configuration** for a quick start, or a **Full Configuration** for all features:
+    *   You can use a **Basic Configuration** for a quick start, or a **Full Configuration** for all features.
 
         *   **Basic Configuration:**
-            *   For a minimal setup, add the following to your `/appdaemon/apps/apps.yaml` file, adjusting the `ha_url`, `media_player`, and `url` parameters to match your setup:
+            *   For a minimal setup, add the following to your `/appdaemon/apps/apps.yaml` file, adjusting the `ha_url`, `media_player`, and `url` parameters to match your setup.  Note that when using the basic configuration the helper name that's need to be toggle on is `input_boolean.pixoo64_album_art`
             <pre>
              <code>
             pixoo64_media_album_art:
@@ -110,6 +113,21 @@ This section will guide you through installing and setting up the PIXOO64 Media 
                     url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
             </code>
             </pre>
+              
+            *   If you have more than one Pixcoo64 screen, you can add it by adding the code again and **changing the first line's name**. For example:
+            <pre>
+             <code>
+            pixoo64_media_album_art_2:
+                module: pixoo64_media_album_art
+                class: Pixoo64_Media_Album_Art
+                home_assistant:
+                    ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
+                    media_player: "media_player.kitchen"        # The entity ID of your media player.
+                pixoo:
+                    url: "192.168.86.22"                        # The IP address of your Pixoo64 device.
+            </code>
+            </pre>
+
         *   **Full Configuration:**
             *   For all features, add this to your `/appdaemon/apps/apps.yaml` file. You'll need to adjust the values to match your Home Assistant setup and PIXOO64's IP address. See the next section for parameter details.
             <pre>
@@ -154,7 +172,7 @@ This section will guide you through installing and setting up the PIXOO64 Media 
              </code>
              </pre>
 
-    *  **Important**: After changing `apps.yaml`, make sure to restart AppDaemon.
+    *  Note that after changing `apps.yaml`, you don't need to restart AppDaemon.
 
 With these steps completed, you have installed and set up the script and can now configure it to fit your needs.
 
@@ -228,21 +246,17 @@ When the script cannot directly obtain the album art for the currently playing t
 
 3.  **MusicBrainz:** If API services fail, the script queries the MusicBrainz database, an open-source music encyclopedia. MusicBrainz is often a good source of album art URLs, especially for less common tracks.
     *   This search uses the artist's name and track title. If it finds a matching release, it fetches a URL for the album's cover art from the Cover Art Archive (a sister project).
-    *   **Note:** MusicBrainz server connections can sometimes be slow, which may result in a brief delay before the album art appears.
+    *   MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
 
 4.  **AI Image Generation:** If all previous methods fail, the script resorts to generating an image with artificial intelligence using [pollinations.ai](https://pollinations.ai).
     *   The script generates a unique image based on the artist and track title, creating an abstract interpretation if album art is truly unavailable, ensuring a visual representation even with less common tracks.
-    *   **Note:** This is a free service, and can sometimes have longer loading times or can be unavailable, but the script is designed to handle these situations.
+    *   In this scenario, the script will attempt to generate an alternative version of the album art using generative AI. This option will trigger only if the Spotify API fails (or is unavailable) and/or no album art is found, or there is a timeout from the MusicBrainz service. Be aware that as it is a free AI generative service, it may also be laggy or sometimes unavailable.
         *   You can select `flux` or `turbo` as an AI model. The `turbo` model tends to produce more vibrant images, while `flux` provides a more artistic and colorful style.
 
 5.  **Black Screen with Text:** As a final resort, if the script is unable to generate or fetch an image, it will display a black screen and the artist and title information of the current track on the PIXOO64.
 
 This multi-layered approach ensures that your PIXOO64 displays some form of visual content in virtually every scenario. The script will always try to find an image through the more accurate APIs and online databases, before generating one using AI or falling back to a simple text representation.
 
-> [!NOTE]
-> **Fetching Album Art from MusicBrainz**: MusicBrainz is an open-source database containing URLs for album art. Although the database is extensive and includes many rare artworks and doesn't require API keys, it relies on very slow server connections. This means that often the album art may not be retrieved in a timely manner while the track is playing.
-> 
-> **Generating Art with Special AI**: In this scenario, the script will attempt to generate an alternative version of the album art using generative AI. This option will trigger only if the Spotify API fails (or is unavailable) and/or no album art is found, or there is a timeout from the MusicBrainz service. Be aware that as it is a free AI generative service, it may also be laggy or sometimes unavailable.
 
 ## API KEYS
 **Getting the Album API**: This is the most recommended option because servers are fast and reliable. You can choose one or more options. To use this method, you'll need at least one of the keys. Instructions on how to obtain them are provided beyond this text.
