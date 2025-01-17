@@ -51,13 +51,11 @@ This section will guide you through installing and setting up the PIXOO64 Media 
     *   Add `pillow` to the list. It's mandatory for image processing.
     *   Optionally add `python-bidi`. This is required if you need to correctly display right-to-left text, such as Arabic or Hebrew.
     *   Save the changes. This will install the necessary Python libraries.
-        <pre>
-        <code>
-        python_packages:
-          - pillow
-          - python-bidi  # Optional: Required for RTL text support (e.g. Arabic, Hebrew)
-        </code>
-        </pre>
+```yaml
+python_packages:
+  - pillow
+  - python-bidi  # Optional: Required for RTL text support (e.g. Arabic, Hebrew)
+```
 
 3.  **Create a Toggle Helper:**
     *   In Home Assistant, go to "Settings" -> "Devices & Services".
@@ -68,30 +66,30 @@ This section will guide you through installing and setting up the PIXOO64 Media 
         Make sure that the new helper entity is toggled on. If not, the script won't work! The reason for this is that sometimes you may want to disable the script, so to do that, just toggle off the helper.
        
 
-4.  **Download the Script:**
-    *   You can install the script either through HACS (Home Assistant Community Store, which is the recommended method) or by manually downloading the Python file.
+4.   **Download the Script:**
+   You can install the script either through HACS (Home Assistant Community Store, which is the recommended method) or by manually downloading the Python file.
 
-        *   **HACS (Recommended):**
-            *   If you don't have HACS installed, follow the instructions on [HACS's GitHub page](https://hacs.xyz/) to install it.
-            *   After HACS is set up, go to the HACS page in Home Assistant.
-            *   **If "AppDaemon" type repositories are not found, you will need to enable AppDaemon apps discovery & tracking in the HACS settings**. Navigate to `Settings` -> `Integrations` -> `HACS` -> `Configure` and enable `AppDaemon apps discovery & tracking`.
-            *   Click on "Custom Repositories" and add `https://github.com/idodov/pixoo64-media-album-art` as an "AppDaemon" repository.
-            *   Search for and download `PIXOO64 Media Album Art` in HACS.
-            *   **Important:** After installing through HACS, you **MUST** manually transfer all the files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`. This step is necessary because HACS places files in the `/addon_configs` directory, while AppDaemon expects them in the `/homeassistant` directory.
-            * Open `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` to configute it (add `app_dir` line under `appdaemon:`). Do not remove any lines from the file, just add the new line:
-            <pre>
-            <code>
-               appdaemon:
-                   app_dir: /homeassistant/appdaemon/apps/
-             </code>
-             </pre>
+**HACS (Recommended):**
+
+*   If you don't have HACS installed, follow the instructions on [HACS's GitHub page](https://hacs.xyz/) to install it.
+*   After HACS is set up, go to the HACS page in Home Assistant.
+*   **If "AppDaemon" type repositories are not found, you will need to enable AppDaemon apps discovery & tracking in the HACS settings**. Navigate to `Settings` -> `Integrations` -> `HACS` -> `Configure` and enable `AppDaemon apps discovery & tracking`.
+*   Click on "Custom Repositories" and add `https://github.com/idodov/pixoo64-media-album-art` as an "AppDaemon" repository.
+*   Search for and download `PIXOO64 Media Album Art` in HACS.
+*   **Important:** After installing through HACS, you **MUST** manually transfer all the files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`. This step is necessary because HACS places files in the `/addon_configs` directory, while AppDaemon expects them in the `/homeassistant` directory.
+* Open `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` to configute it (add `app_dir` line under `appdaemon:`). Do not remove any lines from the file, just add the new line:
+```yaml
+appdaemon:
+  app_dir: /homeassistant/appdaemon/apps/
+```
 
 
-        *   **Manual Download:**
-            *   Alternatively, you can download the Python script directly from the GitHub repository:
-                [https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py)
-            *   Place this file into the directory `/addon_configs/a0d7b954_appdaemon/apps`
-            *   Note that in this method you won't get updates.
+**Manual Download:**
+
+*   Alternatively, you can download the Python script directly from the GitHub repository:
+    [https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py)
+*   Place this file into the directory `/addon_configs/a0d7b954_appdaemon/apps`
+*   Note that in this method you won't get updates.
 
 5.  **Configure AppDaemon:**
 
@@ -99,80 +97,86 @@ This section will guide you through installing and setting up the PIXOO64 Media 
     *   This file is typically located in the `/appdaemon/apps` directory that you added in the previous step.
     *   You can use a **Basic Configuration** for a quick start, or a **Full Configuration** for all features.
 
-        *   **Basic Configuration:**
-            *   For a minimal setup, add the following to your `/appdaemon/apps/apps.yaml` file, adjusting the `ha_url`, `media_player`, and `url` parameters to match your setup.  Note that when using the basic configuration the helper name that's need to be toggle on is `input_boolean.pixoo64_album_art`
-            <pre>
-             <code>
-            pixoo64_media_album_art:
-                module: pixoo64_media_album_art
-                class: Pixoo64_Media_Album_Art
-                home_assistant:
-                    ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
-                    media_player: "media_player.living_room"    # The entity ID of your media player.
-                pixoo:
-                    url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
-            </code>
-            </pre>
-              
-            *   If you have more than one Pixcoo64 screen, you can add it by adding the code again and **changing the first line's name**. For example:
-            <pre>
-             <code>
-            pixoo64_media_album_art_2:
-                module: pixoo64_media_album_art
-                class: Pixoo64_Media_Album_Art
-                home_assistant:
-                    ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
-                    media_player: "media_player.kitchen"        # The entity ID of your media player.
-                pixoo:
-                    url: "192.168.86.22"                        # The IP address of your Pixoo64 device.
-            </code>
-            </pre>
+## Basic Configuration:
 
-        *   **Full Configuration:**
-            *   For all features, add this to your `/appdaemon/apps/apps.yaml` file. You'll need to adjust the values to match your Home Assistant setup and PIXOO64's IP address. See the next section for parameter details.
-            <pre>
-            <code>
-                pixoo64_media_album_art:
-                    module: pixoo64_media_album_art
-                    class: Pixoo64_Media_Album_Art
-                    home_assistant:
-                        ha_url: "http://homeassistant.local:8123"  # Your Home Assistant URL
-                        media_player: "media_player.your_player"   # Your media player entity ID
-                        toggle: "input_boolean.pixoo64_album_art"  # The toggle you created
-                        pixoo_sensor: "sensor.pixoo64_media_data"  # (Optional) Sensor to store extracted data
-                        light: "light.your_rgb_light"  # (Optional) RGB light entity ID
-                        ai_fallback: "turbo"  # 'flux' or 'turbo' for AI image generation
-                        force_ai: False # If true, only AI images will show
-                        musicbrainz: True # Search MusicBrainz for missing album art
-                        spotify_client_id: False  # Your Spotify API client ID (See below for instructions)
-                        spotify_client_secret: False # Your Spotify API client Secret (See below for instructions)
-                        last.fm: False  # Your Last.fm API key (See below for instructions)
-                        discogs: False   # Your Discogs API key (See below for instructions)
-                    pixoo:
-                        url: "192.168.1.100" # Your PIXOO64 IP address
-                        full_control: True  # Control display on/off based on playback
-                        contrast: True  # Apply 50% contrast to the image
-                        special_mode: False # Show day, time and temperature in upper bar
-                        clock: True   # Show a clock
-                        clock_align: "Right"  # "Left" or "Right"
-                        tv_icon: True   # Show a TV icon when audio is from a TV source
-                        lyrics: False # Show Lyrics when available
-                        lyrics_font: 2 # Lyrics font ID, look up from https://app.divoom-gz.com/Device/GetTimeDialFontList (you need ID value)
-                        limit_colors: False  # reduce the number of colors in the picture
-                        spotify_slide: False # Use Spotify's album art slider, disables clock and title, need spotify keys
-                        images_cache: 25 # Number of images stored in memory
-                        show_text:
-                            enabled: False # Enable / Disable text below image
-                            clean_title: True # Remove "Remaster" labels, track numbers, and file extensions from the title if any
-                            text_background: True # Change background of text area
-                            special_mode_spotify_slider: False #Use spotify animation when special_mode is on
-                        crop_borders:
-                            enabled: True # Crop image borders if present
-                            extra: True # Apply enhanced border cropping
-             </code>
-             </pre>
+For a minimal setup, add the following to your `/appdaemon/apps/apps.yaml` file, adjusting the `ha_url`, `media_player`, and `url` parameters to match your setup.  Note that when using the basic configuration the helper name that's need to be toggle on is `input_boolean.pixoo64_album_art`
+```yaml
+pixoo64_media_album_art:
+    module: pixoo64_media_album_art
+    class: Pixoo64_Media_Album_Art
+    home_assistant:
+        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
+        media_player: "media_player.living_room"    # The entity ID of your media player.
+    pixoo:
+        url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
+```
+ If you have more than one Pixcoo64 screen, you can add it by adding the code again and **changing the first line's name**. For example:
+```yaml
+pixoo64_media_album_art_2:
+    module: pixoo64_media_album_art
+    class: Pixoo64_Media_Album_Art
+    home_assistant:
+        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
+        media_player: "media_player.tv_room"        # The entity ID of your media player.
+    pixoo:
+        url: "192.168.86.22"                        # The IP address of your Pixoo64 device.
+```
+## Full Configuration:
 
-    *  Note that after changing `apps.yaml`, you don't need to restart AppDaemon.
+For all features, add this to your `/appdaemon/apps/apps.yaml` file. You'll need to adjust the values to match your Home Assistant setup and PIXOO64's IP address. See the next section for parameter details.
+```yaml
+pixoo64_media_album_art:
+    module: pixoo64_media_album_art
+    class: Pixoo64_Media_Album_Art
+    home_assistant:
+        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
+        media_player: "media_player.living_room"    # The entity ID of your media player.
+        toggle: "input_boolean.pixoo64_album_art"   # An input boolean to enable or disable the script's execution.
+        pixoo_sensor: "sensor.pixoo64_media_data"   # A sensor to store extracted media data.
+        temperature_sensor: "sensor.temperature"    # HomeAssistant Temperature sensor name instead of the Divoom weather.
+        light: "light.living_room"                  # The entity ID of an RGB light to synchronize with the album art colors.
+        ai_fallback: "turbo"                        # The AI model to use for generating alternative album art when needed (supports 'flux' or 'turbo').
+        force_ai: False                             # If True, only AI-generated images will be displayed all the time.
+        musicbrainz: True                           # If True, attempts to find a fallback image on MusicBrainz if other sources fail.
+        spotify_client_id: False                    # Your Spotify API client ID (needed for Spotify features). Obtain from https://developers.spotify.com.
+        spotify_client_secret: False                # Your Spotify API client secret (needed for Spotify features).
+        tidal_client_id: False                      # Your TIDAL API client ID. Obrain from https://developer.tidal.com/dashboard.
+        tidal_client_secret: False                  # Your TIDAL client secret
+        last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create.
+        discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers.
+    pixoo:
+        url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
+        full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
+        contrast: True                              # If True, applies a 50% contrast filter to the images displayed on the Pixoo.
+        colors: False                               # If True, enhanced colors
+        kernel: False                               # If True, add embos/edge effect
+        special_mode: False                         # Show day, time and temperature above in upper bar.
+        info: False                                 # Show information while fallback
+        clock: True                                 # If True, a clock is displayed in the top corner of the screen.
+        clock_align: "Right"                        # Clock alignment: "Left" or "Right".
+        tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
+        lyrics: False                               # If True, attempts to display lyrics on the Pixoo64 (show_text and clock will be disabled).
+        lyrics_font: 2                              # Recommend values: 2, 4, 32, 52, 58, 62, 48, 80, 158, 186, 190, 590. More values can be found at https://app.divoom-gz.com/Device/GetTimeDialFontList (you need ID value)
+        limit_colors: False                         # Reduces the number of colors in the picture from 4 to 256, or set it to False for original colors.
+        spotify_slide: False                        # If True, forces an album art slide (requires a Spotify client ID and secret). Note: clock and title will be disabled in this mode.
+        images_cache: 25                            # The number of processed images to keep in the memory cache. Use wisely to avoid memory issues (each image is approximately 17KB).
+        show_text:
+            enabled: False                          # If True, displays the artist and title of the current track.
+            clean_title: True                       # If True, removes "Remastered," track numbers, and file extensions from the title.
+            text_background: True                   # If True, adjusts the background color behind the text for improved visibility.
+            special_mode_spotify_slider: False      # Create animation album art slider
+        crop_borders:
+            enabled: True                           # If True, attempts to crop any borders from the album art.
+            extra: True                             # If True, applies an enhanced border cropping algorithm.
+    wled:
+        wled_ip: "192.168.86.55"                    # Your WLED IP Adress
+        brightness: 255                             # 0 to 255
+        effect: 38                                  # 0 to 186 (Effect ID - https://kno.wled.ge/features/effects/)
+        effect_speed: 50                            # 0 to 255
+        effect_intensity: 128                       # 0 to 255
+        pallete: 0                                  # 0 to 70 (Pallete ID - https://kno.wled.ge/features/palettes/)
+        only_at_night: False                        # Runs only between 17:00 - 05:00
+```
 
 With these steps completed, you have installed and set up the script and can now configure it to fit your needs.
 
@@ -187,6 +191,8 @@ With these steps completed, you have installed and set up the script and can now
 | `musicbrainz` | Search for album art in MusicBrainz | `True` |
 | `spotify_client_id` | Spotify Client ID. Use `False` or the actual key | `False` or `KEY` |
 | `spotify_client_secret` | Spotify Client Secret. Use `False` or the actual key | `False` or `KEY` |
+| `tidal_client_id` | Your TIDAL API client ID. | `False` or `key` |
+| `tidal_client_secret` | Your TIDAL client secret | `False` or `key` |
 | `last.fm` | Last.fm key. Use `False` or the actual key | `False` or `KEY` |
 | `Discogs` | Discogs Personal token. Use `False` or the actual key | `False` or `KEY` |
 | `url` | Pixoo device URL | `192.168.86.21` |
@@ -207,10 +213,20 @@ With these steps completed, you have installed and set up the script and can now
 | `special_mode_spotify_slider` |  Use spotify animation when special_mode is on and show text is enabled | `False` |
 | `crop_borders - enabled` | Crop image borders if present | `True` |
 | `crop_borders - extra` | Apply enhanced border cropping | `True` |
+| `wled_ip` | WLED IP Adress | `192.168.86.55` |
+| `brightness` | Brightness | `0` - `255` |
+| `effect` | Effect ID - https://kno.wled.ge/features/effects/ | `0` - `186` |
+| `effect_speed` |Effect Speed | `0` = `255` |
+| `effect_intensity` | Effect Intensity | `0` - `255` |
+| `pallete` | Pallete ID - https://kno.wled.ge/features/palettes/ | `0` - `70` |
+| `only_at_night` | Runs only from 17:00 to 05:00 | `False` |
 
 > [!NOTE]
 > ### `light`
 > The light feature is a built-in automation that sends a ‘turn on’ command with RGB values corresponding to the most dominant color in the image. If the image is black, white, or gray, the automation will select a soft random color.
+>
+> ### `WLED light`
+> The WLED feature is a built-in automation specific to WLED lights that sends a ‘turn on’ command with 3 RGB values corresponding to the most dominant colors in the image. If the image is black, white, or gray, the automation will select a soft random color.
 > 
 > ### `crop_borders`
 > Given the Pixoo screen’s 64x64 pixel size, it is highly recommended to utilize the crop feature. Many album cover arts come with borders, occasionally wide ones, which can distort the display of the cover art on the screen. To rectify this, the script ensures the removal of the picture frame border.
@@ -291,6 +307,12 @@ This multi-layered approach ensures that your PIXOO64 displays some form of visu
 
 3. **Obtain API Key**: Once your application is created, you'll be provided with an API key and a secret. You'll need just the API KEY.
 4. Copy the value and store it on `apps.yaml` file under `last.fm`.
+
+## Guide to help you get your TIDAL API key:
+
+1. **Create an Application**: Go to the [TIDAL Dashboard](https://developer.tidal.com/dashboard) and log in with your TIDAL account.
+2. **Obtain API Key**: Once your application is created, you'll be provided with an API key and a secret.  
+3. Copy the value and store it on `apps.yaml` file under `tidal_client_id` and `tidal_client_secret`.
 
 That's it! You now have your API keys for Spotify, Discogs, and Last.fm, which you can use to authenticate your Pixoo64 with these services.
 
