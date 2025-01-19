@@ -236,6 +236,7 @@ class Config:
         pixoo_url: str = pixoo_config.get("url", "192.168.86.21")
         self.full_control: bool = pixoo_config.get("full_control", True)
         self.contrast: bool = pixoo_config.get("contrast", False)
+        self.sharpness: bool = pixoo_config.get("sharpness", False)
         self.colors: bool = pixoo_config.get("colors", False)
         self.kernel: bool = pixoo_config.get("kernel", False)
 
@@ -389,7 +390,6 @@ class ImageProcessor:
 
                     image_data = await response.read()
                     processed_data = await self.process_image_data(image_data, media_data)  # Process image *before* caching
-                    
                     if processed_data and not spotify_slide:
                         if len(self.image_cache) >= self.cache_size:
                             self.image_cache.popitem(last=False)
@@ -486,6 +486,9 @@ class ImageProcessor:
                     'background_color_rgb': background_color_rgb,
                     'most_common_color_alternative_rgb': most_common_color_alternative_rgb,
                     'most_common_color_alternative': most_common_color_alternative,
+                    'color1': color1,
+                    'color2': color2,
+                    'color3': color3
                 }
 
         except Exception as e:
@@ -629,11 +632,7 @@ class ImageProcessor:
 
     def gbase64(self, img):
         try:
-            #img = img.convert("RGB")
-            #if img.mode == "RGB":
             pixels = [item for p in list(img.getdata()) for item in p]
-            #else:
-            #    pixels = list(img.getdata())
             b64 = base64.b64encode(bytearray(pixels))
             gif_base64 = b64.decode("utf-8")
             return gif_base64
@@ -748,57 +747,104 @@ class ImageProcessor:
     def rgb_to_hex(self, rgb):
         return '{:02x}{:02x}{:02x}'.format(rgb[0], rgb[1], rgb[2])
 
+    def is_strong_color(self, color):
+        """Check if at least one RGB component is greater than 220."""
+        return any(c > 220 for c in color)
+
+    def color_distance(self, color1, color2):
+        """Calculate the Euclidean distance between two colors."""
+        return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
+        
+    def is_vibrant_color(self, r, g, b):
+        """Simplified vibrancy check, looking for a significant difference between components."""
+        return (max(r, g, b) - min(r, g, b) > 50)
+
+    def generate_close_but_different_color(self, existing_colors):
+        """Generates a color close to the existing colors but distinct."""
+        if not existing_colors:
+            return (random.randint(100, 200), random.randint(100, 200), random.randint(100, 200))
+
+        # Calculate the average color of existing colors
+        avg_r = sum(c[0] for c, _ in existing_colors) // len(existing_colors)
+        avg_g = sum(c[1] for c, _ in existing_colors) // len(existing_colors)
+        avg_b = sum(c[2] for c, _ in existing_colors) // len(existing_colors)
+        
+        while True:
+            # Generate color based on the average.
+            new_color = (
+                max(0, min(255, avg_r + random.randint(-40, 40))),
+                max(0, min(255, avg_g + random.randint(-40, 40))),
+                max(0, min(255, avg_b + random.randint(-40, 40)))
+            )
+            # Check if the new color is distinct from existing colors.
+            is_distinct = True
+            for existing_color, _ in existing_colors:
+                if self.color_distance(new_color, existing_color) < 50:
+                    is_distinct = False
+                    break
+            if is_distinct:
+                return new_color
+        
+    def color_score(self, color_count):
+        """Calculate a score for a color based on frequency and saturation."""
+        color, count = color_count
+        max_val = max(color)
+        min_val = min(color)
+        saturation = (max_val - min_val) / max_val if max_val > 0 else 0
+        return count * saturation
+
     def most_vibrant_colors_wled(self, full_img):
-        """Extract the three most dominant colorful colors from an image, ensuring different color families"""
+        """Extract the three most dominant vibrant colors from an image, ensuring diverse hues and strong colors."""
         full_img = full_img.resize((16, 16), Image.Resampling.LANCZOS)
+        
+        # Adaptive Color Enhancement
+        enhancer = ImageEnhance.Contrast(full_img)
+        full_img = enhancer.enhance(2.0)
         enhancer = ImageEnhance.Color(full_img)
-        full_img = enhancer.enhance(3.0)
+        full_img = enhancer.enhance(3.0) # reduced enhancement
 
         color_counts = Counter(full_img.getdata())
-        most_common_colors = color_counts.most_common()
+        most_common_colors = color_counts.most_common(50)  # Get more colors
     
-        # Group colors into families and filter out black, gray, or white
-        color_families = {'reds': [], 'greens': [], 'blues': []}
-        for color, count in most_common_colors:
-            r, g, b = color
-            if self.is_vibrant_color(r, g, b):
-                if r > g and r > b:
-                    color_families['reds'].append((color, count))
-                elif g > r and g > b:
-                    color_families['greens'].append((color, count))
-                else:
-                    color_families['blues'].append((color, count))
+        # Filter only vibrant colors
+        vibrant_colors = [(color, count) for color, count in most_common_colors if self.is_vibrant_color(*color)]
+        
+        # Sort by frequency and saturation
+        vibrant_colors.sort(key=self.color_score, reverse=True)
     
-        # Pick the most dominant color from each family
-        vibrant_colors = []
-        dominant_color = None
-        for family, colors in color_families.items():
-            if colors:
-                if dominant_color is None:
-                    dominant_color = max(colors, key=lambda x: x[1])[0]
-                    vibrant_colors.append(dominant_color)
-                else:
-                    vibrant_colors.append(max(colors, key=lambda x: x[1])[0])
-    
-        # If fewer than three vibrant colors were found, add random soft colors
-        while len(vibrant_colors) < 3:
-            vibrant_colors.append(tuple(random.randint(100, 200) for _ in range(3)))
+        # Select top 3 unique colors by checking for distance between them and if at least one value > 220
+        selected_colors = []
+        
+        for color, _ in vibrant_colors:
+            if self.is_strong_color(color):
+                is_similar = False
+                for selected_color, _ in selected_colors:
+                    if self.color_distance(color, selected_color) < 50: # Threshold for color distance
+                        is_similar = True
+                        break
+                if not is_similar:
+                    selected_colors.append((color, _))
+                    if len(selected_colors) == 3:
+                        break
+        
+        if len(selected_colors) < 3: # Less then 3 - check the other colors by the same rule.
+                for color, _ in vibrant_colors:
+                    is_similar = False
+                    if not self.is_strong_color(color):
+                        for selected_color, _ in selected_colors:
+                            if self.color_distance(color, selected_color) < 50: # Threshold for color distance
+                                is_similar = True
+                                break
+                        if not is_similar:
+                            selected_colors.append((color, _))
+                            if len(selected_colors) == 3:
+                                break
+        # Ensure we have 3 colors
+        while len(selected_colors) < 3:
+            new_color = self.generate_close_but_different_color(selected_colors)
+            selected_colors.append((new_color, 1))
 
-        color1, color2, color3 = vibrant_colors[:3]
-        return self.rgb_to_hex(color1), self.rgb_to_hex(color2), self.rgb_to_hex(color3)
-
-
-    def is_vibrant_color(self, r, g, b):
-        """Check if a color is vibrant and not black, gray, or white"""
-        max_color = max(r, g, b)
-        min_color = min(r, g, b)
-        if max_color + min_color > 400 or max_color - min_color < 50:
-            return False
-        if max_color - min_color < 100:
-            return False
-        return True
-
-
+        return self.rgb_to_hex(selected_colors[0][0]), self.rgb_to_hex(selected_colors[1][0]), self.rgb_to_hex(selected_colors[2][0])
     def get_optimal_font_color(self, img):
         """Determine a colorful, readable font color that avoids all colors in the image palette and maximizes distinctiveness."""
 
@@ -900,7 +946,9 @@ class MediaData:
         self.picture = None
         self.select_index_original = 0
         self.lyrics_font_color = "#FFA000"
-        self.color1 = self.color2 = self.color3 = "FFAA00"
+        self.color1 = "00FFAA"
+        self.color2 = "AA00FF"
+        self.color3 = "FFAA00"
         self.temperature = None
         self.info_img = None
     
@@ -1434,26 +1482,8 @@ class FallbackService:
                         _LOGGER.info("No albums found on TIDAL")
                         return None
                     
-                #best_album = None
                 best_album = albums[0]
 
-                """
-                for album in albums:
-                    album_artist_ids = [a.get('id') for a in album.get('relationships', {}).get('artists', {}).get('data', [])]
-                    for included in search_data.get('included', []):
-                        if included.get("type") == "artists" and included.get('id') in album_artist_ids:
-                            album_artist_names = [a.get('name', '').lower() for a in [included]]
-                            if artist.lower() in album_artist_names:
-                                best_album = album
-                                break
-                    if best_album:
-                        break
-
-                if not best_album and albums:
-                    # If no good album found, we'll use the first album on the list.
-                    #_LOGGER.info("Most likely album art from TIDAL is wrong.")
-                    best_album = albums[0]
-                """    
                 if best_album:
                         # Extract and return image URLs from albums object
                         image_links = best_album.get("attributes", {}).get("imageLinks", [])
@@ -1899,7 +1929,6 @@ class SpotifyService:
             return []
 
 
-
     async def get_slide_img(self, picture, show_lyrics_is_on, playing_radio_is_on):
         """Fetches, processes, and returns base64-encoded image data."""
         try:
@@ -1944,6 +1973,10 @@ class SpotifyService:
                 if self.config.contrast:
                     enhancer = ImageEnhance.Contrast(img)
                     img = enhancer.enhance(1.5)
+                
+                if self.config.sharpness:
+                    enhancer = ImageEnhance.Sharpness(img)
+                    img = enhancer.enhance(4.0)
 
                 if self.config.colors:
                     enhancer = ImageEnhance.Color(img)
@@ -2411,12 +2444,16 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             background_color_rgb = processed_data.get('background_color_rgb')
             most_common_color_alternative_rgb = processed_data.get('most_common_color_alternative_rgb')
             most_common_color_alternative = processed_data.get('most_common_color_alternative')
-            
+
             if self.config.light:
                 await self.control_light('on',background_color_rgb)
             
             if self.config.wled:
-                await self.control_wled_light('on', self.config.wled, media_data.color1, media_data.color2, media_data.color3)
+                # Retrieve cached color values if available
+                color1 = processed_data.get('color1')
+                color2 = processed_data.get('color2')
+                color3 = processed_data.get('color3')
+                await self.control_wled_light('on', self.config.wled, color1, color2, color3)
 
                 
             new_attributes = {
@@ -2662,10 +2699,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         if action == "off":
             payload = {"on": False}  # Off action simply turns off the light
-
         url = f"http://{ip_address}/json/state"
-
-        # Use aiohttp to send the request
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
             try:
                 async with session.post(url, json=payload) as response:
