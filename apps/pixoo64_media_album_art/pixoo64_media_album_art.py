@@ -78,27 +78,27 @@ pixoo64_media_album_art:
         pallete: 0                                  # 0 to 70 (Pallete ID - https://kno.wled.ge/features/palettes/)
         only_at_night: False                        # Runs only between 17:00 - 05:00
 """
-import sys
+import aiohttp
 import asyncio
 import base64
-import io
-import os
-import re
+import colorsys
 import json
-import time
-import random
+import logging
 import math
+import os
+import random
+import re
+import sys
+import time
 import traceback
-import ipaddress
-from datetime import datetime, timezone, time as dt_time
-from typing import Optional, Dict, Any
-from collections import OrderedDict, Counter
-from typing import Optional, Dict, Any, Tuple
+from appdaemon.plugins.hass import hassapi as hass
+from collections import Counter, OrderedDict
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, time as dt_time, timezone
 from io import BytesIO
+from typing import Any, Dict, Optional, Tuple
 
 # Third-party library imports
-import aiohttp
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw
 
 try:
@@ -108,11 +108,7 @@ except ImportError:
     bidi_support = False
     print("The 'bidi.algorithm' module is not installed or not available. RTL texts will display reverce")
 
-# Home Assistant plugins
-from appdaemon.plugins.hass import hassapi as hass
-
 # Configure the logger
-import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
 _LOGGER = logging.getLogger(__name__)
 
@@ -212,6 +208,12 @@ class Config:
         pixoo_config = app_args.get('pixoo', {})
         show_text_config = pixoo_config.get('show_text', {})
         crop_borders_config = pixoo_config.get('crop_borders', {})
+        self.headers = {   # Add headers back here
+            "Content-Type": "application/json",
+            "Accept": "*/*",
+            "Connection": "keep-alive",
+            "User-Agent": "PixooClient/1.0"
+        }
 
         # Home Assistant settings
         self.media_player: str = ha_config.get("media_player", "media_player.living_room")
@@ -281,9 +283,8 @@ class Config:
 class PixooDevice:
     def __init__(self, config, headers):
         self.config = config
-        self.headers = headers
+        self.headers = config.headers  # Access headers from config
         self.select_index = None
-        
 
     async def send_command(self, payload_command):
         """Send command to Pixoo device"""
@@ -845,6 +846,9 @@ class ImageProcessor:
             selected_colors.append((new_color, 1))
 
         return self.rgb_to_hex(selected_colors[0][0]), self.rgb_to_hex(selected_colors[1][0]), self.rgb_to_hex(selected_colors[2][0])
+
+
+        
     def get_optimal_font_color(self, img):
         """Determine a colorful, readable font color that avoids all colors in the image palette and maximizes distinctiveness."""
 
@@ -923,8 +927,9 @@ class ImageProcessor:
         return '#000000' if avg_brightness > 127 else '#ffffff'
 
 class MediaData:
-    def __init__(self, config): #, image_processor):
+    def __init__(self, config, image_processor):
         self.config = config
+        self.image_processor = image_processor 
         self.fallback = False
         self.fail_txt = False
         self.playing_radio = False
@@ -966,7 +971,8 @@ class MediaData:
 
             if self.config.show_lyrics and not self.config.special_mode:
                 artist = await hass.get_state(self.config.media_player, attribute="media_artist")
-                self.lyrics = await LyricsProvider(self.config, self.image_processor).get_lyrics(artist, title, self.image_processor)  # Fetch lyrics here
+                self.lyrics = await LyricsProvider(self.config, self.image_processor).get_lyrics(artist, title) 
+                #self.lyrics = await LyricsProvider(self.config, self.image_processor).get_lyrics(artist, title, self.image_processor)  # Fetch lyrics here
             else:
                 self.lyrics = []
 
@@ -1307,14 +1313,14 @@ class FallbackService:
             'most_common_color_alternative': '#ffff00'}
 
     async def send_info_img(self, base64_image):
-            payload = {
-                "Command": "Draw/CommandList",
-                "CommandList": [
-                    {"Command": "Draw/ResetHttpGifId"},
-                    {"Command": "Draw/SendHttpGif",
-                        "PicNum": 1, "PicWidth": 64, "PicOffset": 0,
-                        "PicID": 0, "PicSpeed": 10000, "PicData": base64_image }]}
-            await PixooDevice(self.config, None).send_command(payload)
+        payload = {
+            "Command": "Draw/CommandList",
+            "CommandList": [
+                {"Command": "Draw/ResetHttpGifId"},
+                {"Command": "Draw/SendHttpGif",
+                    "PicNum": 1, "PicWidth": 64, "PicOffset": 0,
+                    "PicID": 0, "PicSpeed": 10000, "PicData": base64_image }]}
+        await PixooDevice(self.config).send_command(payload)
 
     async def send_info(self, artist, text, lyrics_font_color):
         payload = {"Command":"Draw/SendHttpItemList",
@@ -1330,7 +1336,7 @@ class FallbackService:
             "TextString": artist.upper(),
             "TextWidth":64, "Textheight":16,
             "speed":100, "align":2, "color": lyrics_font_color }]}
-        await PixooDevice(self.config, None).send_command(payload)
+        await PixooDevice(self.config).send_command(payload)
 
     async def get_musicbrainz_album_art_url(self, ai_artist, ai_title) -> str:
         """Get album art URL from MusicBrainz asynchronously"""
@@ -1548,7 +1554,7 @@ class LyricsProvider:
         self.track_position = 0
         self.image_processor = image_processor
 
-    async def get_lyrics(self, artist, title, image_processor):
+    async def get_lyrics(self, artist, title):
         """Fetch lyrics for the given artist and title."""
         # Use HTTP instead of HTTPS
         lyrics_url = f"http://api.textyl.co/api/lyrics?q={artist} - {title}"
@@ -1596,7 +1602,8 @@ class LyricsProvider:
                         lyrics_diplay = (next_lyric_time - lyric_time) if next_lyric_time else lyric_time + 10
                         if lyrics_diplay > 9:
                             await asyncio.sleep(8)
-                            await PixooDevice(self.config, None).send_command({"Command": "Draw/ClearHttpText"})
+                            await PixooDevice(self.config, hass.headers).send_command({"Command": "Draw/ClearHttpText"})
+                            
                         break
 
 
@@ -1633,8 +1640,8 @@ class LyricsProvider:
             "ItemList": item_list
         }
         clear_text_command = {"Command": "Draw/ClearHttpText"}
-        await PixooDevice(self.config, None).send_command(clear_text_command)
-        await PixooDevice(self.config, None).send_command(payload)
+        await PixooDevice(self.config, hass.headers).send_command(clear_text_command)
+        await PixooDevice(self.config, hass.headers).send_command(payload)
 
 
 class SpotifyService:
@@ -2034,15 +2041,16 @@ class SpotifyService:
     async def send_pixoo_animation_frame(self, pixoo_device, command, pic_num, pic_width, pic_offset, pic_id, pic_speed, pic_data):
         """Sends a single frame of an animation to the Pixoo device."""
         payload = {
-        "Command": command,
-        "PicNum": pic_num,
-        "PicWidth": pic_width,
-        "PicOffset": pic_offset,
-        "PicID": pic_id,
-        "PicSpeed": pic_speed,
-        "PicData": pic_data
+            "Command": command,
+            "PicNum": pic_num,
+            "PicWidth": pic_width,
+            "PicOffset": pic_offset,
+            "PicID": pic_id,
+            "PicSpeed": pic_speed,
+            "PicData": pic_data
         }
-        response = await PixooDevice(self.config, None).send_command(payload)
+        # Use the pixoo_device object directly
+        response = await pixoo_device.send_command(payload)
         return response
 
 
@@ -2067,6 +2075,7 @@ class SpotifyService:
         pic_offset = 0
         await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": 
             [ {"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"} ]})
+
 
         for album_url in album_urls:
             try:
@@ -2263,16 +2272,21 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         super().__init__(*args, **kwargs)
         self.clear_timer_task = None
         self.callback_timeout = 20  # Increase the callback timeout limit
+        self.current_image_task = None  # Track the current image processing task
         self.headers = {
             "Content-Type": "application/json",
             "Accept": "*/*",
             "Connection": "keep-alive",
             "User-Agent": "PixooClient/1.0"
         }
-        self.current_image_task = None  # Track the current image processing task
 
     async def initialize(self):
         """Initialize the app and set up state listeners."""
+        self.config = Config(self.args)
+        self.pixoo_device = PixooDevice(self.config, self.headers) # Pass config and headers
+        self.image_processor = ImageProcessor(self.config)
+        self.media_data = MediaData(self.config, self.image_processor)
+        self.fallback_service = FallbackService(self.config, self.image_processor)
         # Initialize local directory
         if not os.path.exists(LOCAL_DIRECTORY):
             os.makedirs(LOCAL_DIRECTORY)
@@ -2293,20 +2307,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         # Create a list of download tasks
         download_tasks = [download_file(file_name, url) for file_name, url in FILES.items()]
         await asyncio.gather(*download_tasks)
-        
+
         # Load configuration
         self.config = Config(self.args)
         self.pixoo_device = PixooDevice(self.config, self.headers)
         self.image_processor = ImageProcessor(self.config)
-        self.media_data = MediaData(self.config) #, self.image_processor)
+        self.media_data = MediaData(self.config, self.image_processor)
         self.fallback_service = FallbackService(self.config, self.image_processor)
-        
+
         # Set up state listeners
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute='media_title')
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute='state')
         if self.config.show_lyrics:
             self.run_every(self.calculate_position, datetime.now(), 1)  # Run every second
-        
+
         self.select_index = await self.pixoo_device.get_current_channel_index()
         self.media_data_sensor = self.config.pixoo_sensor # State sensor
 
