@@ -49,7 +49,8 @@ pixoo64_media_album_art:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
         full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
         contrast: True                              # If True, applies a 50% contrast filter to the images displayed on the Pixoo.
-        colors: False                               # If True, enhanced colors
+        sharpness: False                            # If True, add sharpness effect
+        colors: True                                # If True, enhanced colors
         kernel: False                               # If True, add embos/edge effect
         special_mode: False                         # Show day, time and temperature above in upper bar.
         info: False                                 # Show information while fallback
@@ -281,10 +282,17 @@ class Config:
             self.ai_fallback = "turbo"
 
 class PixooDevice:
-    def __init__(self, config, headers):
+    def __init__(self, config): #, headers):
         self.config = config
-        self.headers = config.headers  # Access headers from config
+        #self.headers = config.headers  # Access headers from config
         self.select_index = None
+        self.headers = {
+            "Content-Type": "application/json",
+            "Accept": "*/*",
+            "Connection": "keep-alive",
+            "User-Agent": "PixooClient/1.0"
+        }
+
 
     async def send_command(self, payload_command):
         """Send command to Pixoo device"""
@@ -419,46 +427,13 @@ class ImageProcessor:
         try:
             with Image.open(BytesIO(image_data)) as img:
                 img = ensure_rgb(img)
-
-                # Ensure the image is square
-                width, height = img.size
-                if height < width:  # Check if height is less than width
-                    # Calculate the border size
-                    border_size = (width - height) // 2
-                    background_color = img.getpixel((1, 1))
-
-                    new_img = Image.new("RGB", (width, width), background_color)  # Create a square image
-                    new_img.paste(img, (0, border_size))  # Paste the original image onto the new image
-                    img = new_img  # Update img to the new image
-                elif width != height:
-                    new_size = min(width, height)
-                    left = (width - new_size) // 2
-                    top = (height - new_size) // 2
-                    img = img.crop((left, top, left + new_size, top + new_size))
+                img = self.fixed_size(img)
 
                 if (self.config.crop_borders or self.config.special_mode) and not media_data.radio_logo:
                     img = self.crop_image_borders(img, media_data.radio_logo)
 
-                if self.config.contrast:
-                    enhancer = ImageEnhance.Contrast(img)
-                    img = enhancer.enhance(1.5)
-
-                if self.config.colors:
-                    enhancer = ImageEnhance.Color(img)
-                    img = enhancer.enhance(2.0)
-
-                if self.config.kernel:
-                    kernel_5x5 = [-1,  0, -1,  0,  0,
-                        0, -1, -1,  0,  0,
-                        -1, -1,  1,  1,  1,
-                        0,  0,  1,  1,  0,
-                        0,  0,  1,  0,  1]
-
-                    img = img.filter(ImageFilter.Kernel((5, 5), kernel_5x5, 1, 0))
-
-                if self.config.limit_color:
-                    colors = int(self.config.limit_color)
-                    img = img_adptive(img, colors)
+                if self.config.contrast or self.config.sharpness or self.config.colors or self.config.kernel or self.config.limit_color:
+                    img = self.filter_image(img)
 
                 img = self.special_mode(img) if self.config.special_mode else img.resize((64, 64), Image.Resampling.LANCZOS)
                 font_color, brightness, brightness_lower_part, background_color, background_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative, color1, color2, color3 = self.img_values(img)
@@ -495,6 +470,54 @@ class ImageProcessor:
         except Exception as e:
             _LOGGER.error(f"Error processing image: {str(e)}")
             return None
+
+    def fixed_size(self, img):
+        # Ensure the image is square
+        width, height = img.size
+        if width == height:
+            return img
+        elif height < width:  # Check if height is less than width
+            # Calculate the border size
+            border_size = (width - height) // 2
+            background_color = img.getpixel((1, 1))
+            new_img = Image.new("RGB", (width, width), background_color)  # Create a square image
+            new_img.paste(img, (0, border_size))  # Paste the original image onto the new image
+            img = new_img  # Update img to the new image
+        elif width != height:
+            new_size = min(width, height)
+            left = (width - new_size) // 2
+            top = (height - new_size) // 2
+            img = img.crop((left, top, left + new_size, top + new_size))
+        return img 
+
+    def filter_image(self, img):
+        img = img.resize((64, 64), Image.Resampling.LANCZOS)
+        if self.config.limit_color:
+            colors = int(self.config.limit_color)
+            img = img_adptive(img, colors)
+
+        if self.config.sharpness:
+            enhancer = ImageEnhance.Sharpness(img)
+            img = enhancer.enhance(4.0)
+
+        if self.config.contrast:
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(1.5)
+
+        if self.config.colors:
+            enhancer = ImageEnhance.Color(img)
+            img = enhancer.enhance(1.5)
+
+        if self.config.kernel:
+            kernel_5x5 = [-2,  0, -1,  0,  0,
+                        0, -2, -1,  0,  0,
+                        -1, -1,  1,  1,  1,
+                        0,  0,  1,  2,  0,
+                        0,  0,  1,  0,  2]
+
+            img = img.filter(ImageFilter.Kernel((5, 5), kernel_5x5, 1, 0))
+        
+        return img
 
     def special_mode(self, img):
         if img is None:
@@ -556,7 +579,7 @@ class ImageProcessor:
 
         temp_img = img
 
-        if self.config.crop_extra or (self.config.special_mode and self.config.show_text): # Force extra crop if special_mode is true and text is enabled
+        if self.config.crop_extra or (self.config.special_mode): # Force extra crop if special_mode is true
             img = img.filter(ImageFilter.BoxBlur(5))
             enhancer = ImageEnhance.Brightness(img)
             img = enhancer.enhance(1.95)
@@ -631,6 +654,7 @@ class ImageProcessor:
 
         return max(set(all_border_pixels), key=all_border_pixels.count) if all_border_pixels else (0, 0, 0)
 
+
     def gbase64(self, img):
         try:
             pixels = [item for p in list(img.getdata()) for item in p]
@@ -690,31 +714,33 @@ class ImageProcessor:
 
         # Lower Part
         lower_part = img.crop((3, 48, 61, 61))
-        #lower_part = self.ensure_rgb(lower_part)
-        most_common_color = self.most_vibrant_color(lower_part)
+        color_counts_lower_part = Counter(lower_part.getdata())
+        most_common_colors_lower_part = color_counts_lower_part.most_common()
+        most_common_color = self.most_vibrant_color(most_common_colors_lower_part)
         opposite_color = tuple(255 - i for i in most_common_color)
         opposite_color_brightness = int(sum(opposite_color) / 3)
         brightness_lower_part = round(1 - opposite_color_brightness / 255, 2) if 0 <= opposite_color_brightness <= 255 else 0
+        font_color = self.get_optimal_font_color(lower_part)
 
         # Full Image
-        most_common_color_alternative_rgb = self.most_vibrant_color(full_img)
+        small_temp_img = full_img.resize((16, 16), Image.Resampling.LANCZOS)
+        color_counts = Counter(small_temp_img.getdata())
+        most_common_colors = color_counts.most_common()
+        most_common_color_alternative_rgb = self.most_vibrant_color(most_common_colors)
         most_common_color_alternative = '#%02x%02x%02x' % most_common_color_alternative_rgb
+        background_color_rgb = self.most_vibrant_color(most_common_colors)
+        background_color = '#%02x%02x%02x' % background_color_rgb
+        recommended_font_color_rgb = opposite_color
         brightness = int(sum(most_common_color_alternative_rgb) / 3)
         opposite_color_full = tuple(255 - i for i in most_common_color_alternative_rgb)
         opposite_color_brightness_full = int(sum(opposite_color_full) / 3)
         self.brightness_full = round(1 - opposite_color_brightness_full / 255, 2) if 0 <= opposite_color_brightness_full <= 255 else 0
+        
         if self.config.wled:
-            color1, color2, color3 = self.most_vibrant_colors_wled(img)
+            color1, color2, color3 = self.most_vibrant_colors_wled(small_temp_img)
         else:
             color1 = color2 = color3 = '%02x%02x%02x' % most_common_color_alternative_rgb
-        font_color = self.get_optimal_font_color(lower_part)
-
-        enhancer = ImageEnhance.Color(full_img)
-        full_img = enhancer.enhance(2.0)
-        background_color_rgb = self.most_vibrant_color(full_img)
-        background_color = '#%02x%02x%02x' % background_color_rgb
-        recommended_font_color_rgb = opposite_color
-
+        
         return_values = (
             font_color,
             brightness,
@@ -728,11 +754,8 @@ class ImageProcessor:
 
         return return_values
 
-    def most_vibrant_color(self, full_img):
-        """Extract the most vibrant color from an image"""
-        color_counts = Counter(full_img.getdata())
-        most_common_colors = color_counts.most_common()
 
+    def most_vibrant_color(self, most_common_colors):
         for color, count in most_common_colors:
             r, g, b = color
             max_color = max(r, g, b)
@@ -743,7 +766,6 @@ class ImageProcessor:
                 continue
             return color
         return tuple(random.randint(100, 200) for _ in range(3))
-
 
     def rgb_to_hex(self, rgb):
         return '{:02x}{:02x}{:02x}'.format(rgb[0], rgb[1], rgb[2])
@@ -796,8 +818,6 @@ class ImageProcessor:
 
     def most_vibrant_colors_wled(self, full_img):
         """Extract the three most dominant vibrant colors from an image, ensuring diverse hues and strong colors."""
-        full_img = full_img.resize((16, 16), Image.Resampling.LANCZOS)
-        
         # Adaptive Color Enhancement
         enhancer = ImageEnhance.Contrast(full_img)
         full_img = enhancer.enhance(2.0)
@@ -846,7 +866,6 @@ class ImageProcessor:
             selected_colors.append((new_color, 1))
 
         return self.rgb_to_hex(selected_colors[0][0]), self.rgb_to_hex(selected_colors[1][0]), self.rgb_to_hex(selected_colors[2][0])
-
 
         
     def get_optimal_font_color(self, img):
@@ -1012,8 +1031,6 @@ class MediaData:
                         self.picture = original_picture
                         self.radio_logo = True
                         self.album = media_channel
-                    #if queue_position == 1 and original_artist != original_title and original_artist != None:
-                    #    self.picture = None
 
                 else:
                     self.playing_radio = self.radio_logo = False
@@ -1296,7 +1313,6 @@ class FallbackService:
                 except Exception as e:
                     _LOGGER.error(f"Spotify fallback failed with error: {str(e)}")
 
-
         # Ultimate fallback
         self.fail_txt = True
         self.fallback = True
@@ -1480,10 +1496,8 @@ class FallbackService:
                 async with session.get(search_url, headers=headers, params=search_params) as response:
                     response.raise_for_status()
                     search_data = await response.json()
-                    #print(f"Response Data: {search_data}")
                     # Directly search for albums in the "included" array
                     albums = [item for item in search_data.get("included", []) if item.get("type") == "albums"]
-                    #print(f"Albums after filtering: {albums}")
                     if not albums:
                         _LOGGER.info("No albums found on TIDAL")
                         return None
@@ -1580,9 +1594,6 @@ class LyricsProvider:
     async def calculate_position(self, media_data, hass):
         if not media_data.lyrics:
             return
-        #media_state = await hass.get_state(self.config.media_player)  # Get the current state of the media player
-        #if media_state not in ["playing", "on"]:  # Check if the media player is playing
-        #    return  # Exit the function if not playing
 
         if media_data.media_position_updated_at:
             media_position_updated_at = datetime.fromisoformat(media_data.media_position_updated_at.replace('Z', '+00:00'))
@@ -1597,7 +1608,9 @@ class LyricsProvider:
                     lyric_time = lyric['seconds']
                     
                     if int(current_position) == lyric_time - 1:
-                        await self.create_lyrics_payloads(lyric['lyrics'], 10, hass, media_data.lyrics_font_color)
+                        #await self.create_lyrics_payloads(lyric['lyrics'], 10, hass, media_data.lyrics_font_color)
+                        await self.create_lyrics_payloads(lyric['lyrics'], 10, media_data.lyrics_font_color)
+
                         next_lyric_time = media_data.lyrics[i + 1]['seconds'] if i + 1 < len(media_data.lyrics) else None
                         lyrics_diplay = (next_lyric_time - lyric_time) if next_lyric_time else lyric_time + 10
                         if lyrics_diplay > 9:
@@ -1606,8 +1619,8 @@ class LyricsProvider:
                             
                         break
 
+    async def create_lyrics_payloads(self, lyrics, x, lyrics_font_color):
 
-    async def create_lyrics_payloads(self, lyrics, x, hass, lyrics_font_color):
         if not lyrics:
             return
         
@@ -1640,9 +1653,10 @@ class LyricsProvider:
             "ItemList": item_list
         }
         clear_text_command = {"Command": "Draw/ClearHttpText"}
-        await PixooDevice(self.config, hass.headers).send_command(clear_text_command)
-        await PixooDevice(self.config, hass.headers).send_command(payload)
-
+        #await PixooDevice(self.config, hass.headers).send_command(clear_text_command)
+        #await PixooDevice(self.config, hass.headers).send_command(payload)
+        await PixooDevice(self.config).send_command(clear_text_command)
+        await PixooDevice(self.config).send_command(payload)
 
 class SpotifyService:
     def __init__(self, config):
@@ -1912,7 +1926,6 @@ class SpotifyService:
                 x.get("album_type") == "compilation" #Compilations last
             ))
 
-
             album_urls = []
             album_base64 = []
             show_lyrics_is_on = True if media_data.lyrics else False
@@ -1929,7 +1942,6 @@ class SpotifyService:
                 return album_base64 
             else:
                 return album_urls
-
 
         except (KeyError, IndexError, TypeError, AttributeError) as e:
             _LOGGER.error(f"Error processing Spotify data: {e}")
@@ -1954,76 +1966,15 @@ class SpotifyService:
         try:
             with Image.open(BytesIO(image_raw_data)) as img:
                 img = ensure_rgb(img)
-
-                # Ensure the image is square
-                width, height = img.size
-                if height < width:  # Check if height is less than width
-                    # Calculate the border size
-                    border_size = (width - height) // 2
-                    background_color = img.getpixel((1, 1))
-                    
-                    new_img = Image.new("RGB", (width, width), background_color)  # Create a square image
-                    new_img.paste(img, (0, border_size))  # Paste the original image onto the new image
-                    img = new_img  # Update img to the new image
-                elif width != height:
-                    new_size = min(width, height)
-                    left = (width - new_size) // 2
-                    top = (height - new_size) // 2
-                    img = img.crop((left, top, left + new_size, top + new_size))
+                img = ImageProcessor(self.config).fixed_size(img)
 
                 img = img.resize((64, 64), Image.Resampling.LANCZOS)
                 
-                if self.config.limit_color:
-                    colors = int(self.config.limit_color)
-                    img = img_adptive(img, colors)
-                
-                if self.config.contrast:
-                    enhancer = ImageEnhance.Contrast(img)
-                    img = enhancer.enhance(1.5)
-                
-                if self.config.sharpness:
-                    enhancer = ImageEnhance.Sharpness(img)
-                    img = enhancer.enhance(4.0)
-
-                if self.config.colors:
-                    enhancer = ImageEnhance.Color(img)
-                    img = enhancer.enhance(1.5)
-
-                if self.config.kernel:
-                    kernel_5x5 = [-2,  0, -1,  0,  0,
-                        0, -2, -1,  0,  0,
-                        -1, -1,  1,  1,  1,
-                        0,  0,  1,  2,  0,
-                        0,  0,  1,  0,  2]
-
-                    img = img.filter(ImageFilter.Kernel((5, 5), kernel_5x5, 1, 0))
+                if self.config.limit_color or self.config.contrast or self.config.sharpness or self.config.colors or self.config.kernel:
+                    img = ImageProcessor(self.config).filter_image(img)
 
                 if self.config.special_mode:
-                    output_size=(64, 64)
-                    album_size = (34, 34) if self.config.show_text else (56, 56)
-                    
-                    album_art = img.resize(album_size, Image.Resampling.LANCZOS)
-                    x = (output_size[0] - album_size[0]) // 2
-                    y = 8  # Top padding
-
-                    # Get the colors for the gradient
-                    left_color = album_art.getpixel((0, album_size[1] // 2))
-                    right_color = album_art.getpixel((album_size[0] - 1, album_size[1] // 2))
-                    
-                    # Select a darker color for the background
-                    dark_background_color = (
-                        min(left_color[0], right_color[0]) // 2,
-                        min(left_color[1], right_color[1]) // 2,
-                        min(left_color[2], right_color[2]) // 2
-                    )
-                    if self.config.show_text:
-                        dark_background_color = (0, 0, 0)
-
-                    background = Image.new('RGB', output_size, dark_background_color)
-
-                    # Paste the album art on the background
-                    background.paste(album_art, (x, y))
-                    img = background
+                    img = ImageProcessor(self.config).special_mode(img)
 
                 if show_lyrics_is_on and not playing_radio_is_on and not self.config.special_mode:
                     enhancer_lp = ImageEnhance.Brightness(img)
@@ -2036,7 +1987,6 @@ class SpotifyService:
         except Exception as e:
             _LOGGER.error(f"Error processing image {picture}: {e}")
             return None
-
 
     async def send_pixoo_animation_frame(self, pixoo_device, command, pic_num, pic_width, pic_offset, pic_id, pic_speed, pic_data):
         """Sends a single frame of an animation to the Pixoo device."""
@@ -2075,7 +2025,6 @@ class SpotifyService:
         pic_offset = 0
         await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": 
             [ {"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"} ]})
-
 
         for album_url in album_urls:
             try:
@@ -2283,7 +2232,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def initialize(self):
         """Initialize the app and set up state listeners."""
         self.config = Config(self.args)
-        self.pixoo_device = PixooDevice(self.config, self.headers) # Pass config and headers
+        self.pixoo_device = PixooDevice(self.config) #, self.headers) # Pass config and headers
         self.image_processor = ImageProcessor(self.config)
         self.media_data = MediaData(self.config, self.image_processor)
         self.fallback_service = FallbackService(self.config, self.image_processor)
@@ -2310,7 +2259,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         # Load configuration
         self.config = Config(self.args)
-        self.pixoo_device = PixooDevice(self.config, self.headers)
+        self.pixoo_device = PixooDevice(self.config) #, self.headers)
         self.image_processor = ImageProcessor(self.config)
         self.media_data = MediaData(self.config, self.image_processor)
         self.fallback_service = FallbackService(self.config, self.image_processor)
@@ -2468,7 +2417,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 color2 = processed_data.get('color2')
                 color3 = processed_data.get('color3')
                 await self.control_wled_light('on', self.config.wled, color1, color2, color3)
-
                 
             new_attributes = {
                 "artist": media_data.artist,
@@ -2503,7 +2451,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     start_time = time.perf_counter()
                     media_data.spotify_frames = 0
 
-                    if self.config.special_mode and self.config.show_text:
+                    if self.config.special_mode: # and self.config.show_text:
                         if self.config.special_mode_spotify_slider:
                             await spotify_service.send_slider_animation(self.pixoo_device, media_data)
                         else:
@@ -2544,7 +2492,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                             "PicSpeed": 1000, "PicData": black_pic
                         })
                 payloads = self.create_payloads(media_data.artist, media_data.title, 11)
-                #payload = {"Command":"Draw/CommandList", "CommandList": payloads}
                 await self.pixoo_device.send_command(payloads)
                 return
 
@@ -2619,11 +2566,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     "color": background_color }
 
                 if media_data.temperature:
-                    temperature = { "TextId": textid, "type":22, "x":x, "y":3,
+                    temperature = { "TextId": 3, "type":22, "x":46, "y":1,
                         "dir":0, "font":18, "TextWidth":20, "Textheight":6,
                         "speed":100, "align":1, "color": color_font, "TextString": media_data.temperature }
                 else:
-                    temperature = { "TextId":3, "type":17, "x":40, "y":1,
+                    temperature = { "TextId":4, "type":17, "x":46, "y":1,
                     "dir":0, "font":18, "TextWidth":20, "Textheight":6,
                     "speed":100, "align":3, "color": color_font }
                 
@@ -2646,7 +2593,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 moreinfo["ItemList"].append(day)
                 moreinfo["ItemList"].append(clock)
                 moreinfo["ItemList"].append(temperature)
-                if self.config.show_text and not media_data.playing_tv:
+                if (self.config.show_text and not media_data.playing_tv) or (media_data.spotify_slide_pass and self.config.spotify_slide):
                     moreinfo["ItemList"].append(artist)
                     moreinfo["ItemList"].append(title)
                 await self.pixoo_device.send_command(moreinfo)
