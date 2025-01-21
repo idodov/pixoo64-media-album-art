@@ -150,6 +150,7 @@ pixoo64_media_album_art:
         contrast: True                              # If True, applies a 50% contrast filter to the images displayed on the Pixoo.
         colors: False                               # If True, enhanced colors
         kernel: False                               # If True, add embos/edge effect
+        sharpness: False                            # If True, add sharpness efeect
         special_mode: False                         # Show day, time and temperature above in upper bar.
         info: False                                 # Show information while fallback
         clock: True                                 # If True, a clock is displayed in the top corner of the screen.
@@ -199,6 +200,8 @@ With these steps completed, you have installed and set up the script and can now
 | `url` | Pixoo device URL | `192.168.86.21` |
 | `full_control` | Control display on/off with play/pause | `True` |
 | `contrast` | Apply a 50% contrast filter | `True` |
+| `sharpness` | Apply sharpness filter | `True` |
+| `colors` | Enhanced colors | `True` |
 | `special_mode` | Show day, time and temperature in upper bar | `False` |
 | `clock` | Show a clock in the top corner | `False` |
 | `clock_align` | Align the clock to `Left` or `Right` | `Left` |
