@@ -2260,15 +2260,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def initialize(self):
         """Initialize the app and set up state listeners."""
-        self.config = Config(self.args)
-        self.pixoo_device = PixooDevice(self.config) #, self.headers) # Pass config and headers
-        self.image_processor = ImageProcessor(self.config)
-        self.media_data = MediaData(self.config, self.image_processor)
-        self.fallback_service = FallbackService(self.config, self.image_processor)
-
         # Load configuration
         self.config = Config(self.args)
-        self.pixoo_device = PixooDevice(self.config) #, self.headers)
+        self.pixoo_device = PixooDevice(self.config)
         self.image_processor = ImageProcessor(self.config)
         self.media_data = MediaData(self.config, self.image_processor)
         self.fallback_service = FallbackService(self.config, self.image_processor)
