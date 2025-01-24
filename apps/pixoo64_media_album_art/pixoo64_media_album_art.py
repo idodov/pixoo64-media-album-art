@@ -42,18 +42,18 @@ pixoo64_media_album_art:
         spotify_client_id: False                    # Your Spotify API client ID (needed for Spotify features). Obtain from https://developers.spotify.com.
         spotify_client_secret: False                # Your Spotify API client secret (needed for Spotify features).
         tidal_client_id: False                      # Your TIDAL API client ID. Obrain from https://developer.tidal.com/dashboard.
-        tidal_client_secret: False                  # Your TIDAL client secret
+        tidal_client_secret: False                  # Your TIDAL client secret.
         last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create.
         discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers.
     pixoo:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
         full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
         contrast: True                              # If True, applies a 50% contrast filter to the images displayed on the Pixoo.
-        sharpness: False                            # If True, add sharpness effect
-        colors: True                                # If True, enhanced colors
-        kernel: False                               # If True, add embos/edge effect
+        sharpness: False                            # If True, add sharpness effect.
+        colors: False                               # If True, enhanced colors.
+        kernel: False                               # If True, add embos/edge effect.
         special_mode: False                         # Show day, time and temperature above in upper bar.
-        info: False                                 # Show information while fallback
+        info: False                                 # Show information while fallback.
         clock: True                                 # If True, a clock is displayed in the top corner of the screen.
         clock_align: "Right"                        # Clock alignment: "Left" or "Right".
         tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
@@ -77,12 +77,12 @@ pixoo64_media_album_art:
         effect_speed: 50                            # 0 to 255
         effect_intensity: 128                       # 0 to 255
         pallete: 0                                  # 0 to 70 (Pallete ID - https://kno.wled.ge/features/palettes/)
-        only_at_night: False                        # Runs only between 17:00 - 05:00
+        sound_effect: 0                             # Setting of the sound simulation type for audio enhanced effects (0: 'BeatSin', 1: 'WeWillRockYou', 2: '10_3', 3: '14_3')
+        only_at_night: False                        # Runs only at night hours
 """
 import aiohttp
 import asyncio
 import base64
-import colorsys
 import json
 import logging
 import math
@@ -115,12 +115,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # Constants
 AI_ENGINE = "https://pollinations.ai/p"
-TV_ICON_PATH = "/local/pixoo64/tv-icon-1.png"
 LOCAL_DIRECTORY = "/homeassistant/www/pixoo64/"
 
-FILES = {
-    "tv-icon-1.png": "https://raw.githubusercontent.com/idodov/pixoo64-media-album-art/refs/heads/main/apps/pixoo64_media_album_art/tv-icon-1.png",
-}
 
 # Regex patterns for RTL text detection
 HEBREW = r"\u0590-\u05FF"
@@ -191,16 +187,6 @@ def ensure_rgb(img):
         _LOGGER.error(f"Error converting image to RGB: {e}")
         return None
 
-def check_time():
-    current_time = datetime.now().time()
-    start_time = dt_time(17, 0)  # 17:00
-    end_time = dt_time(5, 0)     # 05:00
-
-    # Check if current time is between 18:00 and 23:59 or between 00:00 and 02:00
-    if (start_time <= current_time) or (current_time <= end_time):
-        return True
-    else:
-        return False
 
 class Config:
     def __init__(self, app_args):
@@ -209,7 +195,7 @@ class Config:
         pixoo_config = app_args.get('pixoo', {})
         show_text_config = pixoo_config.get('show_text', {})
         crop_borders_config = pixoo_config.get('crop_borders', {})
-        self.headers = {   # Add headers back here
+        self.headers = {
             "Content-Type": "application/json",
             "Accept": "*/*",
             "Connection": "keep-alive",
@@ -273,6 +259,7 @@ class Config:
         self.wled_effect_intensity: int = wled_light.get("effect_intensity", 128)
         self.wled_only_at_night: bool = wled_light.get("only_at_night", False)
         self.wled_pallete: int = wled_light.get("pallete", 0)
+        self.wled_sound_effect: int = max(0, min(int(wled_light.get("sound_effect", 0)), 3))
 
         # Fixing args if needed
         pixoo_url = f"http://{pixoo_url}" if not pixoo_url.startswith('http') else pixoo_url
@@ -281,10 +268,10 @@ class Config:
         if self.ai_fallback not in ["flux", "turbo"]:
             self.ai_fallback = "turbo"
 
+
 class PixooDevice:
-    def __init__(self, config): #, headers):
+    def __init__(self, config):
         self.config = config
-        #self.headers = config.headers  # Access headers from config
         self.select_index = None
         self.headers = {
             "Content-Type": "application/json",
@@ -526,7 +513,6 @@ class ImageProcessor:
         
         output_size = (64, 64)
         album_size = (34, 34) if self.config.show_text else (56, 56)
-        #background = Image.new('RGB', output_size, 'black')
         album_art = img.resize(album_size, Image.Resampling.LANCZOS)
 
         # Get the colors for the gradient
@@ -975,10 +961,13 @@ class MediaData:
         self.color3 = "FFAA00"
         self.temperature = None
         self.info_img = None
+        self.is_night = False
     
     async def update(self, hass):
         self.select_index_original = await hass.get_state(self.config.pixoo_sensor, attribute="pixoo_channel")
         try:
+            sun = await hass.get_state("sun.sun")
+            self.is_night = True if sun == "below_horizon" else False
             media_state = await hass.get_state(self.config.media_player)
             if media_state not in ["playing", "on"]:
                 return None
@@ -991,7 +980,6 @@ class MediaData:
             if self.config.show_lyrics and not self.config.special_mode:
                 artist = await hass.get_state(self.config.media_player, attribute="media_artist")
                 self.lyrics = await LyricsProvider(self.config, self.image_processor).get_lyrics(artist, title) 
-                #self.lyrics = await LyricsProvider(self.config, self.image_processor).get_lyrics(artist, title, self.image_processor)  # Fetch lyrics here
             else:
                 self.lyrics = []
 
@@ -1019,10 +1007,9 @@ class MediaData:
                     self.playing_radio = True
                     self.radio_logo = False
                     self.picture = original_picture
-                    #if artist:
-                    #    self.picture = self.format_ai_image_prompt(artist, title)
+
                     if ('https://tunein' in media_content_id or
-                        queue_position == 1 or
+                        # queue_position == 1 or
                         original_title == media_channel or
                         original_title == original_artist or
                         original_artist == media_channel or
@@ -1040,8 +1027,7 @@ class MediaData:
                 self.playing_tv = True
 
                 if self.config.tv_icon_pic:
-                    self.picture = TV_ICON_PATH
-                    #self.current_image_task = None
+                    self.picture = "TV_IS_ON_ICON"
                 else:
                     self.picture = "TV_IS_ON"
 
@@ -1114,6 +1100,7 @@ class FallbackService:
     def __init__(self, config, image_processor):
         self.config = config
         self.image_processor = image_processor
+        self.tv_icon = self.image_processor.gbase64(self.create_tv_icon_image()) if self.config.tv_icon_pic else None
         
         # Tidal Token
         self.tidal_token_cache = {
@@ -1148,14 +1135,19 @@ class FallbackService:
                 _LOGGER.error(f"AI generation failed: {e}")
 
         else:
-            if picture == TV_ICON_PATH:
-                try:
-                    result = await self.image_processor.get_image(picture, media_data, False)
-                    if result:
-                        return result
-                except Exception as e:
-                    _LOGGER.error(f"TV picture processing failed: {e}")
-                
+            if picture == "TV_IS_ON_ICON":
+                _LOGGER.info("Sending TV icon image")
+
+                return {
+                    'base64_image': self.tv_icon, 
+                    'font_color': '#ff00ff', 
+                    'brightness': 0.67, 
+                    'brightness_lower_part': '#ffff00', 
+                    'background_color': (255, 255, 0), 
+                    'background_color_rgb': (0, 0, 255), 
+                    'most_common_color_alternative_rgb': (0,0,0), 
+                    'most_common_color_alternative': '#ffff00'}
+
             # Process original picture
             try:
                 if not media_data.playing_radio or media_data.radio_logo:
@@ -1560,6 +1552,45 @@ class FallbackService:
         img.save(buffer, format="PNG")
         return img
 
+    def create_tv_icon_image(self):
+        size = 64
+        image = Image.new("RGB", (size, size), "black")
+        draw = ImageDraw.Draw(image)
+
+        # Define colors
+        screen_color = (50, 50, 50)  # Dark Grey for Screen
+        body_color = (150, 150, 150)  # Light Grey for Body
+        stand_color = (100, 100, 100)  # Medium Grey for Stand
+
+        # Calculate some dimensions for the icon (scaled by the size)
+        margin = int(size * 0.2)  # margin from the edges
+        screen_width = int(size * 0.6) + 1 # Width of the TV screen
+        screen_height = int(size * 0.4) # Height of the TV screen
+        screen_x = margin
+        screen_y = margin
+
+        body_width = screen_width + 2 * int(size * 0.05)  # Width of the body
+        body_height = screen_height + int(size * 0.1)  # Height of the body
+        body_x = screen_x - int(size * 0.05)
+        body_y = screen_y - int(size * 0.05)
+
+        stand_width = int(size * 0.2)
+        stand_height = int(size * 0.1)
+        stand_x = (size - stand_width) // 2
+        stand_y = screen_y + screen_height
+        y_offset = 3
+
+        # Draw the TV body
+        draw.rectangle((body_x, body_y + y_offset, body_x + body_width, body_y + body_height + y_offset), fill=body_color)
+
+        # Draw the TV screen
+        draw.rectangle((screen_x, screen_y + y_offset, screen_x + screen_width, screen_y + screen_height + y_offset), fill=screen_color)
+
+        # Draw the stand
+        draw.rectangle((stand_x, stand_y + y_offset, stand_x + stand_width, stand_y + stand_height + y_offset), fill=stand_color)
+
+        return image
+
 
 class LyricsProvider:
     def __init__(self, config, image_processor):
@@ -1653,8 +1684,6 @@ class LyricsProvider:
             "ItemList": item_list
         }
         clear_text_command = {"Command": "Draw/ClearHttpText"}
-        #await PixooDevice(self.config, hass.headers).send_command(clear_text_command)
-        #await PixooDevice(self.config, hass.headers).send_command(payload)
         await PixooDevice(self.config).send_command(clear_text_command)
         await PixooDevice(self.config).send_command(payload)
 
@@ -2236,26 +2265,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.image_processor = ImageProcessor(self.config)
         self.media_data = MediaData(self.config, self.image_processor)
         self.fallback_service = FallbackService(self.config, self.image_processor)
-        # Initialize local directory
-        if not os.path.exists(LOCAL_DIRECTORY):
-            os.makedirs(LOCAL_DIRECTORY)
-
-        # Download required files asynchronously
-        async def download_file(file_name, url):
-            local_file_path = os.path.join(LOCAL_DIRECTORY, file_name)
-            if not os.path.exists(local_file_path):
-                _LOGGER.info(f"Downloading {file_name} from {url}...")  # Log the download action
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(url) as response:
-                        if response.status == 200:
-                            with open(local_file_path, 'wb') as file:
-                                file.write(await response.read())
-                        else:
-                            _LOGGER.error(f"Failed to download {file_name}: {response.status}")  # Log failure
-
-        # Create a list of download tasks
-        download_tasks = [download_file(file_name, url) for file_name, url in FILES.items()]
-        await asyncio.gather(*download_tasks)
 
         # Load configuration
         self.config = Config(self.args)
@@ -2294,11 +2303,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             
             media_state = await self.get_state(self.config.media_player)
             if media_state in ["off", "idle", "pause", "paused"]:
-                await self.set_state(self.media_data_sensor, state="off")
-                await asyncio.sleep(10)  # Delay to not turn off during track changes
+                await asyncio.sleep(6)  # Delay to not turn off during track changes
+                # Quick validation of media state
+                if (media_state := await self.get_state(self.config.media_player)) not in ["playing", "on"]:
+                    pass
+                else:
+                    return
                 if self.config.full_control:
-                    if await self.get_state(self.config.media_player) not in ["playing", "on"]:
-                        await self.pixoo_device.send_command({
+                    await self.pixoo_device.send_command({
                             "Command": "Draw/CommandList",
                             "CommandList": [
                                 {"Command": "Channel/SetIndex", "SelectIndex": self.select_index},
@@ -2318,7 +2330,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if self.config.light:
                     await self.control_light('off')
                 if self.config.wled:
-                    await self.control_wled_light('off', self.config.wled, color1=False, color2=False, color3=False)
+                    await self.control_wled_light('off')
                 return
 
             # If we get here, proceed with the main logic
@@ -2335,7 +2347,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if self.config.light:
                     await self.control_light('off')
                 if self.config.wled:
-                    await self.control_wled_light('off', self.config.wled, color1=False, color2=False, color3=False)
+                    await self.control_wled_light('off')
                 return
 
             # Get current title and check if we need to update
@@ -2389,13 +2401,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if self.config.light:
                 await self.control_light('off')
             if self.config.wled:
-                await self.control_wled_light('off', self.config.wled, color1=False, color2=False, color3=False)
+                await self.control_wled_light('off')
 
             return
 
         try:
             start_time = time.perf_counter()
             processed_data = await self.fallback_service.get_final_url(media_data.picture, media_data)
+            
             if not processed_data:
                 return
             media_data.spotify_frames = 0
@@ -2408,15 +2421,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             most_common_color_alternative_rgb = processed_data.get('most_common_color_alternative_rgb')
             most_common_color_alternative = processed_data.get('most_common_color_alternative')
 
-            if self.config.light:
-                await self.control_light('on',background_color_rgb)
+            if self.config.light and not media_data.playing_tv:
+                await self.control_light('on',background_color_rgb, media_data.is_night)
             
-            if self.config.wled:
+            if self.config.wled and not media_data.playing_tv:
                 # Retrieve cached color values if available
                 color1 = processed_data.get('color1')
                 color2 = processed_data.get('color2')
                 color3 = processed_data.get('color3')
-                await self.control_wled_light('on', self.config.wled, color1, color2, color3)
+                await self.control_wled_light('on', color1, color2, color3, media_data.is_night)
+            if media_data.playing_tv:
+                if self.config.light:
+                    await self.control_light('off')
+                if self.config.wled:
+                    await self.control_wled_light('off')
                 
             new_attributes = {
                 "artist": media_data.artist,
@@ -2605,8 +2623,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         finally:
             self.current_image_task = None # Reset the task variable
 
-    async def control_light(self, action, background_color_rgb=None):
-        if not check_time() and self.config.wled_only_at_night:
+    async def control_light(self, action, background_color_rgb=None, is_night=True):
+        if not is_night and self.config.wled_only_at_night:
             return
         service_data = {'entity_id': self.config.light}
         if action == 'on':
@@ -2616,14 +2634,17 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         except Exception as e:
             _LOGGER.error(f"Light Error: {self.config.light} - {e}\n{traceback.format_exc()}")
 
-    async def control_wled_light(self, action, ip_address, color1, color2, color3):
+    async def control_wled_light(self, action, color1=False, color2=False, color3=False, is_night=True):
         # Ensure we control the light only if time conditions and settings allow
-        if not check_time() and self.config.wled_only_at_night:
+        if not is_night and self.config.wled_only_at_night:
             return
 
+        ip_address = self.config.wled
+
         if not ip_address:
-            _LOGGER.warning("No IP address provided for WLED light control.")
+            _LOGGER.warning(f"IP address provided for WLED light control is invalid: {ip_address}")
             return
+        
         effect_id = self.config.wled_effect
         # Validate the effect ID
         if not (0 <= effect_id <= 117):  # Ensure the effect ID is within the valid range
@@ -2655,6 +2676,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if self.config.wled_pallete:
             segment["pal"] = self.config.wled_pallete
 
+        if self.config.wled_sound_effect:
+            segment["si"] = self.config.wled_sound_effect
+
         # Prepare the JSON payload
         payload = {"on": True, "bri": self.config.wled_brightness, "seg": [segment]}
 
@@ -2669,34 +2693,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             except aiohttp.ClientError as e:
                 _LOGGER.error(f"Error sending WLED control command: {e}")
 
-
-    async def control_wled_light_rest_api(self, action, ip_address, color1, color2, color3):
-        if not check_time() and self.config.wled_only_at_night:
-            return
-        #clean_ip = ip_address[0]
-        if ip_address and action =="on":
-            url = f"http://{ip_address}/win&T=1&A={self.config.wled_brightness}&SX={self.config.wled_effect_speed}&IX={self.config.wled_effect_intensity}&CL=H{color1}&C2=H{color2}&C3=H{color3}&FX={self.config.wled_effect}"
-
-        elif ip_address and action =="off":
-            if (media_state := await self.get_state(self.config.media_player)) not in ["playing", "on"]:
-                url = f"http://{ip_address}/win&T=0"
-        if ip_address:
-            async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
-                try:
-                    async with session.get(url) as response:
-                        response.raise_for_status()  # Raise an error for bad status codes
-                        _LOGGER.info(f"WLED control command sent successfully: {url}")
-                except aiohttp.ClientError as e:
-                    _LOGGER.error(f"Error sending WLED control command: {e}")
-
-
-    def validate_ip(self, ip_address):
-        """Validates if a given string has the basic IPv4 syntax using regex."""
-        if not ip_address:
-            return False
-        pattern = r"^(\d{1,3}\.){3}\d{1,3}$"  # Regex for basic IP syntax
-        if not re.match(pattern, ip_address):
-            return False
 
     def create_payloads(self, artist, title, x):
         artist_lines = split_string(artist, x)
