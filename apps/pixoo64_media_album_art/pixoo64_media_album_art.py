@@ -109,8 +109,10 @@ except ImportError:
     bidi_support = False
     print("The 'bidi.algorithm' module is not installed or not available. RTL texts will display reversed.")
 
+import logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(name)s: %(message)s')
+_LOGGER = logging.getLogger(__name__)
 
-_LOGGER = logging.getLogger(__name__) 
 # Constants
 # Regex patterns for RTL text detection
 HEBREW = r"\u0590-\u05FF"
@@ -1053,6 +1055,8 @@ class MediaData:
         self.temperature: Optional[str] = None 
         self.info_img: Optional[str] = None 
         self.is_night: bool = False
+        self.pic_source: str = None
+        self.pic_url: str = None
 
 
     async def update(self, hass: "hass.Hass") -> Optional["MediaData"]: 
@@ -1226,6 +1230,7 @@ class FallbackService:
         """Determine and retrieve the final album art URL, using fallback strategies if needed."""
         self.fail_txt = False
         self.fallback = False
+        media_data.pic_url = picture
 
         if self.config.force_ai and not media_data.radio_logo and not media_data.playing_tv:
             _LOGGER.info("Force AI mode enabled, trying to generate AI album art.") 
@@ -1239,6 +1244,8 @@ class FallbackService:
                 )
                 if result:
                     _LOGGER.info("Successfully generated AI album art.") 
+                    media_data.pic_url = ai_url
+                    media_data.pic_source = "AI"
                     return result
             except asyncio.TimeoutError:
                 _LOGGER.warning("AI image generation timed out after 25 seconds.") 
@@ -1249,6 +1256,8 @@ class FallbackService:
         else: # Main fallback logic if force_ai is not enabled
             if picture == "TV_IS_ON_ICON":
                 _LOGGER.info("Using TV icon image as album art.") 
+                media_data.pic_url = "TV Icon"
+                media_data.pic_source = "Internal"
                 tv_icon_base64 = self.image_processor.gbase64(self.create_tv_icon_image()) if self.config.tv_icon_pic else None 
 
                 return { # Return consistent data structure even for TV icon
@@ -1267,6 +1276,7 @@ class FallbackService:
                     result = await self.image_processor.get_image(picture, media_data, media_data.spotify_slide_pass)
                     if result:
                         _LOGGER.debug("Successfully processed original album art.") 
+                        media_data.pic_source = "Original"
                         return result
             except Exception as e: 
                 _LOGGER.error(f"Original picture processing failed: {e}") 
@@ -1295,6 +1305,8 @@ class FallbackService:
                             result = await self.image_processor.get_image(image_url, media_data, media_data.spotify_slide_pass)
                             if result:
                                 _LOGGER.info("Successfully retrieved album art from Spotify.") 
+                                media_data.pic_url = image_url
+                                media_data.pic_source = "Spotify"
                                 return result
                         else:
                             _LOGGER.warning("Failed to process Spotify album art image.") 
@@ -1315,6 +1327,8 @@ class FallbackService:
                         result = await self.image_processor.get_image(discogs_art, media_data, media_data.spotify_slide_pass)
                         if result:
                             _LOGGER.info("Successfully retrieved album art from Discogs.") 
+                            media_data.pic_url = discogs_art
+                            media_data.pic_source = "Discogs"
                             return result
                         else:
                             _LOGGER.warning("Failed to process Discogs album art image.") 
@@ -1331,6 +1345,8 @@ class FallbackService:
                         result = await self.image_processor.get_image(lastfm_art, media_data, media_data.spotify_slide_pass)
                         if result:
                             _LOGGER.info("Successfully retrieved album art from Last.fm.") 
+                            media_data.pic_url = lastfm_art
+                            media_data.pic_source = "Last.FM"
                             return result
                         else:
                             _LOGGER.warning("Failed to process Last.fm album art image.") 
@@ -1347,6 +1363,8 @@ class FallbackService:
                         result = await self.image_processor.get_image(tidal_art, media_data, media_data.spotify_slide_pass)
                         if result:
                             _LOGGER.info("Successfully retrieved album art from TIDAL.") 
+                            media_data.pic_url = tidal_art
+                            media_data.pic_source = "TIDAL"
                             return result
                         else:
                             _LOGGER.warning("Failed to process TIDAL album art image.") 
@@ -1374,6 +1392,8 @@ class FallbackService:
                             )
                             if result:
                                 _LOGGER.info("Successfully retrieved album art from MusicBrainz.") 
+                                media_data.pic_url = mb_url
+                                media_data.pic_source = "MusicBrainz"
                                 return result
                             else:
                                 _LOGGER.warning("Failed to process MusicBrainz album art image.") 
@@ -1398,6 +1418,8 @@ class FallbackService:
                 )
                 if result:
                     _LOGGER.info("Successfully generated AI album art.") 
+                    media_data.pic_url = ai_url
+                    media_data.pic_source = "AI"
                     return result
             except asyncio.TimeoutError:
                 _LOGGER.warning("AI image generation timed out after 20 seconds.") 
@@ -1414,6 +1436,8 @@ class FallbackService:
                     result = await self.image_processor.get_image(self.spotify_first_album, media_data, media_data.spotify_slide_pass)
                     if result:
                         _LOGGER.info("Successfully retrieved default album art from Spotify.") 
+                        media_data.pic_url = self.spotify_first_album
+                        media_data.pic_source = "Spotify (Artist Profile Image)"
                         return result
 
                 except Exception as e: 
@@ -1421,6 +1445,8 @@ class FallbackService:
 
 
         # Ultimate fallback (Black screen)
+        media_data.pic_url = "Black Screen"
+        media_data.pic_source = "Internal"
         return self._get_fallback_black_image_data() # Call helper method to get black image data
 
 
@@ -1926,7 +1952,7 @@ class LyricsProvider:
                         lyrics_display_duration = (next_lyric_time - lyric_time) if next_lyric_time else 10
                         if lyrics_display_duration > 9: # Check against 9 instead of 9 - for more consistent timing
                             await asyncio.sleep(8) # Slightly shorter sleep to account for processing time
-                            await PixooDevice(self.config).send_command({"Command": "Draw/ClearHttpText"}) # Use PixooDevice class to send command - Corrected this line
+                            await PixooDevice(self.config).send_command({"Command": "Draw/ClearHttpText"}) 
 
                         break # Exit loop after displaying lyrics
 
@@ -1964,8 +1990,8 @@ class LyricsProvider:
             "ItemList": item_list
         }
         clear_text_command = {"Command": "Draw/ClearHttpText"}
-        await PixooDevice(self.config).send_command(clear_text_command) # Use PixooDevice class to send command - Corrected this line
-        await PixooDevice(self.config).send_command(payload) # Use PixooDevice class to send command - Corrected this line
+        await PixooDevice(self.config).send_command(clear_text_command) 
+        await PixooDevice(self.config).send_command(payload) 
 
 class SpotifyService:
     """Service to interact with Spotify API for album art and related data.""" 
@@ -2087,10 +2113,10 @@ class SpotifyService:
             if artist.lower() == album_artist.lower():
                 #Corrected Prioritization:
                 if album_type in preferred_types:
-                    if year < earliest_year:  #Only choose the album if its year is earlier.
+                    if year < earliest_year:  # Only choose the album if its year is earlier.
                         earliest_year = year
                         best_album = album
-                elif year < earliest_year: #If not preferred type, choose based on year alone.
+                elif year < earliest_year: # If not preferred type, choose based on year alone.
                     earliest_year = year
                     best_album = album
 
@@ -2322,12 +2348,15 @@ class SpotifyService:
                     album_urls.append(images[0]["url"])
                     base64_data = await self.get_slide_img(images[0]["url"], show_lyrics_is_on, playing_radio_is_on)
                     album_base64.append(base64_data)
-
+            media_data.pic_url = album_urls
+            media_data.pic_source = "Spotify (Slide)"
             if returntype == "b64":
                 _LOGGER.debug(f"Returning {len(album_base64)} base64 album art URLs for Spotify slide.") 
                 return album_base64
             else:
                 _LOGGER.debug(f"Returning {len(album_urls)} album art URLs for Spotify slide.") 
+                media_data.pic_url = album_urls
+                
                 return album_urls
 
         except (KeyError, IndexError, TypeError, AttributeError) as e: 
@@ -2840,7 +2869,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "image_memory_cache": media_data.image_cache_memory,
                 "process_duration": media_data.process_duration,
                 "spotify_frames": media_data.spotify_frames,
-                "pixoo_channel": self.select_index
+                "pixoo_channel": self.select_index,
+                "image_source": media_data.pic_source,
+                "image_url": media_data.pic_url
             }
 
             payload = {
