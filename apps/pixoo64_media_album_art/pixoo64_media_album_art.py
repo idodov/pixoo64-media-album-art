@@ -1100,7 +1100,6 @@ class FallbackService:
     def __init__(self, config, image_processor):
         self.config = config
         self.image_processor = image_processor
-        self.tv_icon = self.image_processor.gbase64(self.create_tv_icon_image()) if self.config.tv_icon_pic else None
         
         # Tidal Token
         self.tidal_token_cache = {
@@ -1137,9 +1136,10 @@ class FallbackService:
         else:
             if picture == "TV_IS_ON_ICON":
                 _LOGGER.info("Sending TV icon image")
+                tv_icon = self.image_processor.gbase64(self.create_tv_icon_image()) if self.config.tv_icon_pic else None
 
                 return {
-                    'base64_image': self.tv_icon, 
+                    'base64_image': tv_icon, 
                     'font_color': '#ff00ff', 
                     'brightness': 0.67, 
                     'brightness_lower_part': '#ffff00', 
@@ -1552,7 +1552,7 @@ class FallbackService:
         img.save(buffer, format="PNG")
         return img
 
-    def create_tv_icon_image(self):
+    def create_tv_icon_image2(self):
         size = 64
         image = Image.new("RGB", (size, size), "black")
         draw = ImageDraw.Draw(image)
@@ -1588,6 +1588,114 @@ class FallbackService:
 
         # Draw the stand
         draw.rectangle((stand_x, stand_y + y_offset, stand_x + stand_width, stand_y + stand_height + y_offset), fill=stand_color)
+
+        return image
+
+
+    def create_tv_icon_image(self):
+        # Image dimensions for drawing
+        image_width = 300
+        image_height = 300
+
+        # Final image size
+        final_width = 64
+        final_height = 64
+
+        # Vertical Offset for Centering (adjust this)
+        vertical_offset = 10
+
+        # Colors
+        black = (0, 0, 0)
+        brown = (139, 69, 19)  # SaddleBrown
+        light_brown = (205, 133, 63) # Peru
+        screen_bg = (240, 240, 240) # Off-white for screen background
+        white = (255, 255, 255)
+        gray = (150, 150, 150)
+
+        rainbow_colors = [
+            (255, 0, 0),     # Red
+            (255, 165, 0),   # Orange
+            (255, 255, 0),   # Yellow
+            (0, 255, 0),     # Green
+            (0, 0, 255),     # Blue
+            (75, 0, 130),    # Indigo
+            (238, 130, 238)  # Violet
+        ]
+        random.shuffle(rainbow_colors)
+        # Create a new image with black background
+        image = Image.new("RGB", (image_width, image_height), black)
+        draw = ImageDraw.Draw(image)
+
+        # --- TV Body ---
+        tv_body_padding = 60 + vertical_offset  # Apply offset to top padding
+        tv_body_rect = [
+            tv_body_padding,
+            tv_body_padding,
+            image_width - tv_body_padding,
+            image_height - tv_body_padding - 40
+        ]
+        tv_body_radius = 20
+        draw.rounded_rectangle(tv_body_rect, tv_body_radius, fill=brown)
+
+        # --- Screen Area ---
+        screen_padding = tv_body_padding + 15 # Screen padding is relative to the *shifted* body padding
+        screen_rect = [
+            screen_padding,
+            screen_padding,
+            image_width - screen_padding,
+            tv_body_rect[3] - 15
+        ]
+        draw.rectangle(screen_rect, fill=screen_bg)
+
+        # --- Rainbow Color Bars ---
+        num_bars = len(rainbow_colors)
+        bar_width = (screen_rect[2] - screen_rect[0]) // num_bars
+
+        start_x = screen_rect[0]
+        for color in rainbow_colors:
+            bar_rect = [
+                start_x,
+                screen_rect[1],
+                start_x + bar_width,
+                screen_rect[3]
+            ]
+            draw.rectangle(bar_rect, fill=color)
+            start_x += bar_width
+
+        # --- Antennas ---
+        antenna_color = gray
+        antenna_thickness = 3
+        antenna_length = 50
+        antenna_base_x1 = image_width // 2 - 30
+        antenna_base_x2 = image_width // 2 + 30
+        antenna_base_y = tv_body_padding  # Antenna base is also relative to the *shifted* body padding
+
+        # Left antenna
+        draw.line(
+            (antenna_base_x1, antenna_base_y, antenna_base_x1 - 20, antenna_base_y - antenna_length),
+            fill=antenna_color, width=antenna_thickness
+        )
+        # Right antenna
+        draw.line(
+            (antenna_base_x2, antenna_base_y, antenna_base_x2 + 20, antenna_base_y - antenna_length),
+            fill=antenna_color, width=antenna_thickness
+        )
+
+        # --- Shiny Highlights ---
+        highlight_color = white
+        highlight_thickness = 4
+        highlight_offset = 5
+
+        draw.line(
+            (tv_body_rect[0], tv_body_rect[1], tv_body_rect[0] + 20, tv_body_rect[1]),
+            fill=highlight_color, width=highlight_thickness
+        )
+        draw.line(
+            (tv_body_rect[0], tv_body_rect[1], tv_body_rect[0], tv_body_rect[1] + 20),
+            fill=highlight_color, width=highlight_thickness
+        )
+
+        image = image.resize((final_width, final_height), Image.Resampling.LANCZOS)
 
         return image
 
