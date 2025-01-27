@@ -259,7 +259,7 @@ class Config:
 
     def _fix_config_args(self, pixoo_url_raw: str): 
         """Fixes and formats configuration arguments."""
-        pixoo_url = f"http://{pixoo_url_raw}" if not pixoo_url_raw.startswith('http') else pixoo_url_raw # Using raw parameter
+        pixoo_url = f"http://{pixoo_url_raw}" if not pixoo_url_raw.startswith('http') else pixoo_url_raw 
         self.pixoo_url: str = f"{pixoo_url}:80/post" if not pixoo_url.endswith(':80/post') else pixoo_url
 
         if self.ai_fallback not in ["flux", "turbo"]:
@@ -414,7 +414,7 @@ class ImageProcessor:
         if not picture:
             return None
 
-        cache_key = media_data.album
+        cache_key = f"{media_data.artist} - {media_data.album}"
         use_cache = cache_key is not None # Explicitly check for None
         if not use_cache: # If the album name is None, do not use the cache.
             try:
@@ -745,7 +745,7 @@ class ImageProcessor:
         # Check if there are no lyrics before proceeding
         if media_data.lyrics and self.config.show_lyrics and self.config.text_bg and brightness_lower_part != None and not media_data.playing_radio:
             enhancer_lp = ImageEnhance.Brightness(img)
-            img = enhancer_lp.enhance(0.55)  # self.brightness_full)
+            img = enhancer_lp.enhance(0.55)  
             enhancer = ImageEnhance.Contrast(img)
             img = enhancer.enhance(0.5)
             return img
@@ -806,9 +806,6 @@ class ImageProcessor:
         background_color = '#%02x%02x%02x' % background_color_rgb
         recommended_font_color_rgb = opposite_color
         brightness = int(sum(most_common_color_alternative_rgb) / 3)
-        opposite_color_full = tuple(255 - i for i in most_common_color_alternative_rgb)
-        opposite_color_brightness_full = int(sum(opposite_color_full) / 3)
-        self.brightness_full = round(1 - opposite_color_brightness_full / 255, 2) if 0 <= opposite_color_brightness_full <= 255 else 0
 
         if self.config.wled:
             color1, color2, color3 = self.most_vibrant_colors_wled(small_temp_img)
@@ -1035,10 +1032,10 @@ class MediaData:
         self.spotify_slide_pass: bool = False
         self.playing_tv: bool = False
         self.image_cache_count: int = 0
-        self.image_cache_memory: str = "0 KB" # Initialize as string
+        self.image_cache_memory: str = "0 KB" 
         self.media_position: int = 0
         self.media_duration: int = 0
-        self.process_duration: str = "0 seconds" # Initialize as string
+        self.process_duration: str = "0 seconds" 
         self.spotify_frames: int = 0
         self.media_position_updated_at: Optional[datetime] = None 
         self.spotify_data: Optional[dict] = None 
@@ -1144,7 +1141,6 @@ class MediaData:
                     self.temperature = None
                     _LOGGER.warning(f"Could not parse temperature value '{temperature}' from {self.config.ha_temperature}.") # Log warning if parsing fails
 
-
             return self
 
         except Exception as e: 
@@ -1230,8 +1226,8 @@ class FallbackService:
         """Determine and retrieve the final album art URL, using fallback strategies if needed."""
         self.fail_txt = False
         self.fallback = False
-        media_data.pic_url = picture
-
+        media_data.pic_url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
+        
         if self.config.force_ai and not media_data.radio_logo and not media_data.playing_tv:
             _LOGGER.info("Force AI mode enabled, trying to generate AI album art.") 
             if self.config.info:
@@ -1258,17 +1254,17 @@ class FallbackService:
                 _LOGGER.info("Using TV icon image as album art.") 
                 media_data.pic_url = "TV Icon"
                 media_data.pic_source = "Internal"
-                tv_icon_base64 = self.image_processor.gbase64(self.create_tv_icon_image()) if self.config.tv_icon_pic else None 
-
-                return { # Return consistent data structure even for TV icon
-                    'base64_image': tv_icon_base64,
-                    'font_color': '#ff00ff',
-                    'brightness': 0.67,
-                    'brightness_lower_part': '#ffff00',
-                    'background_color': (255, 255, 0),
-                    'background_color_rgb': (0, 0, 255),
-                    'most_common_color_alternative_rgb': (0,0,0),
-                    'most_common_color_alternative': '#ffff00'}
+                if self.config.tv_icon_pic:
+                    tv_icon_base64 = self.image_processor.gbase64(self.create_tv_icon_image())
+                    return { 
+                        'base64_image': tv_icon_base64,
+                        'font_color': '#ff00ff',
+                        'brightness': 0.67,
+                        'brightness_lower_part': '#ffff00',
+                        'background_color': (255, 255, 0),
+                        'background_color_rgb': (0, 0, 255),
+                        'most_common_color_alternative_rgb': (0,0,0),
+                        'most_common_color_alternative': '#ffff00'}
 
             # Process original picture
             try:
@@ -1891,7 +1887,7 @@ class LyricsProvider:
         """Initialize LyricsProvider object."""
         self.config = config
         self.lyrics: list[dict] = [] 
-        self.track_position: int = 0
+        self.len_lines: int = 0
         self.image_processor = image_processor
 
 
@@ -1899,7 +1895,7 @@ class LyricsProvider:
         """Fetch lyrics for the given artist and title from Textyl API."""
         lyrics_url = f"http://api.textyl.co/api/lyrics?q={artist} - {title}"
         try:
-            connector = aiohttp.TCPConnector(ssl=False) # SSL disabled as per original script - re-evaluate if needed
+            connector = aiohttp.TCPConnector(ssl=False)
             async with aiohttp.ClientSession(connector=connector) as session:
                 try: 
                     async with session.get(lyrics_url, timeout=10) as response: 
@@ -1931,7 +1927,7 @@ class LyricsProvider:
     async def calculate_position(self, media_data: "MediaData", hass: "hass.Hass") -> None: 
         """Calculate and display lyrics based on media position."""
         if not media_data.lyrics:
-            return # Early exit if no lyrics
+            return
 
         if media_data.media_position_updated_at:
             media_position_updated_at = media_data.media_position_updated_at
@@ -1939,8 +1935,7 @@ class LyricsProvider:
             time_diff = (current_time - media_position_updated_at).total_seconds()
             current_position = media_data.media_position + time_diff
             current_position = min(current_position, media_data.media_duration)
-            self.track_position = int(current_position) # Update instance track_position - might be unused?
-            current_position_int = int(current_position) # Use int for comparison - more clear variable name
+            current_position_int = int(current_position) 
             if current_position_int is not None and media_data.lyrics and self.config.show_lyrics:
                 for i, lyric_item in enumerate(media_data.lyrics): 
                     lyric_time = lyric_item['seconds']
@@ -1950,8 +1945,9 @@ class LyricsProvider:
 
                         next_lyric_time = media_data.lyrics[i + 1]['seconds'] if i + 1 < len(media_data.lyrics) else None
                         lyrics_display_duration = (next_lyric_time - lyric_time) if next_lyric_time else 10
-                        if lyrics_display_duration > 9: # Check against 9 instead of 9 - for more consistent timing
-                            await asyncio.sleep(8) # Slightly shorter sleep to account for processing time
+                        if lyrics_display_duration > 9: 
+                            x = int(self.len_lines * 1.6)
+                            await asyncio.sleep(x) 
                             await PixooDevice(self.config).send_command({"Command": "Draw/ClearHttpText"}) 
 
                         break # Exit loop after displaying lyrics
@@ -1965,12 +1961,12 @@ class LyricsProvider:
 
         all_lines = split_string(get_bidi(lyrics) if has_bidi(lyrics) else lyrics, line_length) # Use line_length parameter
 
-        if len(all_lines) > 4: # Limit to 4 lines as per typical Pixoo display
-            all_lines = all_lines[:4] # Keep only first 4 lines - more common for lyrics display to limit to few lines
-        screen_height = 64 # Fixed screen height - constant, no need to get it dynamically
-        font_height = 12 # Fixed font height - constant, no need to get it dynamically
+        if len(all_lines) > 6: # Limit to 6 lines as per typical Pixoo display
+            all_lines = all_lines[:6] # Keep only first 6 lines
+        self.len_lines = len(all_lines)
+        font_height = 10 if len(all_lines) == 6 else 12
         item_list = []
-        start_y = (screen_height - len(all_lines) * font_height) // 2 # Calculate start_y dynamically based on number of lines
+        start_y = (64 - len(all_lines) * font_height) // 2
 
         for i, line in enumerate(all_lines):
             y = start_y + (i * font_height)
