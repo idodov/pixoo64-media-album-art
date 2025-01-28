@@ -224,7 +224,7 @@ With these steps completed, you have installed and set up the script and can now
 | `effect_speed` | WLED Effect Speed | `0` - `255` |
 | `effect_intensity` | WLED Effect Intensity | `0` - `255` |
 | `pallete` | WLED Pallete ID - https://kno.wled.ge/features/palettes/ | `0` - `70` |
-| `only_at_night` | WLED (and RGB) automation runs only on night hours | `False` |
+| `only_at_night` | WLED (and RGB) automation runs only during night hours | `False` |
 
 > [!NOTE]
 > ### `light`
