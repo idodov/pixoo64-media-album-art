@@ -42,17 +42,17 @@ This section will guide you through installing and setting up the PIXOO64 Media 
 1.  **Install AppDaemon:**
     *   Open Home Assistant in your web browser.
     *   Navigate to **Settings** > **Add-ons**.
-    *   Click the **Add-on Store** button (lower right).
+    *   Click the **Add-on Store** button (lower right corner). 
     *   Search for "AppDaemon" and install it.
     *   After installation, start the AppDaemon add-on.
 
 2.  **Install Required Python Packages:**
-    *   Go to the AppDaemon add-on configuration page (found in the same Add-ons page where you started AppDaemon).
-    *   Locate the section for **Python packages**.
+    *   Go to the AppDaemon add-on configuration page (found in the Add-ons page where you started AppDaemon). 
+    *   Locate the **Python packages** section.
     *   Add `pillow` to the list. This package is **required** for image processing.
-    *   Optionally add `python-bidi`. This is required to correctly display right-to-left text (e.g., Arabic, Hebrew).
+    *   Optionally, add `python-bidi`. This is required to correctly display right-to-left text (e.g., Arabic, Hebrew). 
     *   Save the changes. This will install the necessary Python libraries.
-    
+
     ```yaml
     python_packages:
         - pillow
@@ -62,10 +62,10 @@ This section will guide you through installing and setting up the PIXOO64 Media 
 3.  **Create a Toggle Helper:**
     *   In Home Assistant, go to **Settings** > **Devices & Services**.
     *   Click on **Helpers**.
-    *   Click the **Create Helper** button (lower right).
+    *   Click the **Create Helper** button (lower right corner).
     *   Select **Toggle** and give it an appropriate name (e.g., `PIXOO64 Album Art`).
     *   Note the `entity_id` of this helper (e.g., `input_boolean.pixoo64_album_art`); you will need it later for configuration.
-        *   **Important:** Ensure this new helper entity is toggled **ON**. If it's off, the script will not run. This toggle allows you to easily disable the script when needed.
+        *   **Important:** Ensure this new helper entity is toggled **ON**. If it's off, the script will not run. This toggle allows you to easily disable the script when needed. 
 
 4.  **Download the Script:**
     You can install the script using either **HACS** (Home Assistant Community Store, recommended) or by manually downloading the Python file.
@@ -77,11 +77,13 @@ This section will guide you through installing and setting up the PIXOO64 Media 
     *   **If "AppDaemon" repositories are not found**: You need to enable AppDaemon apps discovery and tracking in HACS settings. Go to `Settings` > `Integrations` > `HACS` > `Configure` and enable `AppDaemon apps discovery & tracking`.
     *   Click on **Custom Repositories** and add `https://github.com/idodov/pixoo64-media-album-art` as an **AppDaemon** repository.
     *   Search for and download `PIXOO64 Media Album Art` in HACS.
-    *   **Important:** After installing through HACS, you **MUST** manually move all files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`. HACS places files in the `/addon_configs` directory, while AppDaemon expects them in the `/homeassistant` directory.
-    *  Open `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` to configure it (add `app_dir` line under `appdaemon:`). Do not remove any lines from the file, just add the new line:
+    *   **Important:** After installing through HACS, you **MUST** manually move all files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`. HACS places files in the `/homeassistant` or `/config` directory, while AppDaemon expects them in the `/addon_configs` directory. Note that when you are using the SAMBA SHARE add-on, Windows File Explorer will show the directory as `/config`, meaning that files should be moved to `/config/appdaemon/apps/`.
+    *   Open `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` to configure it (add `app_dir` line under `appdaemon:`). Do not remove any lines from the file, just add the new line and update the Latitude and Longitude values (the units that represent the coordinates at geographic coordinate system) to your own - https://www.latlong.net/): 
        ```yaml
        appdaemon:
          app_dir: /homeassistant/appdaemon/apps/
+         latitude: 51.507351
+         longitude: -0.127758
        ```
 
     **Manual Download:**
@@ -89,13 +91,12 @@ This section will guide you through installing and setting up the PIXOO64 Media 
     *   Alternatively, you can download the Python script directly from the GitHub repository:
         [https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py)
     *   Place this file into the directory `/addon_configs/a0d7b954_appdaemon/apps`.
-    *   **Note:** With this method, you will not receive automatic updates.
+    *   **Note:** With this method, you will not receive automatic updates. 
 
 5.  **Configure AppDaemon:**
     *   You will need to modify the `apps.yaml` file to activate the script.
     *   This file is typically located in the `/appdaemon/apps` directory that you added in the previous step.
-    *   You can use either a **Basic Configuration** for a quick start, or a **Full Configuration** for all features.
-
+    *   You can use either a **Basic Configuration** for a quick start, or a **Full Configuration** for all features. 
 
 ## Basic Configuration:
 
@@ -176,7 +177,7 @@ pixoo64_media_album_art:
         effect_speed: 50                            # 0 to 255
         effect_intensity: 128                       # 0 to 255
         pallete: 0                                  # 0 to 70 (Pallete ID - https://kno.wled.ge/features/palettes/)
-        only_at_night: False                        # Runs only between 17:00 - 05:00
+        only_at_night: False                        # Runs only at night hours
 ```
 
 With these steps completed, you have installed and set up the script and can now configure it to fit your needs.
@@ -223,7 +224,7 @@ With these steps completed, you have installed and set up the script and can now
 | `effect_speed` | WLED Effect Speed | `0` - `255` |
 | `effect_intensity` | WLED Effect Intensity | `0` - `255` |
 | `pallete` | WLED Pallete ID - https://kno.wled.ge/features/palettes/ | `0` - `70` |
-| `only_at_night` | WLED automation runs only from 17:00 to 05:00 | `False` |
+| `only_at_night` | WLED (and RGB) automation runs only on night hours | `False` |
 
 > [!NOTE]
 > ### `light`
