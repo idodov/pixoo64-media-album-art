@@ -70,28 +70,33 @@ This section will guide you through installing and setting up the PIXOO64 Media 
 4.  **Download the Script:**
     You can install the script using either **HACS** (Home Assistant Community Store, recommended) or by manually downloading the Python file.
 
-    **HACS (Recommended):**
+**HACS (Recommended):**
+> [!NOTE]
+> When installing through HACS, you **MUST** manually move all files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`.
+> HACS places files in the `/homeassistant` directory (that can also maped as `/config` directory), while AppDaemon expects them in the `/addon_configs` directory.
+> Note that when you are using the SAMBA SHARE add-on, Windows File Explorer will show the directory as `/config`, meaning that files should be moved to `/config/appdaemon/apps/`.
+>
+> Open `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` to configure it (add `app_dir: /homeassistant/appdaemon/apps/` line under `appdaemon:`).
+>
+> Do not remove any lines from the file, just add the new line and update the Latitude and Longitude values (the units that represent the coordinates at geographic coordinate system) to your own - https://www.latlong.net/): 
+```yaml
+appdaemon:
+   app_dir: /homeassistant/appdaemon/apps/ # DO NOT CHANGE THIS LINE, even if the files located at /config directory (when using Samba Share addon)
+   latitude: 51.507351 # Update value from https://www.latlong.net
+   longitude: -0.127758 # Update value from https://www.latlong.net
+```
+   *   If you don't have HACS installed, follow the instructions on the [HACS's GitHub page](https://hacs.xyz/) to install it.
+   *   After HACS is set up, go to the HACS page in Home Assistant.
+   *   **If "AppDaemon" repositories are not found**: You need to enable AppDaemon apps discovery and tracking in HACS settings. Go to `Settings` > `Integrations` > `HACS` > `Configure` and enable `AppDaemon apps discovery & tracking`.
+   *   Click on **Custom Repositories** and add `https://github.com/idodov/pixoo64-media-album-art` as an **AppDaemon** repository.
+   *   Search for and download `PIXOO64 Media Album Art` in HACS.
 
-    *   If you don't have HACS installed, follow the instructions on the [HACS's GitHub page](https://hacs.xyz/) to install it.
-    *   After HACS is set up, go to the HACS page in Home Assistant.
-    *   **If "AppDaemon" repositories are not found**: You need to enable AppDaemon apps discovery and tracking in HACS settings. Go to `Settings` > `Integrations` > `HACS` > `Configure` and enable `AppDaemon apps discovery & tracking`.
-    *   Click on **Custom Repositories** and add `https://github.com/idodov/pixoo64-media-album-art` as an **AppDaemon** repository.
-    *   Search for and download `PIXOO64 Media Album Art` in HACS.
-    *   **Important:** After installing through HACS, you **MUST** manually move all files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`. HACS places files in the `/homeassistant` or `/config` directory, while AppDaemon expects them in the `/addon_configs` directory. Note that when you are using the SAMBA SHARE add-on, Windows File Explorer will show the directory as `/config`, meaning that files should be moved to `/config/appdaemon/apps/`.
-    *   Open `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` to configure it (add `app_dir` line under `appdaemon:`). Do not remove any lines from the file, just add the new line and update the Latitude and Longitude values (the units that represent the coordinates at geographic coordinate system) to your own - https://www.latlong.net/): 
-       ```yaml
-       appdaemon:
-         app_dir: /homeassistant/appdaemon/apps/
-         latitude: 51.507351
-         longitude: -0.127758
-       ```
+   **Manual Download:**
 
-    **Manual Download:**
-
-    *   Alternatively, you can download the Python script directly from the GitHub repository:
+   *   Alternatively, you can download the Python script directly from the GitHub repository:
         [https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py)
-    *   Place this file into the directory `/addon_configs/a0d7b954_appdaemon/apps`.
-    *   **Note:** With this method, you will not receive automatic updates. 
+   *   Place this file into the directory `/addon_configs/a0d7b954_appdaemon/apps`.
+   *   **Note:** With this method, you will not receive automatic updates. 
 
 5.  **Configure AppDaemon:**
     *   You will need to modify the `apps.yaml` file to activate the script.
