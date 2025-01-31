@@ -715,7 +715,7 @@ If you encounter any issues while setting up or using the PIXOO64 Media Album Ar
 
 #### **Solutions:**
 1. **Verify Media Player Support:**  
-   - Ensure that your media player supports synchronized lyrics (e.g., Spotify Premium).
+   - Ensure that your media player supports synchronized lyrics (media player contains the attribues: `media_duration`, `media_atrist` and `media_title`).
 
 2. **Enable Lyrics in Configuration:**  
    - Set the `lyrics` parameter to `True` in your `apps.yaml` file:
