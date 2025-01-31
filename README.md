@@ -335,8 +335,8 @@ pixoo64_media_album_art:
     class: Pixoo64_Media_Album_Art
     home_assistant:
        light:
-          - "light.living_room"
-           - "light.bed_room"
+         - "light.living_room"
+         - "light.bed_room"
 ```
 
 ### **WLED Integration**
@@ -521,7 +521,7 @@ Below is a detailed breakdown of all the attributes provided by the `sensor.pixo
 | `process_duration`         | The time it takes to process and send the image to the PIXOO64 screen (in seconds).           | `2.49 seconds`                                                                |
 | `spotify_frames`           | The number of frames in the Spotify animation (if applicable).                                | `0`                                                                           |
 | `pixoo_channel`            | The channel number used by the PIXOO64 device.                                                | `0`                                                                           |
-| `image_source`             | The source of the image (e.g., "Original," "Spotify," "AI").                                   | `"Original"`                                                                  |
+| `image_source`             | The source of the image (e.g., "Original," "Spotify," "AI").                                  | `"Original"`                                                                  |
 | `image_url`                | The URL of the image used for the album art (if available).                                   | `"http://homeassistant.local:8123/api/media_player_proxy/..."`                |
 
 
