@@ -265,10 +265,10 @@ Below is a detailed breakdown of all the configuration parameters for the PIXOO6
 | `clock_align`           | Align the clock to the left or right side of the screen.                                      | `"Left"` or `"Right"`                   |
 | `tv_icon`               | Display a TV icon when audio is playing from a TV source.                                     | `True`                                  |
 | `lyrics`                | Display synchronized lyrics (disables `show_text` and `clock`).                               | `True`                                  |
-| `lyrics_font`           | Font ID for displaying lyrics. See [DIVOOM Fonts](https://app.divoom-gz.com/Device/GetTimeDialFontList). | `2`, `4`, `32`, `52`, etc.             |
+| `lyrics_font`           | Font ID for displaying lyrics. See [DIVOOM Fonts](https://app.divoom-gz.com/Device/GetTimeDialFontList). | `2`, `4`, `32`, `52`, etc.   |
 | `limit_colors`          | Reduce the number of colors in the image (4–256) or use original colors (`False`).            | `4` to `256` or `False`                 |
-| `spotify_slide`         | Enable an album art slideshow using Spotify API (requires API keys).                         | `True`                                  |
-| `images_cache`          | Number of processed images to keep in memory cache (each image ≈ 17KB).                      | `1` to `500`                            |
+| `spotify_slide`         | Enable an album art slideshow using Spotify API (requires API keys).                         | `True`                                   |
+| `images_cache`          | Number of processed images to keep in memory cache (each image ≈ 17KB).                      | `1` to `500`                             |
 
 
 </details>
@@ -276,12 +276,12 @@ Below is a detailed breakdown of all the configuration parameters for the PIXOO6
 <details>
 <summary><strong>Text Display Options</strong></summary>
 
-| Parameter               | Description                                                                                   | Example Values                          |
+| Parameter show_text     | Description                                                                                   | Example Values                          |
 |-------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------|
-| `show_text - enabled`   | Display artist and track title information.                                                   | `True`                                  |
-| `show_text - clean_title` | Remove "Remastered," track numbers, and file extensions from the title.                     | `True`                                  |
-| `show_text - text_background` | Adjust the background color behind the text for better visibility.                         | `True`                                  |
-| `special_mode_spotify_slider` | Use Spotify animation when `special_mode` is enabled and `show_text` is active.            | `True`                                  |
+| `enabled`   | Display artist and track title information.                                                               | `True`                                  |
+| `clean_title` | Remove "Remastered," track numbers, and file extensions from the title.                                 | `True`                                  |
+| `text_background` | Adjust the background color behind the text for better visibility.                                  | `True`                                  |
+| `special_mode_spotify_slider` | Use Spotify animation when `special_mode` is enabled and `show_text` is active.         | `True`                                  |
 
 </details>
 
@@ -289,10 +289,10 @@ Below is a detailed breakdown of all the configuration parameters for the PIXOO6
 <summary><strong>Image Cropping Options</strong></summary>
 
 Many album covers come with borders that can distort the display on the PIXOO64's 64x64 pixel screen. The `crop_borders` feature ensures these borders are removed for a cleaner look.
-| Parameter               | Description                                                                                   | Example Values                          |
-|-------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------|
-| `crop_borders - enabled` | Crop borders from album art images.                                                          | `True`                                  |
-| `crop_borders - extra`   | Apply enhanced border cropping for better results.                                           | `True`                                  |
+| Parameter crop_borders  | Description                                                                   | Example Values                          |
+|-------------------------|-------------------------------------------------------------------------------|-----------------------------------------|
+| `enabled` | Crop borders from album art images.                                                         | `True`                                  |
+| `extra`   | Apply enhanced border cropping for better results.                                          | `True`                                  |
 
 | Original | Crop | Extra |
 |---|---|---|
@@ -530,28 +530,29 @@ Below is a detailed breakdown of all the attributes provided by the `sensor.pixo
 Here’s an example of the sensor attributes in action:
 
 ```yaml
-artist: Katy Perry
-media_title: OK
-font_color: "#7fff00"
-background_color_brightness: 128
-background_color: "#003cb2"
-color_alternative_rgb: "#4f7cb7"
+artist: SNIFF'N'THE TEARS
+media_title: DRIVER'S SEAT
+font_color: "#ff00ff"
+background_color_brightness: 64
+background_color: "#004f72"
+color_alternative_rgb: "#004f72"
 background_color_rgb:
   - 0
-  - 60
-  - 178
+  - 79
+  - 114
 color_alternative:
-  - 120
-  - 59
-  - 11
-images_in_cache: 7
-image_memory_cache: 114.71 KB
-process_duration: 2.49 seconds
+  - 246
+  - 167
+  - 134
+images_in_cache: 15
+image_memory_cache: 248.23 KB
+process_duration: 3.49 seconds
 spotify_frames: 0
 pixoo_channel: 0
-image_source: Original
+image_source: Last.FM
 image_url: >-
-  http://homeassistant.local:8123/api/media_player_proxy/media_player.patio?token=d9f2d4c79ef4f0e09c0ff7adc88c185c0a9dh7f3sde19e08eb87693bf7f117a&cache=ed98ff1578144118
+  https://lastfm.freetls.fastly.net/i/u/300x300/1903a3660115ea8295053103419e573c.png
+
 ```
 
 ---
@@ -605,7 +606,7 @@ If you encounter any issues while setting up or using the PIXOO64 Media Album Ar
    - Verify that your media player provides album art metadata. Some players (e.g., radio streams) may not include album art.
 
 2. **Verify API Keys:**  
-   - Ensure that all required API keys (Spotify, Discogs, Last.fm, TIDAL) are correctly entered in the `apps.yaml` file. Refer to the [API Keys](#api-keys) section for instructions on obtaining these keys.
+   - Ensure that all required API keys from the servies you choose (Spotify, Discogs, Last.fm, TIDAL) are correctly entered in the `apps.yaml` file. Refer to the [API Keys](#api-keys) section for instructions on obtaining these keys. 
 
 3. **Enable Fallback Options:**  
    - If album art is unavailable, ensure that fallback options like MusicBrainz or AI image generation are enabled in the configuration:
@@ -679,6 +680,7 @@ If you encounter any issues while setting up or using the PIXOO64 Media Album Ar
 
 3. **Reboot Wi-Fi Router:**  
    - If the PIXOO64 responds slowly, reboot your Wi-Fi router to improve network performance.
+  
 
 </details>
 <details>
@@ -695,22 +697,14 @@ If you encounter any issues while setting up or using the PIXOO64 Media Album Ar
 2. **Restart AppDaemon:**  
    - Restart the AppDaemon add-on to refresh the script and sensor data.
 
-3. **Enable Debug Logging:**  
-   - Enable debug logging to identify potential issues with the script:
-     ```yaml
-     logger:
-       default: info
-       logs:
-         appdaemon: debug
-     ```
-
 </details>
 <details>
 <summary><strong>Lyrics Are Not Displaying</strong></summary>
    Note: Radio stations does not support lyrics.
    
 #### **Possible Causes:**
-- The track does not have synchronized lyrics.
+- The track does not have synchronized lyrics that can be found on database.
+- Media Player not support needed metadata.
 - The `lyrics` parameter is not enabled in the configuration
 
 #### **Solutions:**
@@ -724,7 +718,7 @@ If you encounter any issues while setting up or using the PIXOO64 Media Album Ar
      ```
 
 3. **Check Font Settings:**  
-   - Ensure that the `lyrics_font` parameter is set to a valid font ID. Refer to the [DIVOOM Fonts](https://app.divoom-gz.com/Device/GetTimeDialFontList) documentation for available IDs.
+   - Ensure that the `lyrics_font` parameter is set to a valid font ID.
 
 </details>
 
