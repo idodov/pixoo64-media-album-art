@@ -275,7 +275,6 @@ Below is a detailed breakdown of all the configuration parameters for the PIXOO6
 
 <details>
 <summary><strong>Text Display Options</strong></summary>
-### **Text Display Options**
 
 | Parameter               | Description                                                                                   | Example Values                          |
 |-------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------|
