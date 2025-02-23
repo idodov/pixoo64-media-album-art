@@ -419,7 +419,11 @@ class ImageProcessor:
         if not use_cache: # If the album name is None, do not use the cache.
             try:
                 async with aiohttp.ClientSession() as session:
-                    url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
+                    #url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
+                    if picture is not None and picture.startswith('http'):
+                        url = picture
+                    else:
+                        url = f"{self.config.ha_url}{picture}"
                     try: 
                         async with session.get(url, timeout=10) as response: 
                             response.raise_for_status() 
