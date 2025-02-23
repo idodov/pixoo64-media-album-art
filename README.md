@@ -565,7 +565,15 @@ If you encounter any issues while setting up or using the PIXOO64 Media Album Ar
 - Ensure proper power supply (3A charger) and Wi-Fi performance for optimal functionality.
 - Use appdaemon logging to diagnose issues with the script or integrations.
 
+<details>
+<summary><strong>The PIXOO64 is rebooting</strong></summary>
 
+#### **Possible Causes:**
+The PIXOO64 has a known internal issue that after sending approximately 300 +/- commands, it crashes.
+
+#### **Solutions:**
+Wait for the PIXOO64 to finish initializing. 
+</details>
 <details>
 <summary><strong>The PIXOO64 Screen is Blank or Not Updating</summary>
    
