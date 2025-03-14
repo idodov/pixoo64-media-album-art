@@ -54,6 +54,7 @@ pixoo64_media_album_art:
         kernel: False                               # If True, add embos/edge effect.
         special_mode: False                         # Show day, time and temperature above in upper bar.
         info: False                                 # Show information while fallback.
+        temperature: True                           # Show temeprature
         clock: True                                 # If True, a clock is displayed in the top corner of the screen.
         clock_align: "Right"                        # Clock alignment: "Left" or "Right".
         tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
@@ -2977,7 +2978,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 }
                 moreinfo["ItemList"].append(clock_item)
 
-            if (self.config.temperature or self.config.temperature_ha) and not self.config.special_mode:
+            if (self.config.temperature or self.config.ha_temperature) and not self.config.special_mode:
                 textid += 1
                 x_temp = 3 if self.config.clock_align == "Right" else 48
                 if self.config.temperature and not media_data.temperature:
