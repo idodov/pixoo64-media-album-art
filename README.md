@@ -192,7 +192,7 @@ pixoo64_media_album_art:
         sharpness: False                            # If True, add sharpness effect.
         special_mode: False                         # Show day, time, and temperature above in the upper bar.
         info: False                                 # Show information while fallback.
-        temperature: False                          # Use HA alternative temperature sensor.
+        temperature: False                          # Show temperature.
         clock: True                                 # If True, a clock is displayed in the top corner of the screen.
         clock_align: "Right"                        # Clock alignment: "Left" or "Right".
         tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
@@ -262,7 +262,7 @@ Below is a detailed breakdown of all the configuration parameters for the PIXOO6
 | `sharpness`             | Apply a sharpness filter to images.                                                           | `True`                                  |
 | `colors`                | Enhance colors in the displayed image.                                                        | `True`                                  |
 | `special_mode`          | Show day, time, and temperature in the upper bar.                                             | `False`                                 |
-| `temperature`           | Show HA alternative temperature sensor data                                                   | `True`                                  |
+| `temperature`           | Show temperature sensor data                                                                  | `True`                                  |
 | `clock`                 | Display a clock in the top corner of the screen.                                              | `True`                                  |
 | `clock_align`           | Align the clock to the left or right side of the screen.                                      | `"Left"` or `"Right"`                   |
 | `tv_icon`               | Display a TV icon when audio is playing from a TV source.                                     | `True`                                  |
