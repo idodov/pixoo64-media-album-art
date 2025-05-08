@@ -84,6 +84,7 @@ pixoo64_media_album_art:
 
 import aiohttp
 import asyncio
+import async_timeout
 import base64
 import json
 import logging
@@ -1231,7 +1232,14 @@ class FallbackService:
         """Determine and retrieve the final album art URL, using fallback strategies if needed."""
         self.fail_txt = False
         self.fallback = False
-        media_data.pic_url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
+        media_data.pic_url = None # Initialize to None
+
+        if picture is not None: # Check if picture is not None before using startswith
+            media_data.pic_url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
+        else:
+            _LOGGER.debug("Picture is None, skipping URL prefixing.")
+            media_data.pic_url = picture # picture is already None, so assign None to pic_url as well
+        #media_data.pic_url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
         
         if self.config.force_ai and not media_data.radio_logo and not media_data.playing_tv:
             _LOGGER.info("Force AI mode enabled, trying to generate AI album art.") 
@@ -2683,7 +2691,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def safe_state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any], timeout: aiohttp.ClientTimeout = aiohttp.ClientTimeout(total=20)) -> None:
         """Wrapper for state change callback with timeout protection."""
         try:
-            async with asyncio.timeout(self.callback_timeout):
+            #async with asyncio.timeout(self.callback_timeout):
+            async with async_timeout.timeout(self.callback_timeout):
                 await self.state_change_callback(entity, attribute, old, new, kwargs)
         except asyncio.TimeoutError:
             _LOGGER.warning("Callback timed out after %s seconds - cancelling operation.", self.callback_timeout)
@@ -2776,7 +2785,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def pixoo_run(self, media_state: str, media_data: "MediaData") -> None:
         """Run Pixoo display update with timeout protection."""
         try:
-            async with asyncio.timeout(self.callback_timeout):
+            #async with asyncio.timeout(self.callback_timeout):
+            async with async_timeout.timeout(self.callback_timeout):
                 # Get current channel index
                 self.select_index = await self.pixoo_device.get_current_channel_index()
                 self.select_index = media_data.select_index_original if media_data.select_index_original is not None else self.select_index
