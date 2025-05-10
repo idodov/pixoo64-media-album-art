@@ -79,6 +79,7 @@ python_packages:
 5. Note the `entity_id` of this helper (e.g., `input_boolean.pixoo64_album_art`); you will need it later for configuration.
    - **Important:** Ensure this new helper entity is toggled **ON**. If it's off, the script will not run. This toggle allows you to easily disable the script when needed.
 6. Add this code to `configuration.yaml` if you want to control the display from Homeassistant UI:
+![image](https://github.com/user-attachments/assets/a7923467-c901-4981-8017-282c741957de)
 
 ```yaml
 input_select:
