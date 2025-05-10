@@ -2715,6 +2715,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         mode = await self.get_state(self.config.mode_entity)
         options = [
                 "Default",
+                "AI Generation",
                 "Text only",
                 "Text with Background",
                 "Clock only",
