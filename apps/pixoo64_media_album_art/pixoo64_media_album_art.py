@@ -34,6 +34,8 @@ pixoo64_media_album_art:
         media_player: "media_player.era300"         # The entity ID of your media player.
         toggle: "input_boolean.pixoo64_album_art"   # An input boolean to enable or disable the script's execution.
         pixoo_sensor: "sensor.pixoo64_media_data"   # A sensor to store extracted media data.
+        mode_select: "input_select.pixoo64_album_art_display_mode" # A sensor to store display modes
+
         temperature_sensor: "sensor.temperature"    # HomeAssistant Temperature sensor name instead of the Divoom weather.
         light: "light.living_room"                  # The entity ID of an RGB light to synchronize with the album art colors.
         ai_fallback: "turbo"                        # The AI model to use for generating alternative album art when needed (supports 'flux' or 'turbo').
@@ -200,6 +202,8 @@ class Config:
         self.toggle: str = ha_config.get("toggle", "input_boolean.pixoo64_album_art")
         self.ha_url: str = ha_config.get("ha_url", "http://homeassistant.local:8123")
         self.pixoo_sensor: str = ha_config.get("pixoo_sensor", "sensor.pixoo64_media_data")
+        self.mode_entity: str = ha_config.get("mode_select", "input_select.pixoo64_album_art_display_mode")
+
         self.ha_temperature: Optional[str] = ha_config.get("temperature_sensor") 
         self.light: Optional[str] = ha_config.get("light") 
         self.force_ai: bool = ha_config.get("force_ai", False)
@@ -257,6 +261,18 @@ class Config:
         # Fixing args if needed
         self._fix_config_args(pixoo_url_raw)
         self._validate_config()
+
+
+        # Saving original configuration
+        self.original_spotify_slide   = self.spotify_slide
+        self.original_special_mode    = self.special_mode
+        self.original_special_mode_spotify_slider = self.special_mode_spotify_slider
+        self.original_show_clock      =  self.show_clock
+        self.original_temperature     = self.temperature
+        self.original_show_text       = self.show_text
+        self.original_text_bg         = self.text_bg
+        self.original_force_ai        = self.force_ai
+
 
 
     def _fix_config_args(self, pixoo_url_raw: str): 
@@ -763,8 +779,8 @@ class ImageProcessor:
             lower_part_img = enhancer_lp.enhance(0.3)
             img.paste(lower_part_img, lpc)
 
-
-        if (self.config.temperature or media_data.temperature) and not self.config.show_lyrics:
+        #if (self.config.temperature or media_data.temperature) and not self.config.show_lyrics:
+        if self.config.temperature and not self.config.show_lyrics:
             lpc = (2, 2, 18, 9) if self.config.clock_align == "Right" else (47, 2, 63, 9)
             lower_part_img = img.crop(lpc)
             enhancer_lp = ImageEnhance.Brightness(lower_part_img)
@@ -2598,7 +2614,7 @@ class SpotifyService:
                         async with session.get(album_url, timeout=10) as response: 
                             response.raise_for_status() 
                             image_data = await response.read()
-                            img = Image.Open(BytesIO(image_data))
+                            img = Image.open(BytesIO(image_data))
                             img = img.resize((34, 34), Image.Resampling.LANCZOS)
                             canvas.paste(img, (34 * i, 8))
                     except aiohttp.ClientError as e: 
@@ -2678,6 +2694,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.fallback_service = FallbackService(self.config, self.image_processor)
 
         # Set up state listeners
+        self.listen_state(self._mode_changed, self.config.mode_entity)
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute='media_title')
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute='state')
         if self.config.show_lyrics:
@@ -2685,7 +2702,62 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         self.select_index = await self.pixoo_device.get_current_channel_index()
         self.media_data_sensor: str = self.config.pixoo_sensor  # State sensor
+        await self._apply_mode_settings()
+
+
         _LOGGER.info("Pixoo64 Album Art Display AppDaemon app initialization complete.")
+
+    async def _mode_changed(self, entity, attribute, old, new, kwargs):
+        await self._apply_mode_settings()
+
+
+    async def _apply_mode_settings(self):
+        mode = await self.get_state(self.config.mode_entity)
+        options = [
+                "Default",
+                "Text only",
+                "Text with Background",
+                "Clock only",
+                "Clock and Temperature",
+                "Clock Temperature and Text",
+                "Clock Temperature and Text with Background",
+                "Lyrics",
+                "Lyrics with Background",
+                "Temperature only",
+                "Temperature and Text",
+                "Temperature and Text with Background",
+                "Special Mode",
+                "Special Mode with Text",
+                "Spotify Slider"
+                ]
+        if mode:
+            m = mode.lower()
+            if not m == "default":
+                # map the input_select to your Config flags:
+                self.config.show_lyrics     = ("lyrics" in m) if m else False
+                self.config.spotify_slide   = ("slider" in m) if m else False
+                self.config.special_mode    = ("special" in m) if m else False
+                self.config.show_clock      = ("clock" in m) if m else False
+                self.config.temperature     = ("temperature" in m) if m else False
+                self.config.show_text       = ("text" in m) if m else False
+                self.config.text_bg         = ("background" in m) if m else False
+                self.config.force_ai        = ("ai" in m) if m else False
+                self.config.special_mode_spotify_slider = (self.config.spotify_slide and self.config.special_mode and self.config.show_text)
+            else:
+                self.config.spotify_slide = self.config.original_spotify_slide
+                self.config.special_mode = self.config.original_special_mode
+                self.config.show_clock = self.config.original_show_clock
+                self.config.temperature = self.config.original_temperature
+                self.config.show_text = self.config.original_show_text
+                self.config.text_bg = self.config.original_text_bg
+                self.config.force_ai = self.config.original_force_ai
+                self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
+                self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
+        else:
+            self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
+        
+        if self.config.show_lyrics:
+            self.run_every(self.calculate_position, datetime.now(), 1)  # Consider making run_every interval configurable
 
 
     async def safe_state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any], timeout: aiohttp.ClientTimeout = aiohttp.ClientTimeout(total=20)) -> None:
@@ -2988,7 +3060,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 }
                 moreinfo["ItemList"].append(clock_item)
 
-            if (self.config.temperature or self.config.ha_temperature) and not self.config.special_mode:
+            #if (self.config.temperature or self.config.ha_temperature) and not self.config.special_mode:
+            if self.config.temperature and not self.config.special_mode:
+
                 textid += 1
                 x_temp = 3 if self.config.clock_align == "Right" else 48
                 if self.config.temperature and not media_data.temperature:
@@ -2996,7 +3070,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                                         "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
                                         "speed": 100, "align": 1, "color": color_font}
                     moreinfo["ItemList"].append(temperature_item)
-                elif media_data.temperature:
+                elif media_data.temperature and self.config.temperature:
                     temperature_item = {"TextId": textid, "type": 22, "x": x_temp, "y": 3,
                                         "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
                                         "speed": 100, "align": 1, "color": color_font, "TextString": media_data.temperature}
