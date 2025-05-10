@@ -67,7 +67,7 @@ python_packages:
 
 </details>
 
-### **Step 3: Create a Toggle Helper**
+### **Step 3: Create Helpers**
 
 <details>
 <summary>Click to expand toggle helper creation</summary>
@@ -105,7 +105,7 @@ input_select:
       - "Spotify Slider"
     initial: "Default"
 ```
-
+Settings will change when the next track is played
 </details>
 
 
