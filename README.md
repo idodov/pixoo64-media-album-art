@@ -78,6 +78,32 @@ python_packages:
 4. Select **Toggle** and give it an appropriate name (e.g., `PIXOO64 Album Art`).
 5. Note the `entity_id` of this helper (e.g., `input_boolean.pixoo64_album_art`); you will need it later for configuration.
    - **Important:** Ensure this new helper entity is toggled **ON**. If it's off, the script will not run. This toggle allows you to easily disable the script when needed.
+6. Add this code to `configuration.yaml` if you want to control the display from Homeassistant UI:
+
+```yaml
+input_select:
+  pixoo64_album_art_display_mode:
+    name: Pixoo64 Display Mode
+    icon: mdi:application-cog
+    options:
+      - "Default"
+      - "AI Generation"
+      - "Clock only"
+      - "Clock and Temperature"
+      - "Clock Temperature and Text"
+      - "Clock Temperature and Text with Background"
+      - "Text only"
+      - "Text with Background"
+      - "Temperature only"
+      - "Temperature and Text"
+      - "Temperature and Text with Background"
+      - "Lyrics"
+      - "Lyrics with Background"
+      - "Special Mode"
+      - "Special Mode with Text"
+      - "Spotify Slider"
+    initial: "Default"
+```
 
 </details>
 
