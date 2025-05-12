@@ -103,7 +103,6 @@ input_select:
       - "Special Mode"
       - "Special Mode with Text"
       - "Spotify Slider"
-    initial: "Default"
 ```
 Settings will change when the next track is played
 </details>
