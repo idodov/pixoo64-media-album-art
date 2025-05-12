@@ -264,6 +264,7 @@ class Config:
 
 
         # Saving original configuration
+        self.original_show_lyrics     = self.show_lyrics
         self.original_spotify_slide   = self.spotify_slide
         self.original_special_mode    = self.special_mode
         self.original_special_mode_spotify_slider = self.special_mode_spotify_slider
@@ -2745,6 +2746,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 self.config.force_ai        = ("ai" in m) if m else False
                 self.config.special_mode_spotify_slider = (self.config.spotify_slide and self.config.special_mode and self.config.show_text)
             else:
+                self.config.show_lyrics = self.config.original_show_lyrics
                 self.config.spotify_slide = self.config.original_spotify_slide
                 self.config.special_mode = self.config.original_special_mode
                 self.config.show_clock = self.config.original_show_clock
