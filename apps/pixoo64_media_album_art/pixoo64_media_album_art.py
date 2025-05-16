@@ -273,8 +273,12 @@ class Config:
         self.original_show_text       = self.show_text
         self.original_text_bg         = self.text_bg
         self.original_force_ai        = self.force_ai
-
-
+        self.original_full_control    = self.full_control
+        self.original_contrast        = self.contrast
+        self.original_sharpness       = self.sharpness
+        self.original_colors          = self.colors
+        self.original_kernel          = self.kernel
+        self.original_ai_fallback     = self.ai_fallback
 
     def _fix_config_args(self, pixoo_url_raw: str): 
         """Fixes and formats configuration arguments."""
@@ -467,7 +471,7 @@ class ImageProcessor:
             async with aiohttp.ClientSession() as session:
                 url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
                 try: 
-                    async with session.get(url, timeout=10) as response: 
+                    async with session.get(url, timeout=30) as response: 
                         response.raise_for_status() 
                         image_data = await response.read()
                         processed_data = await self.process_image_data(image_data, media_data)  # Process image *before* caching
@@ -2698,13 +2702,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.listen_state(self._mode_changed, self.config.mode_entity)
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute='media_title')
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute='state')
-        if self.config.show_lyrics:
-            self.run_every(self.calculate_position, datetime.now(), 1)  # Consider making run_every interval configurable
+        
+        # == Now running from _apply_mode_settings() 
+        #if self.config.show_lyrics:
+        #    self.run_every(self.calculate_position, datetime.now(), 1)
 
         self.select_index = await self.pixoo_device.get_current_channel_index()
         self.media_data_sensor: str = self.config.pixoo_sensor  # State sensor
-        await self._apply_mode_settings()
-
 
         _LOGGER.info("Pixoo64 Album Art Display AppDaemon app initialization complete.")
 
@@ -2713,10 +2717,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
 
     async def _apply_mode_settings(self):
-        mode = await self.get_state(self.config.mode_entity)
+        spotify_api = bool(self.config.spotify_client_id and self.config.spotify_client_secret)
         options = [
                 "Default",
-                "AI Generation",
+                "AI Generation - Flux",
+                "AI Generation - Turbo",
                 "Text only",
                 "Text with Background",
                 "Clock only",
@@ -2729,38 +2734,68 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "Temperature and Text",
                 "Temperature and Text with Background",
                 "Special Mode",
-                "Special Mode with Text",
-                "Spotify Slider"
+                "Special Mode with Text"
                 ]
-        if mode:
-            m = mode.lower()
-            if not m == "default":
-                # map the input_select to your Config flags:
-                self.config.show_lyrics     = ("lyrics" in m) if m else False
-                self.config.spotify_slide   = ("slider" in m) if m else False
-                self.config.special_mode    = ("special" in m) if m else False
-                self.config.show_clock      = ("clock" in m) if m else False
-                self.config.temperature     = ("temperature" in m) if m else False
-                self.config.show_text       = ("text" in m) if m else False
-                self.config.text_bg         = ("background" in m) if m else False
-                self.config.force_ai        = ("ai" in m) if m else False
-                self.config.special_mode_spotify_slider = (self.config.spotify_slide and self.config.special_mode and self.config.show_text)
+
+        if spotify_api:
+            options.append("Spotify Slider (beta)")
+
+        self.config.show_lyrics = self.config.original_show_lyrics
+        self.config.spotify_slide = self.config.original_spotify_slide
+        self.config.special_mode = self.config.original_special_mode
+        self.config.show_clock = self.config.original_show_clock
+        self.config.temperature = self.config.original_temperature
+        self.config.show_text = self.config.original_show_text
+        self.config.text_bg = self.config.original_text_bg
+        self.config.force_ai = self.config.original_force_ai
+        self.config.ai_fallback = self.config.original_ai_fallback
+        self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
+
+        try:
+            if not self.entity_exists(self.config.mode_entity):
+                await self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
             else:
-                self.config.show_lyrics = self.config.original_show_lyrics
-                self.config.spotify_slide = self.config.original_spotify_slide
-                self.config.special_mode = self.config.original_special_mode
-                self.config.show_clock = self.config.original_show_clock
-                self.config.temperature = self.config.original_temperature
-                self.config.show_text = self.config.original_show_text
-                self.config.text_bg = self.config.original_text_bg
-                self.config.force_ai = self.config.original_force_ai
-                self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
-                self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
-        else:
-            self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
+                mode = await self.get_state(self.config.mode_entity)
+
+            await self.call_service("input_select/set_options", entity_id=self.config.mode_entity, options=options,)
+
+            if mode:
+                m = mode.lower()
+                if not m == "default":
+                    self.config.show_lyrics     = ("lyrics" in m) if m else False
+                    self.config.spotify_slide   = ("slider" in m) if m else False
+                    self.config.special_mode    = ("special" in m) if m else False
+                    self.config.show_clock      = ("clock" in m) if m else False
+                    self.config.temperature     = ("temperature" in m) if m else False
+                    self.config.show_text       = ("text" in m) if m else False
+                    self.config.text_bg         = ("background" in m) if m else False
+                    self.config.force_ai        = ("ai" in m) if m else False
+
+                    if self.config.force_ai:
+                        ai_fallback_engine_turbo = ("turbo" in m) if m else False
+                        ai_fallback_engine_flux  = ("flux" in m) if m else False
+                        
+                        if ai_fallback_engine_turbo:
+                            self.config.ai_fallback     = "turbo"
+                        elif ai_fallback_engine_flux:
+                            self.config.ai_fallback     = "flux"
         
+                    self.config.special_mode_spotify_slider = bool(self.config.spotify_slide and self.config.special_mode and self.config.show_text)
+                    self.image_processor.image_cache.clear()
+
+                    await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
+
+                else:
+                    await self.call_service("input_select/select_option", entity_id=self.config.mode_entity, option=options[0], )
+        
+        except Exception as e:
+            if not self.entity_exists(self.config.mode_entity):
+                await self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
+            await self.call_service("input_select/set_options", entity_id=self.config.mode_entity, options=options,)
+            await self.call_service("input_select/select_option", entity_id=self.config.mode_entity, option=options[0], )
+
         if self.config.show_lyrics:
-            self.run_every(self.calculate_position, datetime.now(), 1)  # Consider making run_every interval configurable
+            self.run_every(self.calculate_position, datetime.now(), 1) 
 
 
     async def safe_state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any], timeout: aiohttp.ClientTimeout = aiohttp.ClientTimeout(total=20)) -> None:
