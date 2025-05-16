@@ -88,7 +88,8 @@ input_select:
     icon: mdi:application-cog
     options:
       - "Default"
-      - "AI Generation"
+      - "AI Generation - Flux"
+      - "AI Generation - Turbo"
       - "Clock only"
       - "Clock and Temperature"
       - "Clock Temperature and Text"
@@ -102,9 +103,7 @@ input_select:
       - "Lyrics with Background"
       - "Special Mode"
       - "Special Mode with Text"
-      - "Spotify Slider"
 ```
-Settings will change when the next track is played
 </details>
 
 
