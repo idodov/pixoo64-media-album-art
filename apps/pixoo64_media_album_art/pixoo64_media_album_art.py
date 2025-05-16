@@ -2740,17 +2740,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if spotify_api:
             options.append("Spotify Slider (beta)")
 
-        self.config.show_lyrics = self.config.original_show_lyrics
-        self.config.spotify_slide = self.config.original_spotify_slide
-        self.config.special_mode = self.config.original_special_mode
-        self.config.show_clock = self.config.original_show_clock
-        self.config.temperature = self.config.original_temperature
-        self.config.show_text = self.config.original_show_text
-        self.config.text_bg = self.config.original_text_bg
-        self.config.force_ai = self.config.original_force_ai
-        self.config.ai_fallback = self.config.original_ai_fallback
-        self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
-
         try:
             if not self.entity_exists(self.config.mode_entity):
                 await self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
@@ -2787,6 +2776,16 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
                 else:
                     await self.call_service("input_select/select_option", entity_id=self.config.mode_entity, option=options[0], )
+                    self.config.show_lyrics = self.config.original_show_lyrics
+                    self.config.spotify_slide = self.config.original_spotify_slide
+                    self.config.special_mode = self.config.original_special_mode
+                    self.config.show_clock = self.config.original_show_clock
+                    self.config.temperature = self.config.original_temperature
+                    self.config.show_text = self.config.original_show_text
+                    self.config.text_bg = self.config.original_text_bg
+                    self.config.force_ai = self.config.original_force_ai
+                    self.config.ai_fallback = self.config.original_ai_fallback
+                    self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
         
         except Exception as e:
             if not self.entity_exists(self.config.mode_entity):
@@ -2976,7 +2975,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if self.config.wled:
                     await self.control_wled_light('off')
                     _LOGGER.debug("WLED light control turned OFF for TV playback mode.")
-
+            sensor_state = f"{media_data.artist} / {media_data.title}"
             new_attributes = {
                 "artist": media_data.artist,
                 "media_title": media_data.title,
@@ -2992,7 +2991,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "spotify_frames": media_data.spotify_frames,
                 "pixoo_channel": self.select_index,
                 "image_source": media_data.pic_source,
-                "image_url": media_data.pic_url
+                "image_url": media_data.pic_url,
+                "lyrics": media_data.lyrics
             }
 
             payload = {
@@ -3034,7 +3034,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             duration = end_time - start_time
             media_data.process_duration = f"{duration:.2f} seconds"
             new_attributes["process_duration"] = media_data.process_duration
-            await self.set_state(self.media_data_sensor, state="on", attributes=new_attributes)
+            await self.set_state(self.media_data_sensor, state=sensor_state, attributes=new_attributes)
 
             if self.fallback_service.fail_txt and self.fallback_service.fallback:
                 black_img = self.fallback_service.create_black_screen()
