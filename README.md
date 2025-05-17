@@ -281,8 +281,8 @@ Below is a detailed breakdown of all the configuration parameters for the PIXOO6
 | `light`                 | RGB light entity ID to sync with album art colors (optional).                                 | `False` or `"light.living_room"`        |
 | `ai_fallback`           | AI model to generate alternative album art (`flux` or `turbo`).                               | `"turbo"`                               |
 | `temperature_sensor`    | Home Assistant temperature sensor to display instead of Divoom weather (optional).            | `"sensor.temperature"`                  |
-| `mode_select`           | Home Assistant mode select entity (optional).            | `"pixoo64_album_art_display_mode"`                  |
-| `crop_select`           | Home Assistant crop select entity (optional).            | `"pixoo64_album_art_display_crop_mode"`                  |
+| `mode_select`           | Home Assistant mode select entity (optional).            | `"input_boolean.pixoo64_album_art_display_mode"`                  |
+| `crop_select`           | Home Assistant crop select entity (optional).            | `"input_boolean.pixoo64_album_art_display_crop_mode"`                  |
 | `musicbrainz`           | Search for album art in MusicBrainz if other sources fail.                                    | `True`                                  |
 | `spotify_client_id`     | Spotify API client ID (required for Spotify features).                                        | `False` or `"your_spotify_client_id"`   |
 | `spotify_client_secret` | Spotify API client secret (required for Spotify features).                                    | `False` or `"your_spotify_client_secret"`|
