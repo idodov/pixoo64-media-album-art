@@ -1219,6 +1219,7 @@ class MediaData:
             r'\([^)]*live\s*[^)]*\)',
             r'\([^)]*bonus\s*[^)]*\)',
             r'\([^)]*deluxe\s*[^)]*\)',
+            r'\([^)]*mix\s*[^)]*\)',
             r'\([^)]*\d{4}\)', 
             r'^\d+\s*[\.-]\s*',
             r'\.(mp3|m4a|wav|flac)$',
@@ -2709,6 +2710,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         self.select_index = await self.pixoo_device.get_current_channel_index()
         self.media_data_sensor: str = self.config.pixoo_sensor  # State sensor
+        await self._apply_mode_settings()
 
         _LOGGER.info("Pixoo64 Album Art Display AppDaemon app initialization complete.")
 
@@ -2717,7 +2719,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
 
     async def _apply_mode_settings(self):
-        spotify_api = bool(self.config.spotify_client_id and self.config.spotify_client_secret)
         options = [
                 "Default",
                 "AI Generation - Flux",
@@ -2736,13 +2737,15 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "Special Mode",
                 "Special Mode with Text"
                 ]
-
+        
+        spotify_api = bool(self.config.spotify_client_id and self.config.spotify_client_secret)
         if spotify_api:
             options.append("Spotify Slider (beta)")
 
         try:
             if not self.entity_exists(self.config.mode_entity):
                 await self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
+                mode = "Default"
             else:
                 mode = await self.get_state(self.config.mode_entity)
 
@@ -2772,8 +2775,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     self.config.special_mode_spotify_slider = bool(self.config.spotify_slide and self.config.special_mode and self.config.show_text)
                     self.image_processor.image_cache.clear()
 
-                    await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
-
                 else:
                     await self.call_service("input_select/select_option", entity_id=self.config.mode_entity, option=options[0], )
                     self.config.show_lyrics = self.config.original_show_lyrics
@@ -2786,6 +2787,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     self.config.force_ai = self.config.original_force_ai
                     self.config.ai_fallback = self.config.original_ai_fallback
                     self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
+                
+                await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
         
         except Exception as e:
             if not self.entity_exists(self.config.mode_entity):
