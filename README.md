@@ -88,21 +88,34 @@ input_select:
     icon: mdi:application-cog
     options:
       - "Default"
+      - "Clean"
       - "AI Generation - Flux"
       - "AI Generation - Turbo"
-      - "Clock only"
-      - "Clock and Temperature"
-      - "Clock Temperature and Text"
-      - "Clock Temperature and Text with Background"
       - "Text only"
       - "Text with Background"
-      - "Temperature only"
-      - "Temperature and Text"
-      - "Temperature and Text with Background"
+      - "Clock only"
+      - "Clock with Background"
+      - "Clock and Temperature"
+      - "Clock and Temperature with Background"
+      - "Clock Temperature and Text"
+      - "Clock Temperature and Text with Background"
       - "Lyrics"
       - "Lyrics with Background"
+      - "Temperature only"
+      - "Temperature with Background"
+      - "Temperature and Text"
+      - "Temperature and Text with Background"
       - "Special Mode"
       - "Special Mode with Text"
+
+  pixoo64_album_art_crop_mode:
+    name: Pixoo64 Crop Mode
+    icon: mdi:application-edit
+    options:
+      - "Default"
+      - "No Crop"
+      - "Crop"
+      - "Crop Exra"
 ```
 </details>
 
@@ -198,6 +211,8 @@ pixoo64_media_album_art:
         toggle: "input_boolean.pixoo64_album_art"   # An input boolean to enable or disable the script's execution.
         pixoo_sensor: "sensor.pixoo64_media_data"   # A sensor to store extracted media data.
         temperature_sensor: "sensor.temperature"    # HomeAssistant Temperature sensor name instead of the Divoom weather.
+        mode_select: "input_select.pixoo64_album_art_display_mode"
+        crop_select: "input_select.pixoo64_album_art_crop_mode"
         light: "light.living_room"                  # The entity ID of an RGB light to synchronize with the album art colors.
         ai_fallback: "turbo"                        # The AI model to use for generating alternative album art when needed (supports 'flux' or 'turbo').
         force_ai: False                             # If True, only AI-generated images will be displayed all the time.
@@ -265,7 +280,9 @@ Below is a detailed breakdown of all the configuration parameters for the PIXOO6
 | `pixoo_sensor`          | Sensor to store extracted media data (optional).                                              | `"sensor.pixoo64_media_data"`           |
 | `light`                 | RGB light entity ID to sync with album art colors (optional).                                 | `False` or `"light.living_room"`        |
 | `ai_fallback`           | AI model to generate alternative album art (`flux` or `turbo`).                               | `"turbo"`                               |
-| `temperature_sensor`    | Home Assistant temperature sensor to display instead of Divoom weather (optional).           | `"sensor.temperature"`                  |
+| `temperature_sensor`    | Home Assistant temperature sensor to display instead of Divoom weather (optional).            | `"sensor.temperature"`                  |
+| `mode_select`           | Home Assistant mode select entity (optional).            | `"pixoo64_album_art_display_mode"`                  |
+| `crop_select`           | Home Assistant crop select entity (optional).            | `"pixoo64_album_art_display_crop_mode"`                  |
 | `musicbrainz`           | Search for album art in MusicBrainz if other sources fail.                                    | `True`                                  |
 | `spotify_client_id`     | Spotify API client ID (required for Spotify features).                                        | `False` or `"your_spotify_client_id"`   |
 | `spotify_client_secret` | Spotify API client secret (required for Spotify features).                                    | `False` or `"your_spotify_client_secret"`|
@@ -550,7 +567,7 @@ Below is a detailed breakdown of all the attributes provided by the `sensor.pixo
 | `pixoo_channel`            | The channel number used by the PIXOO64 device.                                                | `0`                                                                           |
 | `image_source`             | The source of the image (e.g., "Original," "Spotify," "AI").                                  | `"Original"`                                                                  |
 | `image_url`                | The URL of the image used for the album art (if available).                                   | `"http://homeassistant.local:8123/api/media_player_proxy/..."`                |
-
+| `lyrics`                | Lyrics (if available).                                   | `[]`                |
 
 ### **Example Sensor Output**
 
@@ -579,6 +596,7 @@ pixoo_channel: 0
 image_source: Last.FM
 image_url: >-
   https://lastfm.freetls.fastly.net/i/u/300x300/1903a3660115ea8295053103419e573c.png
+lyrics: []
 
 ```
 
