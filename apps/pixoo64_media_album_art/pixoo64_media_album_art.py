@@ -200,7 +200,7 @@ class Config:
             'pixoo_sensor': 'sensor.pixoo64_media_data',
             'mode_entity': ('mode_select', 'input_select.pixoo64_album_art_display_mode'),
             'crop_entity': ('crop_select', 'input_select.pixoo64_album_art_crop_mode'),
-            'ha_temperature': None,
+            'temperature_sensor': None,
             'light': None,
             'force_ai': False,
             'ai_fallback': 'turbo',
@@ -1194,9 +1194,9 @@ class MediaData:
                 else:
                     self.picture = "TV_IS_ON"
 
-            if self.config.ha_temperature:
-                temperature = await hass.get_state(self.config.ha_temperature)
-                temperature_unit = await hass.get_state(self.config.ha_temperature, attribute="unit_of_measurement") # Get unit separately
+            if self.config.temperature_sensor:
+                temperature = await hass.get_state(self.config.temperature_sensor)
+                temperature_unit = await hass.get_state(self.config.temperature_sensor, attribute="unit_of_measurement") # Get unit separately
                 try:
                     temperature_val = float(temperature) if temperature else None # Handle None temperature value
                     if temperature_val is not None and temperature_unit: # Check for both value and unit
@@ -1205,7 +1205,7 @@ class MediaData:
                         self.temperature = None # Reset to None if no valid temp or unit
                 except (ValueError, TypeError): # Catch potential conversion errors
                     self.temperature = None
-                    _LOGGER.warning(f"Could not parse temperature value '{temperature}' from {self.config.ha_temperature}.") # Log warning if parsing fails
+                    _LOGGER.warning(f"Could not parse temperature value '{temperature}' from {self.config.temperature_sensor}.") # Log warning if parsing fails
 
             return self
 
@@ -3200,11 +3200,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 }
                 moreinfo["ItemList"].append(clock_item)
 
-            #if (self.config.temperature or self.config.ha_temperature) and not self.config.special_mode:
+            #if (self.config.temperature or self.config.temperature_sensor) and not self.config.special_mode:
             if self.config.temperature and not self.config.special_mode:
 
                 textid += 1
-                x_temp = 3 if self.config.clock_align == "Right" else 48
+                x_temp = 3 if self.config.clock_align == "Right" else 40
                 if self.config.temperature and not media_data.temperature:
                     temperature_item = {"TextId": textid, "type": 17, "x": x_temp, "y": 3,
                                         "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
@@ -3234,11 +3234,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     "color": background_color}
 
                 if media_data.temperature:
-                    temperature = {"TextId": 3, "type": 22, "x": 40, "y": 1,
+                    temperature = {"TextId": 3, "type": 22, "x": 46, "y": 1,
                                 "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
                                 "speed": 100, "align": 1, "color": color_font, "TextString": media_data.temperature}
                 else:
-                    temperature = {"TextId": 4, "type": 17, "x": 40, "y": 1,
+                    temperature = {"TextId": 4, "type": 17, "x": 46, "y": 1,
                                 "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
                                 "speed": 100, "align": 3, "color": color_font}
 
