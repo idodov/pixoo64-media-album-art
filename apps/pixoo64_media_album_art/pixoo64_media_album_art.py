@@ -224,7 +224,7 @@ class Config:
             'show_clock': False,
             'clock_align': 'Right',
             'temperature': False,
-            'tv_icon_pic': True,
+            'tv_icon': True,
             'spotify_slide': False,
             'images_cache': 10,
             'limit_color': None,
