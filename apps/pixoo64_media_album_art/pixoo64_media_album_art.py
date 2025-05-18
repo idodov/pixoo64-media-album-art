@@ -243,13 +243,13 @@ class Config:
         },
         'wled': {
             'wled': ('wled_ip', None),
-            'wled_brightness': 255,
-            'wled_effect': 38,
-            'wled_effect_speed': 60,
-            'wled_effect_intensity': 128,
-            'wled_only_at_night': False,
-            'wled_pallete': 0,
-            'wled_sound_effect': 0,
+            'brightness': 255,
+            'effect': 38,
+            'effect_speed': 60,
+            'effect_intensity': 128,
+            'only_at_night': False,
+            'pallete': 0,
+            'sound_effect': 0,
         },
     }
 
@@ -266,7 +266,7 @@ class Config:
 
         # Post-process specific clamping
         self.images_cache = max(1, min(int(self.images_cache), 100))
-        self.wled_sound_effect = max(0, min(int(self.wled_sound_effect), 3))
+        self.sound_effect = max(0, min(int(self.sound_effect), 3))
 
         # Fix URL and validate
         self._fix_config_args(self.url)  # uses pixoo URL
@@ -312,23 +312,23 @@ class Config:
         if self.images_cache <= 0:
             _LOGGER.warning(f"Invalid `images_cache` value: {self.images_cache}. Defaulting to 1.")
             self.images_cache = 1
-        if not (0 <= self.wled_brightness <= 255):
-            _LOGGER.warning(f"Invalid WLED brightness value: {self.wled_brightness}. Value should be between 0 and 255. Defaulting to 255.")
-            self.wled_brightness = 255
-        if not (0 <= self.wled_effect <= 186): 
-            _LOGGER.warning(f"Invalid WLED effect value: {self.wled_effect}. Value should be between 0 and 186. Defaulting to 38.")
-            self.wled_effect = 38
-        if not (0 <= self.wled_effect_speed <= 255):
-            _LOGGER.warning(f"Invalid WLED effect speed value: {self.wled_effect_speed}. Value should be between 0 and 255. Defaulting to 60.")
-            self.wled_effect_speed = 60
-        if not (0 <= self.wled_effect_intensity <= 255):
-            _LOGGER.warning(f"Invalid WLED effect intensity value: {self.wled_effect_intensity}. Value should be between 0 and 255. Defaulting to 128.")
-            self.wled_effect_intensity = 128
-        if not (0 <= self.wled_pallete <= 70): 
-            _LOGGER.warning(f"Invalid WLED pallete value: {self.wled_pallete}. Value should be between 0 and 70. Defaulting to 0.")
-            self.wled_pallete = 0
-        if not (0 <= self.wled_sound_effect <= 3):
-            _LOGGER.warning(f"Invalid WLED sound effect value: {self.wled_sound_effect}. Value should be between 0 and 3. Defaulting to 0.")
+        if not (0 <= self.brightness <= 255):
+            _LOGGER.warning(f"Invalid WLED brightness value: {self.brightness}. Value should be between 0 and 255. Defaulting to 255.")
+            self.brightness = 255
+        if not (0 <= self.effect <= 186): 
+            _LOGGER.warning(f"Invalid WLED effect value: {self.effect}. Value should be between 0 and 186. Defaulting to 38.")
+            self.effect = 38
+        if not (0 <= self.effect_speed <= 255):
+            _LOGGER.warning(f"Invalid WLED effect speed value: {self.effect_speed}. Value should be between 0 and 255. Defaulting to 60.")
+            self.effect_speed = 60
+        if not (0 <= self.effect_intensity <= 255):
+            _LOGGER.warning(f"Invalid WLED effect intensity value: {self.effect_intensity}. Value should be between 0 and 255. Defaulting to 128.")
+            self.effect_intensity = 128
+        if not (0 <= self.pallete <= 70): 
+            _LOGGER.warning(f"Invalid WLED pallete value: {self.pallete}. Value should be between 0 and 70. Defaulting to 0.")
+            self.pallete = 0
+        if not (0 <= self.sound_effect <= 3):
+            _LOGGER.warning(f"Invalid WLED sound effect value: {self.sound_effect}. Value should be between 0 and 3. Defaulting to 0.")
             self.wled_sound_effect = 0
         if self.clock_align not in ["Left", "Right"]:
             _LOGGER.warning(f"Invalid clock alignment value: {self.clock_align}. Defaulting to 'Right'.")
@@ -3234,11 +3234,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     "color": background_color}
 
                 if media_data.temperature:
-                    temperature = {"TextId": 3, "type": 22, "x": 46, "y": 1,
+                    temperature = {"TextId": 3, "type": 22, "x": 40, "y": 1,
                                 "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
                                 "speed": 100, "align": 1, "color": color_font, "TextString": media_data.temperature}
                 else:
-                    temperature = {"TextId": 4, "type": 17, "x": 46, "y": 1,
+                    temperature = {"TextId": 4, "type": 17, "x": 40, "y": 1,
                                 "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
                                 "speed": 100, "align": 3, "color": color_font}
 
@@ -3285,7 +3285,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def control_light(self, action: str, background_color_rgb: Optional[tuple[int, int, int]] = None, is_night: bool = True) -> None:
         """Control Home Assistant light based on album art colors."""
-        if not is_night and self.config.wled_only_at_night:
+        if not is_night and self.config.only_at_night:
             return  # Exit if not night and only_at_night is configured
         service_data = {'entity_id': self.config.light}
         if action == 'on':
@@ -3302,7 +3302,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def control_wled_light(self, action: str, color1: Optional[str] = None, color2: Optional[str] = None, color3: Optional[str] = None, is_night: bool = True) -> None:
         """Control WLED light based on album art colors."""
         # Ensure we control the light only if time conditions and settings allow
-        if not is_night and self.config.wled_only_at_night:
+        if not is_night and self.config.only_at_night:
             return  # Exit if not night and only_at_night is configured
 
         ip_address = self.config.wled
@@ -3311,7 +3311,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             _LOGGER.warning("IP address for WLED light control is not configured or invalid.")
             return  # Exit if no IP address
 
-        effect_id = self.config.wled_effect
+        effect_id = self.config.effect
         # Validate the effect ID
         if not (0 <= effect_id <= 186):
             _LOGGER.error(f"Invalid WLED effect ID: {effect_id}. Must be between 0 and 186.")  # Error log if effect ID invalid
@@ -3326,20 +3326,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             else:
                 segment["col"] = [color1, color2, color3]
 
-        if self.config.wled_effect_speed:
-            segment["sx"] = self.config.wled_effect_speed
+        if self.config.effect_speed:
+            segment["sx"] = self.config.effect_speed
 
-        if self.config.wled_effect_intensity:
-            segment["ix"] = self.config.wled_effect_intensity
+        if self.config.effect_intensity:
+            segment["ix"] = self.config.effect_intensity
 
-        if self.config.wled_pallete:
-            segment["pal"] = self.config.wled_pallete
+        if self.config.pallete:
+            segment["pal"] = self.config.pallete
 
-        if self.config.wled_sound_effect:
-            segment["si"] = self.config.wled_sound_effect
+        if self.config.sound_effect:
+            segment["si"] = self.config.sound_effect
 
         # Prepare the JSON payload
-        payload = {"on": True, "bri": self.config.wled_brightness, "seg": [segment]}
+        payload = {"on": True, "bri": self.config.brightness, "seg": [segment]}
 
         if action == "off":  # Action is 'off'
             payload = {"on": False}  # Off action simply turns off the light
