@@ -1,20 +1,26 @@
 # 🎵 PIXOO64 Media Album Art Display
 
-This AppDaemon script for Home Assistant enhances your music experience by displaying relevant information on your DIVOOM PIXOO64 screen. When music plays, the script automatically fetches and displays the album art of the current track. If album art isn't available, it can generate an image using AI, ensuring a visually engaging experience. The script also supports synchronized lyrics, artist and track info, and can even sync an RGB light's color to match the album art.
+This AppDaemon script for Home Assistant enhances your music experience by displaying rich visuals on your DIVOOM PIXOO64 screen. It automatically shows album art, lyrics, time, temperature, and more whenever music is playing. If album art isn’t available, it uses online APIs or AI image generation to create one on the fly. It can also sync colors with lights or WLED devices for immersive ambiance.
+
+---
+
+## 🎨 Features
+
+- **📀 Dynamic Album Art** — Displays 64x64 optimized artwork for the current track.
+- **🧠 Intelligent Fallback** — Searches Spotify, Discogs, Last.fm, TIDAL, and MusicBrainz. If all fail, uses AI-generated art via pollinations.ai (`turbo` or `flux`).
+- **🎤 Synchronized Lyrics** — Shows lyrics with timing when supported by the media player.
+- **🕒 Real-Time Overlay** — Displays track info, time, temperature, and more as overlays.
+- **🔥 Burned Mode** — Adds high-contrast styling. Can be combined with overlays like clock, temperature, or text.
+- **🎞️ Spotify Slider** — Scrolls through Spotify-recommended album covers.
+- **🌈 RGB/WLED Lighting** — Syncs nearby lights with the dominant color of the album cover.
+- **🛠️ Highly Configurable** — More behavior combinations via YAML or Home Assistant UI.
+
+---
 
 
 ## 🎨 Examples
 
 ![PIXOO_album_gallery](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71348538-2422-47e3-ac3d-aa1d7329333c)
-
-Here’s a summary of the main features:
-- **Dynamic Album Art:** Displays album art on your PIXOO64 when a track starts playing, scaling and preparing the image for the 64x64 pixel display.
-- **Intelligent Fallback:** If album art is unavailable, the script tries to find it online (Spotify, Discogs, Last.fm, MusicBrainz). If all else fails, it generates a unique image using AI.
-- **Lyrics Sync:** Fetches and displays synchronized lyrics for supported media sources, advancing as the song plays. *(Note: Not all sources support lyrics.)*
-- **Real-Time Info:** Displays the current time, artist's name, and track title on the screen.
-- **Spotify Album Slide:** Shows a slideshow of album covers related to the current track, using the Spotify API.
-- **Dynamic Lighting:** Synchronizes an RGB light's color with the album art's primary color.
-- **Special Mode:** An optional display mode combining album art with a clock, day, and temperature, plus artist/title info.
 
 ---
 
@@ -55,15 +61,18 @@ Follow these steps to install and set up the PIXOO64 Media Album Art Display scr
 
 1. Go to the AppDaemon add-on configuration page (found in the Add-ons page where you started AppDaemon).
 2. Locate the **Python packages** section.
-3. Add `pillow` to the list. This package is **required** for image processing.
-4. Optionally, add `python-bidi`. This is required to correctly display right-to-left text (e.g., Arabic, Hebrew).
-5. Save the changes. This will install the necessary Python libraries.
+3. Add the following packages:
 
 ```yaml
 python_packages:
-    - pillow
-    - python-bidi  # Optional: Required for RTL text support (e.g., Arabic, Hebrew)
+  - pillow
+  - python-bidi
+  - unidecode
 ```
+
+- `pillow` — Required for image handling.
+- `python-bidi` — Supports right-to-left (RTL) text (Arabic, Hebrew, etc).
+- `unidecode` — Standardizes non-ASCII text for filenames, caching, and comparison. Used in **Burned Mode**.
 
 </details>
 
@@ -76,12 +85,20 @@ python_packages:
 2. Click on **Helpers**.
 3. Click the **Create Helper** button (lower right corner).
 4. Select **Toggle** and give it an appropriate name (e.g., `PIXOO64 Album Art`).
-5. Note the `entity_id` of this helper (e.g., `input_boolean.pixoo64_album_art`); you will need it later for configuration.
+5. Note if the `entity_id` of this helper is not named `input_boolean.pixoo64_album_art`; you will need it later for configuration.
    - **Important:** Ensure this new helper entity is toggled **ON**. If it's off, the script will not run. This toggle allows you to easily disable the script when needed.
-6. Add this code to `configuration.yaml` if you want to control the display from Homeassistant UI:
+6. Add this code to `configuration.yaml` if you want to control the display from Homeassistant UI (or add them as helpers):
 ![image](https://github.com/user-attachments/assets/a7923467-c901-4981-8017-282c741957de)
 
 ```yaml
+input_number:
+  pixoo64_album_art_lyrics_sync:
+    name: Lyrics Sync
+    icon: mdi:text-box
+    min: -10
+    max: 10
+    step: 1
+
 input_select:
   pixoo64_album_art_display_mode:
     name: Pixoo64 Display Mode
@@ -89,24 +106,30 @@ input_select:
     options:
       - "Default"
       - "Clean"
-      - "AI Generation - Flux"
-      - "AI Generation - Turbo"
-      - "Text only"
-      - "Text with Background"
-      - "Clock only"
-      - "Clock with Background"
-      - "Clock and Temperature"
-      - "Clock and Temperature with Background"
-      - "Clock Temperature and Text"
-      - "Clock Temperature and Text with Background"
+      - "AI Generation (Flux)"
+      - "AI Generation (Turbo)"
+      - "Burned"
+      - "Burned | Clock"
+      - "Burned | Clock (Background)"
+      - "Burned | Temperature"
+      - "Burned | Temperature (Background)"
+      - "Burned | Clock & Temperature (Background)"
+      - "Text"
+      - "Text (Background)"
+      - "Clock"
+      - "Clock (Background)"
+      - "Clock | Temperature"
+      - "Clock | Temperature (Background)"
+      - "Clock | Temperature | Text"
+      - "Clock | Temperature | Text (Background)"
       - "Lyrics"
-      - "Lyrics with Background"
-      - "Temperature only"
-      - "Temperature with Background"
-      - "Temperature and Text"
-      - "Temperature and Text with Background"
+      - "Lyrics (Background)"
+      - "Temperature"
+      - "Temperature (Background)"
+      - "Temperature | Text"
+      - "Temperature | Text (Background)"
       - "Special Mode"
-      - "Special Mode with Text"
+      - "Special Mode | Text"
 
   pixoo64_album_art_crop_mode:
     name: Pixoo64 Crop Mode
@@ -116,6 +139,7 @@ input_select:
       - "No Crop"
       - "Crop"
       - "Crop Exra"
+
 ```
 </details>
 
@@ -199,64 +223,69 @@ pixoo64_media_album_art_2:
 
 <details>
 <summary><strong>Full Configuration</strong></summary>
-For all features, use the following configuration. Adjust the values to match your Home Assistant setup and PIXOO64's IP address.
+For all features, use the following configuration. Adjust the values to match your Home Assistant setup and your PIXOO64 device’s IP address.
 
 ```yaml
 pixoo64_media_album_art:
-    module: pixoo64_media_album_art
-    class: Pixoo64_Media_Album_Art
-    home_assistant:
-        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
-        media_player: "media_player.living_room"    # The entity ID of your media player.
-        toggle: "input_boolean.pixoo64_album_art"   # An input boolean to enable or disable the script's execution.
-        pixoo_sensor: "sensor.pixoo64_media_data"   # A sensor to store extracted media data.
-        temperature_sensor: "sensor.temperature"    # HomeAssistant Temperature sensor name instead of the Divoom weather.
-        mode_select: "input_select.pixoo64_album_art_display_mode"
-        crop_select: "input_select.pixoo64_album_art_crop_mode"
-        light: "light.living_room"                  # The entity ID of an RGB light to synchronize with the album art colors.
-        ai_fallback: "turbo"                        # The AI model to use for generating alternative album art when needed (supports 'flux' or 'turbo').
-        force_ai: False                             # If True, only AI-generated images will be displayed all the time.
-        musicbrainz: True                           # If True, attempts to find a fallback image on MusicBrainz if other sources fail.
-        spotify_client_id: False                    # Your Spotify API client ID (needed for Spotify features). Obtain from https://developers.spotify.com.
-        spotify_client_secret: False                # Your Spotify API client secret (needed for Spotify features).
-        tidal_client_id: False                      # Your TIDAL API client ID. Obtain from https://developer.tidal.com/dashboard.
-        tidal_client_secret: False                  # Your TIDAL client secret.
-        last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create.
-        discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers.
-    pixoo:
-        url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
-        full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
-        contrast: True                              # If True, applies a 50% contrast filter to the images displayed on the Pixoo.
-        colors: False                               # If True, enhanced colors.
-        kernel: False                               # If True, add emboss/edge effect.
-        sharpness: False                            # If True, add sharpness effect.
-        special_mode: False                         # Show day, time, and temperature above in the upper bar.
-        info: False                                 # Show information while fallback.
-        temperature: False                          # Show temperature.
-        clock: True                                 # If True, a clock is displayed in the top corner of the screen.
-        clock_align: "Right"                        # Clock alignment: "Left" or "Right".
-        tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
-        lyrics: False                               # If True, attempts to display lyrics on the Pixoo64 (show_text and clock will be disabled).
-        lyrics_font: 2                              # Recommend values: 2, 4, 32, 52, 58, 62, 48, 80, 158, 186, 190, 590. More values can be found at https://app.divoom-gz.com/Device/GetTimeDialFontList (you need ID value).
-        limit_colors: False                         # Reduces the number of colors in the picture from 4 to 256, or set it to False for original colors.
-        spotify_slide: False                        # If True, forces an album art slide (requires a Spotify client ID and secret). Note: clock and title will be disabled in this mode.
-        images_cache: 25                            # The number of processed images to keep in the memory cache. Use wisely to avoid memory issues (each image is approximately 17KB).
-        show_text:
-            enabled: False                          # If True, displays the artist and title of the current track.
-            clean_title: True                       # If True, removes "Remastered," track numbers, and file extensions from the title.
-            text_background: True                   # If True, adjusts the background color behind the text for improved visibility.
-            special_mode_spotify_slider: False      # Create animation album art slider.
-        crop_borders:
-            enabled: True                           # If True, attempts to crop any borders from the album art.
-            extra: True                             # If True, applies an enhanced border cropping algorithm.
-    wled:
-        wled_ip: "192.168.86.55"                    # Your WLED IP Address.
-        brightness: 255                             # 0 to 255.
-        effect: 38                                  # 0 to 186 (Effect ID - https://kno.wled.ge/features/effects/).
-        effect_speed: 50                            # 0 to 255.
-        effect_intensity: 128                       # 0 to 255.
-        palette: 0                                  # 0 to 70 (Palette ID - https://kno.wled.ge/features/palettes/).
-        only_at_night: False                        # Runs only during nighttime hours.
+  module: pixoo64_media_album_art
+  class: Pixoo64_Media_Album_Art
+  home_assistant:
+    ha_url: "http://homeassistant.local:8123"           # Your Home Assistant URL.
+    media_player: "media_player.era300"                 # The entity ID of your media player.
+    toggle: "input_boolean.pixoo64_album_art"           # Input boolean to enable or disable the script.
+    pixoo_sensor: "sensor.pixoo64_media_data"           # Sensor to store extracted media data.
+    lyrics_sync_entity: "input_number.pixoo64_album_art_lyrics_sync"  # Lyrics sync offset in seconds.
+    mode_select: "input_select.pixoo64_album_art_display_mode"        # Helper for display mode selection.
+    crop_select: "input_select.pixoo64_album_art_crop_mode"           # Helper for crop mode selection.
+    temperature_sensor: "sensor.temperature"            # Home Assistant temperature sensor (instead of Divoom weather).
+    light: "light.living_room"                          # RGB light entity to sync with album art colors.
+    ai_fallback: "turbo"                                # AI model to use for image fallback ("flux" or "turbo").
+    force_ai: False                                     # If True, always use AI-generated images regardless of availability.
+    musicbrainz: True                                   # If True, use MusicBrainz as a fallback if other sources fail.
+    spotify_client_id: False                            # Spotify API client ID (required for Spotify features).
+    spotify_client_secret: False                        # Spotify API client secret.
+    tidal_client_id: False                              # TIDAL API client ID.
+    tidal_client_secret: False                          # TIDAL client secret.
+    last.fm: False                                      # Last.fm API key.
+    discogs: False                                      # Discogs API key.
+  pixoo:
+    url: "192.168.86.21"                                # The IP address of your Pixoo64 device.
+    full_control: True                                  # Controls Pixoo64's power state in sync with media playback.
+    contrast: True                                      # Applies a 50% contrast filter to images.
+    sharpness: False                                    # Enables a sharpness filter on album art.
+    colors: False                                       # Enhances color intensity.
+    kernel: False                                       # Applies emboss/edge effect.
+    special_mode: False                                 # Show day, time, and temperature in a top bar.
+    info: False                                         # Show fallback info when no image is available.
+    temperature: True                                   # Show temperature from sensor.
+    clock: True                                         # Display a clock in the screen's top corner.
+    clock_align: "Right"                                # Clock alignment: "Left" or "Right".
+    tv_icon: True                                       # Display TV icon if audio source is a TV.
+    lyrics: False                                       # Show synchronized lyrics (disables clock and text).
+    lyrics_font: 2                                      # Recommended values: 2, 4, 32, 52, 58, 62, etc.
+    limit_colors: False                                 # Limit color palette to 4–256 colors, or use full color if False.
+    spotify_slide: False                                # Enable Spotify album slideshow (disables clock and text).
+    images_cache: 100                                   # Number of images to cache in memory (each ~17KB).
+    show_text:
+      enabled: False                                    # Display artist and track title.
+      clean_title: True                                 # Remove metadata like "Remastered", file extensions, etc.
+      text_background: True                             # Add background behind text for better contrast.
+      special_mode_spotify_slider: False                # Enable animated album slider when using special mode.
+      force_font_color: False                           # Force text color (e.g., "#FFFFFF" for white).
+      burned: False                                     # Enable static (non-animated) burned text above the image.
+    crop_borders:
+      enabled: True                                     # Enable basic border cropping.
+      extra: True                                       # Enable advanced border cropping.
+  wled:
+    wled_ip: "192.168.86.55"                            # WLED device IP address.
+    brightness: 255                                     # Brightness level (0–255).
+    effect: 38                                          # Effect ID (0–186).
+    effect_speed: 50                                    # Effect speed (0–255).
+    effect_intensity: 128                               # Effect intensity (0–255).
+    palette: 0                                          # Palette ID (0–70).
+    sound_effect: 0                                     # Audio reactive mode (0: BeatSin, 1: WeWillRockYou, etc.).
+    only_at_night: False                                # Only enable WLED at night.
+
 ```
 </details>
 With these steps completed, you have installed and set up the script and can now configure it to fit your needs.
@@ -265,71 +294,75 @@ Make sure that `input_boolean.pixoo64_album_art` is toggled **ON**. The next tim
 
 ![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
 
+Here is the grammar-checked and improved version of your configuration parameter tables. I've corrected typos, fixed phrasing inconsistencies, and made the descriptions clearer and more concise where needed.
+
+---
+
 ## 🛠️ Configuration Parameters
 
-Below is a detailed breakdown of all the configuration parameters for the PIXOO64 Media Album Art Display script. These parameters allow you to customize the behavior of the script to suit your needs.
+Below is a detailed breakdown of all configuration parameters for the PIXOO64 Media Album Art Display script. These allow you to customize the script's behavior to suit your setup.
 
 <details>
 <summary><strong>Core Parameters</strong></summary>
 
-| Parameter               | Description                                                                                   | Example Values                          |
-|-------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------|
-| `ha_url`                | The URL of your Home Assistant instance.                                                      | `"http://homeassistant.local:8123"`     |
-| `media_player`          | The entity ID of your media player.                                                           | `"media_player.living_room"`            |
-| `toggle`                | Boolean sensor to control script execution (optional).                                        | `"input_boolean.pixoo64_album_art"`     |
-| `pixoo_sensor`          | Sensor to store extracted media data (optional).                                              | `"sensor.pixoo64_media_data"`           |
-| `light`                 | RGB light entity ID to sync with album art colors (optional).                                 | `False` or `"light.living_room"`        |
-| `ai_fallback`           | AI model to generate alternative album art (`flux` or `turbo`).                               | `"turbo"`                               |
-| `temperature_sensor`    | Home Assistant temperature sensor to display instead of Divoom weather (optional).            | `"sensor.temperature"`                  |
-| `mode_select`           | Home Assistant mode select entity (optional).            | `"input_boolean.pixoo64_album_art_display_mode"`                  |
-| `crop_select`           | Home Assistant crop select entity (optional).            | `"input_boolean.pixoo64_album_art_display_crop_mode"`                  |
-| `musicbrainz`           | Search for album art in MusicBrainz if other sources fail.                                    | `True`                                  |
-| `spotify_client_id`     | Spotify API client ID (required for Spotify features).                                        | `False` or `"your_spotify_client_id"`   |
-| `spotify_client_secret` | Spotify API client secret (required for Spotify features).                                    | `False` or `"your_spotify_client_secret"`|
-| `tidal_client_id`       | TIDAL API client ID (optional).                                                               | `False` or `"your_tidal_client_id"`     |
-| `tidal_client_secret`   | TIDAL API client secret (optional).                                                           | `False` or `"your_tidal_client_secret"` |
-| `last.fm`               | Last.fm API key (optional).                                                                   | `False` or `"your_lastfm_api_key"`      |
-| `discogs`               | Discogs personal token (optional).                                                            | `False` or `"your_discogs_token"`       |
+| Parameter               | Description                                                                      | Example Values                                  |
+| ----------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------- |
+| `ha_url`                | The URL of your Home Assistant instance.                                         | `"http://homeassistant.local:8123"`             |
+| `media_player`          | The entity ID of your media player.                                              | `"media_player.living_room"`                    |
+| `toggle`                | An input boolean to enable or disable the script (optional).                     | `"input_boolean.pixoo64_album_art"`             |
+| `pixoo_sensor`          | Sensor used to store extracted media metadata (optional).                        | `"sensor.pixoo64_media_data"`                   |
+| `light`                 | RGB light entity to sync with album art colors (optional).                       | `False` or `"light.living_room"`                |
+| `ai_fallback`           | AI model to generate fallback album art (`flux` or `turbo`).                     | `"turbo"`                                       |
+| `temperature_sensor`    | Temperature sensor entity used instead of the Divoom weather service (optional). | `"sensor.temperature"`                          |
+| `mode_select`           | Entity ID of the input select for display mode selection (optional).             | `"input_select.pixoo64_album_art_display_mode"` |
+| `crop_select`           | Entity ID of the input select for crop mode selection (optional).                | `"input_select.pixoo64_album_art_crop_mode"`    |
+| `musicbrainz`           | Enables fallback album art lookup via MusicBrainz.                               | `True`                                          |
+| `spotify_client_id`     | Your Spotify API client ID (required for Spotify features).                      | `False` or `"your_spotify_client_id"`           |
+| `spotify_client_secret` | Your Spotify API client secret (required for Spotify features).                  | `False` or `"your_spotify_client_secret"`       |
+| `tidal_client_id`       | Your TIDAL API client ID (optional).                                             | `False` or `"your_tidal_client_id"`             |
+| `tidal_client_secret`   | Your TIDAL API client secret (optional).                                         | `False` or `"your_tidal_client_secret"`         |
+| `last.fm`               | Your Last.fm API key (optional).                                                 | `False` or `"your_lastfm_api_key"`              |
+| `discogs`               | Your Discogs personal access token (optional).                                   | `False` or `"your_discogs_token"`               |
 
 </details>
 
 <details>
-<summary><strong>PIXOO64 Specific Parameters</strong></summary>
+<summary><strong>PIXOO64-Specific Parameters</strong></summary>
 
-| Parameter               | Description                                                                                   | Example Values                          |
-|-------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------|
-| `url`                   | The IP address of your PIXOO64 device.                                                        | `"192.168.86.21"`                       |
-| `full_control`          | Control the PIXOO64's on/off state in sync with the media player's play/pause.                | `True`                                  |
-| `contrast`              | Apply a 50% contrast filter to images displayed on the PIXOO64.                               | `True`                                  |
-| `sharpness`             | Apply a sharpness filter to images.                                                           | `True`                                  |
-| `colors`                | Enhance colors in the displayed image.                                                        | `True`                                  |
-| `special_mode`          | Show day, time, and temperature in the upper bar.                                             | `False`                                 |
-| `temperature`           | Show temperature sensor data                                                                  | `True`                                  |
-| `clock`                 | Display a clock in the top corner of the screen.                                              | `True`                                  |
-| `clock_align`           | Align the clock to the left or right side of the screen.                                      | `"Left"` or `"Right"`                   |
-| `tv_icon`               | Display a TV icon when audio is playing from a TV source.                                     | `True`                                  |
-| `lyrics`                | Display synchronized lyrics (disables `show_text` and `clock`).                               | `True`                                  |
-| `lyrics_font`           | Font ID for displaying lyrics. See [DIVOOM Fonts](https://app.divoom-gz.com/Device/GetTimeDialFontList). | `2`, `4`, `32`, `52`, etc.   |
-| `limit_colors`          | Reduce the number of colors in the image (4–256) or use original colors (`False`).            | `4` to `256` or `False`                 |
-| `spotify_slide`         | Enable an album art slideshow using Spotify API (requires API keys).                         | `True`                                   |
-| `images_cache`          | Number of processed images to keep in memory cache (each image ≈ 17KB).                      | `1` to `500`                             |
-
+| Parameter       | Description                                                                                               | Example Values                  |
+| --------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `url`           | IP address of your PIXOO64 device.                                                                        | `"192.168.86.21"`               |
+| `full_control`  | Controls the Pixoo64's on/off state based on media playback.                                              | `True`                          |
+| `contrast`      | Applies 50% contrast filter to displayed images.                                                          | `True`                          |
+| `sharpness`     | Applies a sharpness enhancement to images.                                                                | `True`                          |
+| `colors`        | Enhances colors in the image.                                                                             | `True`                          |
+| `special_mode`  | Displays time, date, and temperature in a top bar overlay.                                                | `False`                         |
+| `temperature`   | Displays temperature data from the configured sensor.                                                     | `True`                          |
+| `clock`         | Displays a digital clock in the top corner of the screen.                                                 | `True`                          |
+| `clock_align`   | Clock alignment on screen.                                                                                | `"Left"` or `"Right"`           |
+| `tv_icon`       | Displays a TV icon when audio comes from a TV source.                                                     | `True`                          |
+| `lyrics`        | Displays synchronized lyrics (disables `show_text` and `clock`).                                          | `True`                          |
+| `lyrics_font`   | Font ID used to display lyrics. See [DIVOOM Fonts](https://app.divoom-gz.com/Device/GetTimeDialFontList). | `2`, `4`, `32`, `52`, etc.      |
+| `limit_colors`  | Reduces color palette size for performance or style; set to `False` to use original colors.               | `4`, `8`, ..., `256` or `False` |
+| `spotify_slide` | Enables a slideshow of album covers from Spotify (disables clock and text).                               | `True`                          |
+| `images_cache`  | Number of processed images stored in memory (approx. 17KB each).                                          | `1` to `500`                    |
 
 </details>
 
 <details>
 <summary><strong>Text Display Options</strong></summary>
 
-| Parameter show_text     | Description                                                                                   | Example Values                          |
-|-------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------|
-| `enabled`   | Display artist and track title information.                                                               | `True`                                  |
-| `clean_title` | Remove "Remastered," track numbers, and file extensions from the title.                                 | `True`                                  |
-| `text_background` | Adjust the background color behind the text for better visibility.                                  | `True`                                  |
-| `special_mode_spotify_slider` | Use Spotify animation when `special_mode` is enabled and `show_text` is active.         | `True`                                  |
+| Parameter                     | Description                                                         | Example Values         |
+| ----------------------------- | ------------------------------------------------------------------- | ---------------------- |
+| `enabled`                     | If `True`, displays artist and track title.                         | `True`                 |
+| `clean_title`                 | Removes metadata from titles (e.g., "Remastered", file extensions). | `True`                 |
+| `text_background`             | Adds a background color behind text to improve contrast.            | `True`                 |
+| `special_mode_spotify_slider` | Animates album art when used with `special_mode` and `show_text`.   | `True`                 |
+| `force_text_color`            | Overrides dynamic text color. Use `False` or a hex value.           | `False` or `"#FFFFFF"` |
 
 </details>
 
-<details>
+
 <summary><strong>Image Cropping Options</strong></summary>
 
 Many album covers come with borders that can distort the display on the PIXOO64's 64x64 pixel screen. The `crop_borders` feature ensures these borders are removed for a cleaner look.
