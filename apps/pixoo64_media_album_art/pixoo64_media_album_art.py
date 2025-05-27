@@ -3667,7 +3667,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         finally:
             await asyncio.sleep(0.10)
 
-
     async def _process_and_display_image(self, media_data: "MediaData") -> None:
         """Processes image data and sends display commands to Pixoo device."""
         if media_data.picture == "TV_IS_ON":
@@ -3687,7 +3686,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if self.config.wled:
                 await self.control_wled_light('off')
                 _LOGGER.debug("WLED light control turned OFF for TV mode.")
-
             return  # Exit after handling TV ON icon display
 
         try:
@@ -3700,19 +3698,19 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
             media_data.spotify_frames = 0
             base64_image = processed_data.get('base64_image')
-            font_color = processed_data.get('font_color')
+            font_color_from_image_processing = processed_data.get('font_color')
             brightness = processed_data.get('brightness')
-            brightness_lower_part = processed_data.get('brightness_lower_part')
-            background_color = processed_data.get('background_color')
+            # brightness_lower_part = processed_data.get('brightness_lower_part') # Not directly used below
+            background_color_str = processed_data.get('background_color')
             background_color_rgb = processed_data.get('background_color_rgb')
-            most_common_color_alternative_rgb = processed_data.get('most_common_color_alternative_rgb')
-            most_common_color_alternative = processed_data.get('most_common_color_alternative')
+            most_common_color_alternative_rgb_str = processed_data.get('most_common_color_alternative_rgb')
+            most_common_color_alternative_str = processed_data.get('most_common_color_alternative')
+
 
             if self.config.light and not media_data.playing_tv:
                 await self.control_light('on', background_color_rgb, media_data.is_night)
                 _LOGGER.debug("Light control turned ON, synced with album art colors.")
             if self.config.wled and not media_data.playing_tv:
-                # Retrieve cached color values - already retrieved from processed_data
                 color1 = processed_data.get('color1')
                 color2 = processed_data.get('color2')
                 color3 = processed_data.get('color3')
@@ -3725,16 +3723,17 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if self.config.wled:
                     await self.control_wled_light('off')
                     _LOGGER.debug("WLED light control turned OFF for TV playback mode.")
+            
             sensor_state = f"{media_data.artist} / {media_data.title}"
             new_attributes = {
                 "artist": media_data.artist,
                 "media_title": media_data.title,
-                "font_color": font_color,
+                "font_color": font_color_from_image_processing,
                 "background_color_brightness": brightness,
-                "background_color": background_color,
-                "color_alternative_rgb": most_common_color_alternative,
+                "background_color": background_color_str,
+                "color_alternative_rgb": most_common_color_alternative_str, 
                 "background_color_rgb": background_color_rgb,
-                "color_alternative": most_common_color_alternative_rgb,
+                "color_alternative": most_common_color_alternative_rgb_str,
                 "images_in_cache": media_data.image_cache_count,
                 "image_memory_cache": media_data.image_cache_memory,
                 "process_duration": media_data.process_duration,
@@ -3745,7 +3744,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "lyrics": media_data.lyrics
             }
 
-            payload = {
+            image_payload = {
                 "Command": "Draw/CommandList",
                 "CommandList": [
                     {"Command": "Channel/OnOffScreen", "OnOff": 1},
@@ -3755,13 +3754,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         "PicNum": 1, "PicWidth": 64, "PicOffset": 0,
                         "PicID": 0, "PicSpeed": 10000, "PicData": base64_image}]}
 
+            spotify_animation_took_over_display = False
             if self.config.spotify_slide and not media_data.radio_logo and not media_data.playing_tv:
-                spotify_service = SpotifyService(self.config)
+                spotify_service = SpotifyService(self.config) 
                 spotify_service.spotify_data = await spotify_service.get_spotify_json(media_data.artist, media_data.title)
                 if spotify_service.spotify_data:
-                    start_time = time.perf_counter()
-                    media_data.spotify_frames = 0
-
+                    spotify_anim_start_time = time.perf_counter()
+                    
                     if self.config.special_mode:
                         if self.config.special_mode_spotify_slider:
                             await spotify_service.spotify_album_art_animation(self.pixoo_device, media_data)
@@ -3769,166 +3768,180 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         await spotify_service.spotify_albums_slide(self.pixoo_device, media_data)
 
                     if media_data.spotify_slide_pass:
+                        spotify_animation_took_over_display = True
+                        spotify_anim_end_time = time.perf_counter()
+                        duration = spotify_anim_end_time - spotify_anim_start_time
+                        media_data.process_duration = f"{duration:.2f} seconds (Spotify)"
                         new_attributes["process_duration"] = media_data.process_duration
                         new_attributes["spotify_frames"] = media_data.spotify_frames
                     else:
-                        await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4})  # Avoid Animation Glitch
+                        await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4})
 
-            if not media_data.spotify_slide_pass:
-                await self.pixoo_device.send_command(payload)
-                _LOGGER.debug("Sent album art image payload to Pixoo device.")
+            text_items_for_display_list = []
+            current_text_id = 0
+            
+            text_overlay_font_color = '#ffff00'
+            brightness_factor = 50
+            if self.config.force_font_color:
+                text_overlay_font_color = self.config.force_font_color
+            elif background_color_rgb:
+                try:
+                    color_font_rgb_calc = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
+                    if not self.config.text_bg:
+                        opposite_color_rgb = self.compute_opposite_color(color_font_rgb_calc)
+                        color_font_rgb_calc = opposite_color_rgb
+                    text_overlay_font_color = '#%02x%02x%02x' % color_font_rgb_calc
+                except Exception as e:
+                    _LOGGER.error(f"Error calculating text_overlay_font_color: {e}")
+                    text_overlay_font_color = '#ffff00'
+            
+            if self.config.special_mode:
+                current_text_id += 1
+                day_item = {
+                    "TextId": current_text_id, "type": 14, "x": 4, "y": 1,
+                    "dir": 0, "font": 18, "TextWidth": 33,
+                    "Textheight": 6, "speed": 100, "align": 1,
+                    "color": text_overlay_font_color}
+                text_items_for_display_list.append(day_item)
 
+                current_text_id += 1
+                clock_item_special = {
+                    "TextId": current_text_id, "type": 5, "x": 0, "y": 1,
+                    "dir": 0, "font": 18, "TextWidth": 64,
+                    "Textheight": 6, "speed": 100, "align": 2,
+                    "color": background_color_str}
+                text_items_for_display_list.append(clock_item_special)
+
+                current_text_id += 1
+                if media_data.temperature:
+                    temp_item_special = {"TextId": current_text_id, "type": 22, "x": 46, "y": 1,
+                                    "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
+                                    "speed": 100, "align": 1, "color": text_overlay_font_color, 
+                                    "TextString": media_data.temperature}
+                else:
+                    temp_item_special = {"TextId": current_text_id, "type": 17, "x": 46, "y": 1,
+                                    "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
+                                    "speed": 100, "align": 3, "color": text_overlay_font_color}
+                text_items_for_display_list.append(temp_item_special)
+
+                if (self.config.show_text and not media_data.playing_tv) or \
+                    (media_data.spotify_slide_pass and self.config.spotify_slide):
+                    dir_rtl_artist = 1 if has_bidi(media_data.artist) else 0
+                    text_artist_bidi = get_bidi(media_data.artist) if dir_rtl_artist == 1 else media_data.artist
+                    current_text_id += 1
+                    artist_item = {
+                        "TextId": current_text_id, "type": 22, "x": 0, "y": 42,
+                        "dir": dir_rtl_artist, "font": 190, "TextWidth": 64,
+                        "Textheight": 16, "speed": 100, "align": 2,
+                        "TextString": text_artist_bidi, "color": text_overlay_font_color}
+                    text_items_for_display_list.append(artist_item)
+
+                    dir_rtl_title = 1 if has_bidi(media_data.title) else 0
+                    text_title_bidi = get_bidi(media_data.title) if dir_rtl_title == 1 else media_data.title
+                    current_text_id += 1
+                    title_item = {
+                        "TextId": current_text_id, "type": 22, "x": 0, "y": 52, "dir": dir_rtl_title,
+                        "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2,
+                        "TextString": text_title_bidi, "color": background_color_str}
+                    text_items_for_display_list.append(title_item)
+            
+            elif (self.config.show_text or self.config.show_clock or self.config.temperature) and \
+                not (self.config.show_lyrics or self.config.spotify_slide):
+                
+                text_track = (media_data.artist + " - " + media_data.title)
+                if len(text_track) > 14: text_track = text_track + "       "
+                text_string_bidi = get_bidi(text_track) if media_data.artist else get_bidi(media_data.title)
+                dir_rtl = 1 if has_bidi(text_string_bidi) else 0
+
+                if text_string_bidi and self.config.show_text and not media_data.radio_logo and not media_data.playing_tv:
+                    current_text_id += 1
+                    text_item = {
+                        "TextId": current_text_id, "type": 22, "x": 0, "y": 48,
+                        "dir": dir_rtl, "font": 2, "TextWidth": 64, "Textheight": 16,
+                        "speed": 100, "align": 2, "TextString": text_string_bidi, "color": text_overlay_font_color
+                    }
+                    text_items_for_display_list.append(text_item)
+
+                if self.config.show_clock:
+                    current_text_id += 1
+                    x_clock = 44 if self.config.clock_align == "Right" else 3
+                    clock_item_normal = {
+                        "TextId": current_text_id, "type": 5, "x": x_clock, "y": 3,
+                        "dir": 0, "font": 18, "TextWidth": 32, "Textheight": 16,
+                        "speed": 100, "align": 1, "color": text_overlay_font_color
+                    }
+                    text_items_for_display_list.append(clock_item_normal)
+
+                if self.config.temperature:
+                    current_text_id += 1
+                    x_temp = 3 if self.config.clock_align == "Right" else 40
+                    if media_data.temperature:
+                        temp_item_normal = {"TextId": current_text_id, "type": 22, "x": x_temp, "y": 3,
+                                            "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
+                                            "speed": 100, "align": 1, "color": text_overlay_font_color, 
+                                            "TextString": media_data.temperature}
+                    else:
+                        temp_item_normal = {"TextId": current_text_id, "type": 17, "x": x_temp, "y": 3,
+                                            "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
+                                            "speed": 100, "align": 1, "color": text_overlay_font_color}
+                    text_items_for_display_list.append(temp_item_normal)
+
+            if not spotify_animation_took_over_display:
+                await self.pixoo_device.send_command(image_payload)
+                if text_items_for_display_list:
+                    txt_payload = ({
+                        "Command": "Draw/SendHttpItemList",
+                        "ItemList": text_items_for_display_list
+                    })
+                    await asyncio.sleep(0.10)
+                    await self.pixoo_device.send_command(txt_payload)
+                
+                _LOGGER.debug("Sent album art image payload (possibly with additional info) to Pixoo device.")
+
+            elif spotify_animation_took_over_display and self.config.special_mode and text_items_for_display_list:
+                await self.pixoo_device.send_command({
+                    "Command": "Draw/SendHttpItemList",
+                    "ItemList": text_items_for_display_list
+                })
+                _LOGGER.debug("Sent special mode info payload after Spotify slide to Pixoo device.")
+            
             end_time = time.perf_counter()
-            duration = end_time - start_time
-            media_data.process_duration = f"{duration:.2f} seconds"
+            if not spotify_animation_took_over_display:
+                duration = end_time - start_time
+                media_data.process_duration = f"{duration:.2f} seconds"
+            
             new_attributes["process_duration"] = media_data.process_duration
+            new_attributes["spotify_frames"] = media_data.spotify_frames
             await self.set_state(self.media_data_sensor, state=sensor_state, attributes=new_attributes)
 
             if self.fallback_service.fail_txt and self.fallback_service.fallback:
                 black_img = self.fallback_service.create_black_screen()
                 black_pic = self.image_processor.gbase64(black_img)
-                payload_fail = {
+                payload_fail_commands = {
                     "Command": "Draw/CommandList",
                     "CommandList": [
                         {"Command": "Channel/OnOffScreen", "OnOff": 1},
                         {"Command": "Draw/ResetHttpGifId"},
                     ]
                 }
-                await self.pixoo_device.send_command(payload_fail)
+                await self.pixoo_device.send_command(payload_fail_commands)
                 await self.pixoo_device.send_command({
                     "Command": "Draw/SendHttpGif",
                     "PicNum": 1, "PicWidth": 64,
                     "PicOffset": 0, "PicID": 0,
                     "PicSpeed": 1000, "PicData": black_pic
                 })
-                payloads = self.create_payloads(media_data.artist, media_data.title, 11)
-                await self.pixoo_device.send_command(payloads)
+                payloads_text_fail = self.create_payloads(media_data.artist, media_data.title, 11)
+                await self.pixoo_device.send_command(payloads_text_fail)
                 _LOGGER.info("Ultimate fallback black screen and text displayed on Pixoo device.")
-                return  # Exit after ultimate fallback display
-
-            textid = 0
-            text_string = None
-            text_track = (media_data.artist + " - " + media_data.title)
-
-            if len(text_track) > 14:
-                text_track = text_track + "       "
-            text_string = get_bidi(text_track) if media_data.artist else get_bidi(media_data.title)
-            dir_rtl = 1 if has_bidi(text_string) else 0
-            brightness_factor = 50
-            if self.config.force_font_color:
-                color_font = background_color = self.config.force_font_color
-            else:
-                try:
-                    color_font_rgb = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
-                    if not self.config.text_bg:
-                        opposite_color_rgb = self.compute_opposite_color(color_font_rgb)
-                        color_font_rgb = opposite_color_rgb
-
-                    color_font = '#%02x%02x%02x' % color_font_rgb
-                except Exception as e:
-                    _LOGGER.error(f"Error calculating color_font: {e}")
-                    color_font = '#ffff00'
-
-
-            moreinfo = {
-                "Command": "Draw/SendHttpItemList",
-                "ItemList": []
-            }
-
-            if text_string and self.config.show_text and not media_data.radio_logo and not media_data.playing_tv and not self.config.special_mode:
-                textid += 1
-                text_item = {
-                    "TextId": textid, "type": 22, "x": 0, "y": 48,
-                    "dir": dir_rtl, "font": 2, "TextWidth": 64, "Textheight": 16,
-                    "speed": 100, "align": 2, "TextString": text_string, "color": color_font
-                }
-                moreinfo["ItemList"].append(text_item)
-
-            if (self.config.show_clock and not self.config.special_mode):
-                textid += 1
-                x_clock = 44 if self.config.clock_align == "Right" else 3
-                clock_item = {
-                    "TextId": textid, "type": 5, "x": x_clock, "y": 3,
-                    "dir": 0, "font": 18, "TextWidth": 32, "Textheight": 16,
-                    "speed": 100, "align": 1, "color": color_font
-                }
-                moreinfo["ItemList"].append(clock_item)
-
-            #if (self.config.temperature or self.config.temperature_sensor) and not self.config.special_mode:
-            if self.config.temperature and not self.config.special_mode:
-
-                textid += 1
-                x_temp = 3 if self.config.clock_align == "Right" else 40
-                if self.config.temperature and not media_data.temperature:
-                    temperature_item = {"TextId": textid, "type": 17, "x": x_temp, "y": 3,
-                                        "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
-                                        "speed": 100, "align": 1, "color": color_font}
-                    moreinfo["ItemList"].append(temperature_item)
-                elif media_data.temperature and self.config.temperature:
-                    temperature_item = {"TextId": textid, "type": 22, "x": x_temp, "y": 3,
-                                        "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
-                                        "speed": 100, "align": 1, "color": color_font, "TextString": media_data.temperature}
-                    moreinfo["ItemList"].append(temperature_item)
-
-            if (self.config.show_text or self.config.show_clock or self.config.temperature) and not (self.config.show_lyrics or self.config.spotify_slide or self.config.special_mode):
-                await self.pixoo_device.send_command(moreinfo)
-                _LOGGER.debug("Sent text/clock/temperature info payload to Pixoo device.")
-
-            if self.config.special_mode:
-                day = {
-                    "TextId": 1, "type": 14, "x": 4, "y": 1,
-                    "dir": 0, "font": 18, "TextWidth": 33,
-                    "Textheight": 6, "speed": 100, "align": 1,
-                    "color": color_font}
-
-                clock = {
-                    "TextId": 2, "type": 5, "x": 0, "y": 1,
-                    "dir": 0, "font": 18, "TextWidth": 64,
-                    "Textheight": 6, "speed": 100, "align": 2,
-                    "color": background_color}
-
-                if media_data.temperature:
-                    temperature = {"TextId": 3, "type": 22, "x": 46, "y": 1,
-                                "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
-                                "speed": 100, "align": 1, "color": color_font, "TextString": media_data.temperature}
-                else:
-                    temperature = {"TextId": 4, "type": 17, "x": 46, "y": 1,
-                                "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6,
-                                "speed": 100, "align": 3, "color": color_font}
-
-                dir_rtl_artist = 1 if has_bidi(media_data.artist) else 0
-                text_artist = get_bidi(media_data.artist) if dir_rtl_artist == 1 else media_data.artist
-                artist = {
-                    "TextId": 4, "type": 22, "x": 0, "y": 42,
-                    "dir": dir_rtl_artist, "font": 190, "TextWidth": 64,
-                    "Textheight": 16, "speed": 100, "align": 2,
-                    "TextString": text_artist, "color": color_font}
-
-                dir_rtl_title = 1 if has_bidi(media_data.title) else 0
-                text_title = get_bidi(media_data.title) if dir_rtl_title == 1 else media_data.title
-                
-                title = {
-                    "TextId": 5, "type": 22, "x": 0, "y": 52, "dir": dir_rtl_title,
-                    "font": 190,  # 2, 4, 32, 52, 58, 62, 158, 186, 190, 590
-                    "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2,
-                    "TextString": text_title, "color": background_color}
-
-                moreinfo["ItemList"].append(day)
-                moreinfo["ItemList"].append(clock)
-                moreinfo["ItemList"].append(temperature)
-                if (self.config.show_text and not media_data.playing_tv) or (media_data.spotify_slide_pass and self.config.spotify_slide):
-                    moreinfo["ItemList"].append(artist)
-                    moreinfo["ItemList"].append(title)
-                await self.pixoo_device.send_command(moreinfo)
-                _LOGGER.debug("Sent special mode info payload to Pixoo device.")
+                return
 
         except asyncio.CancelledError:
             _LOGGER.info("Image processing task cancelled.")
         except Exception as e:
             _LOGGER.error(f"Error in _process_and_display_image: {e}", exc_info=True)
         finally:
-            self.current_image_task = None  # Reset the task variable
-
+            self.current_image_task = None
 
     def compute_opposite_color(self, color: tuple[int,int,int]) -> tuple[int,int,int]:
     # real complement (WCAG “opposite”)
