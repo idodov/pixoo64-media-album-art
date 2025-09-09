@@ -43,12 +43,13 @@ pixoo64_media_album_art:
         ai_fallback: "turbo"                        # The AI model to use for generating alternative album art when needed (supports 'flux' or 'turbo').
         force_ai: False                             # If True, only AI-generated images will be displayed all the time.
         musicbrainz: True                           # If True, attempts to find a fallback image on MusicBrainz if other sources fail.
-        spotify_client_id: False                    # Your Spotify API client ID (needed for Spotify features). Obtain from https://developers.spotify.com.
+        spotify_client_id: False                    # Your Spotify API client ID (needed for Spotify features). Obtain from https://developers.spotify.com
         spotify_client_secret: False                # Your Spotify API client secret (needed for Spotify features).
-        tidal_client_id: False                      # Your TIDAL API client ID. Obrain from https://developer.tidal.com/dashboard.
+        tidal_client_id: False                      # Your TIDAL API client ID. Obrain from https://developer.tidal.com/dashboard
         tidal_client_secret: False                  # Your TIDAL client secret.
-        last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create.
-        discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers.
+        last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create
+        discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers
+        pollinations: False                         # Your pollinations API key (Optional use for quick access). Obtain from https://auth.pollinations.ai/
     pixoo:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
         full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
@@ -89,7 +90,7 @@ pixoo64_media_album_art:
 
 import aiohttp
 import asyncio
-import async_timeout
+#import async_timeout
 import base64
 import json
 import logging
@@ -107,10 +108,8 @@ from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, Dict, Optional, Tuple
 
-
 # Third-party library imports
 from PIL import Image, ImageEnhance, ImageFilter, ImageDraw, ImageFont, UnidentifiedImageError
-
 
 try:
     from unidecode import unidecode
@@ -241,6 +240,7 @@ class Config:
             'tidal_client_secret': None,
             'discogs': None,
             'lastfm': ('last.fm', None),
+            'pollinations': None,
         },
         'pixoo': {
             'url': None,
@@ -468,7 +468,7 @@ class PixooDevice:
                         response_text = await response.text() 
                         _LOGGER.error(f"Failed to send command to Pixoo. Status: {response.status}, Response: {response_text}") 
                     else:
-                        await asyncio.sleep(0.15) # Consider making this sleep configurable
+                        await asyncio.sleep(0.25) # Consider making this sleep configurable
         except aiohttp.ClientError as e: 
             _LOGGER.error(f"Error sending command to Pixoo: {e}") 
         except asyncio.TimeoutError: # Catch specific timeout error
@@ -695,6 +695,8 @@ class ImageProcessor:
     def filter_image(self, img: Image.Image) -> Image.Image: 
         """Apply configured image filters to the image."""
         img = img.resize((64, 64), Image.Resampling.LANCZOS)
+
+        # sharpened_image = img.filter(ImageFilter.UnsharpMask(radius=4, percent=200, threshold=3))
         if self.config.limit_color:
             colors = int(self.config.limit_color)
             img = img_adptive(img, colors)
@@ -1939,6 +1941,8 @@ class MediaData:
         # Randomly select a prompt
         prompt = random.choice(prompts)
         prompt = f"https://pollinations.ai/p/{prompt}?model={self.config.ai_fallback}"
+        if self.config.pollinations:
+            prompt = f"{prompt}&token={self.config.pollinations}" 
         return prompt
 
 
@@ -3550,8 +3554,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def safe_state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any], timeout: aiohttp.ClientTimeout = aiohttp.ClientTimeout(total=20)) -> None:
         """Wrapper for state change callback with timeout protection."""
         try:
-            #async with asyncio.timeout(self.callback_timeout):
-            async with async_timeout.timeout(self.callback_timeout):
+            async with asyncio.timeout(self.callback_timeout):
+            #async with async_timeout.timeout(self.callback_timeout):
                 await self.state_change_callback(entity, attribute, old, new, kwargs)
         except asyncio.TimeoutError:
             _LOGGER.warning("Callback timed out after %s seconds - cancelling operation.", self.callback_timeout)
@@ -3644,8 +3648,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def pixoo_run(self, media_state: str, media_data: "MediaData") -> None:
         """Run Pixoo display update with timeout protection."""
         try:
-            #async with asyncio.timeout(self.callback_timeout):
-            async with async_timeout.timeout(self.callback_timeout):
+            async with asyncio.timeout(self.callback_timeout):
+            #async with async_timeout.timeout(self.callback_timeout):
                 # Get current channel index
                 self.select_index = await self.pixoo_device.get_current_channel_index()
                 self.select_index = media_data.select_index_original if media_data.select_index_original is not None else self.select_index
@@ -3984,12 +3988,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         # Prepare the segment dictionary based on effect requirements
         segment = {"fx": effect_id}
-
-        if effect_id:  # Simplified condition
+        colors = [c.lstrip('#') for c in [color1, color2, color3] if c]
+        if colors:
             if effect_id == 0:  # Solid effect uses only one color
-                segment["col"] = [color1]
+                segment["col"] = [colors[0]]  # Use only the first color
             else:
-                segment["col"] = [color1, color2, color3]
+                segment["col"] = colors
+
 
         if self.config.effect_speed:
             segment["sx"] = self.config.effect_speed
@@ -4010,7 +4015,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             payload = {"on": False}  # Off action simply turns off the light
             _LOGGER.debug("Turning OFF WLED light '%s'.", ip_address)
         else:  # Action is 'on'
-            _LOGGER.debug("Turning ON WLED light '%s' with effect ID: %s, colors: %s, %s, %s.", ip_address, effect_id, color1, color2, color3)
+            _LOGGER.info("Turning ON WLED light '%s' with effect ID: %s, colors: %s, %s, %s.", ip_address, effect_id, color1, color2, color3)
 
         url = f"http://{ip_address}/json/state"
         async with aiohttp.ClientSession(connector=aiohttp.TCPConnector(ssl=False)) as session:
