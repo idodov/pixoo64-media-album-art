@@ -294,8 +294,6 @@ Make sure that `input_boolean.pixoo64_album_art` is toggled **ON**. The next tim
 
 ![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
 
-Here is the grammar-checked and improved version of your configuration parameter tables. I've corrected typos, fixed phrasing inconsistencies, and made the descriptions clearer and more concise where needed.
-
 ---
 
 ## 🛠️ Configuration Parameters
