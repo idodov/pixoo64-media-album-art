@@ -492,7 +492,6 @@ class PixooDevice:
                     response.raise_for_status() 
                     response_text = await response.text()
                     response_data = json.loads(response_text)
-                    print(response_data)
                     return response_data.get('SelectIndex', 1)
         except aiohttp.ClientError as e: 
             _LOGGER.error(f"Failed to get channel index from Pixoo: {e}") 
