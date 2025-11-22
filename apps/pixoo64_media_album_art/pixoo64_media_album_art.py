@@ -3674,16 +3674,27 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def _process_and_display_image(self, media_data: "MediaData") -> None:
         """Processes image data and sends display commands to Pixoo device."""
         if media_data.picture == "TV_IS_ON":
+            try:
+                target_index = int(self.select_index) if self.select_index is not None else 1
+            except (ValueError, TypeError):
+                target_index = 1
+
+            # If target is the custom/push channel (3), fallback to Clock (1)
+            if target_index == 3:
+                target_index = 1
+            # -----------------------------------
+
             payload = ({
                 "Command": "Draw/CommandList",
                 "CommandList": [
                     {"Command": "Channel/OnOffScreen", "OnOff": 1},
                     {"Command": "Draw/ClearHttpText"},
                     {"Command": "Draw/ResetHttpGifId"},
-                    {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}]
+                    {"Command": "Channel/SetIndex", "SelectIndex": target_index}]
             })
             await self.pixoo_device.send_command(payload)
-            _LOGGER.debug("Sent TV ON icon command to Pixoo device.")
+            _LOGGER.debug(f"TV mode (Icon OFF): Reverted Pixoo to channel {target_index}.")
+            
             if self.config.light:
                 await self.control_light('off')
                 _LOGGER.debug("Light control turned OFF for TV mode.")
@@ -3946,6 +3957,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             _LOGGER.error(f"Error in _process_and_display_image: {e}", exc_info=True)
         finally:
             self.current_image_task = None
+
 
     def compute_opposite_color(self, color: tuple[int,int,int]) -> tuple[int,int,int]:
     # real complement (WCAG “opposite”)
