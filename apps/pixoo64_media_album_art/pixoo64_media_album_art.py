@@ -3133,7 +3133,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def calculate_position(self, kwargs: Dict[str, Any]) -> None:
         await LyricsProvider(self.config, self.image_processor, self.websession).calculate_position(self.media_data, self)
 
-
 class LyricsProvider:
     """Provides lyrics for the currently playing track using LrcLib.net."""
 
@@ -3204,7 +3203,7 @@ class LyricsProvider:
         return parsed
 
     async def calculate_position(self, media_data: "MediaData", hass: "hass.Hass") -> None:
-        """Calculate active lyric using Range Logic and Persistent State."""
+        """Calculate active lyric using Range Logic, Grouping, and Persistent State."""
         if not media_data.lyrics or not self.config.show_lyrics:
             return
 
@@ -3213,11 +3212,12 @@ class LyricsProvider:
         except (ValueError, TypeError):
             lyrics_delay = 0.0
 
-        if not hasattr(media_data, "last_active_lyric_index"):
-            media_data.last_active_lyric_index = -1
+        # --- STATE PERSISTENCE ---
+        if not hasattr(media_data, "last_group_end_index"):
+            media_data.last_group_end_index = -1
         
         if not hasattr(media_data, "last_lyrics_len") or media_data.last_lyrics_len != len(media_data.lyrics):
-            media_data.last_active_lyric_index = -1
+            media_data.last_group_end_index = -1
             media_data.last_lyrics_len = len(media_data.lyrics)
 
         if media_data.media_position_updated_at:
@@ -3225,43 +3225,75 @@ class LyricsProvider:
             elapsed = (now - media_data.media_position_updated_at).total_seconds()
             current_pos = media_data.media_position + elapsed
 
+            # 1. Find 'Base' Active Index
             active_index = -1
-            
-            # Find the latest lyric that has already passed
             for i, item in enumerate(media_data.lyrics):
                 lyric_time = item['seconds'] + lyrics_delay
-                
                 if lyric_time <= current_pos:
                     active_index = i
                 else:
                     break
 
-            # --- ANTI-BLINK LOGIC ---
-            if active_index != -1 and active_index != media_data.last_active_lyric_index:
+            # 2. Already Displayed Check
+            if active_index != -1 and active_index <= media_data.last_group_end_index:
+                return 
+
+            # 3. New Group Logic
+            if active_index != -1:
+                current_group_text = media_data.lyrics[active_index]['lyrics']
+                current_group_end_index = active_index
                 
-                media_data.last_active_lyric_index = active_index
-                current_item = media_data.lyrics[active_index]
+                # Lookahead for small gaps (<= 2.5s)
+                next_idx = active_index + 1
+                while next_idx < len(media_data.lyrics):
+                    prev_time = media_data.lyrics[next_idx - 1]['seconds']
+                    this_time = media_data.lyrics[next_idx]['seconds']
+                    gap = this_time - prev_time
+
+                    if gap <= 2.5:
+                        next_text = media_data.lyrics[next_idx]['lyrics']
+                        combined_test = current_group_text + "\n" + next_text
+                        
+                        # Check if it fits in 6 lines (Increased from 5)
+                        if self._estimate_visual_lines(combined_test, 11) <= 6:
+                            current_group_text = combined_test
+                            current_group_end_index = next_idx
+                            next_idx += 1
+                        else:
+                            break
+                    else:
+                        break
+
+                media_data.last_group_end_index = current_group_end_index
                 
-                # Send to Pixoo
                 await self.create_lyrics_payloads(
-                    current_item['lyrics'],
+                    current_group_text,
                     line_length=11,
                     lyrics_font_color=media_data.lyrics_font_color
                 )
 
-                # Calculate cleanup timer (Clear screen during long instrumental breaks)
-                next_index = active_index + 1
-                if next_index < len(media_data.lyrics):
-                    next_time = media_data.lyrics[next_index]['seconds'] + lyrics_delay
-                    duration = next_time - (current_item['seconds'] + lyrics_delay)
+                # Cleanup Timer
+                next_idx_after_group = current_group_end_index + 1
+                if next_idx_after_group < len(media_data.lyrics):
+                    next_event_time = media_data.lyrics[next_idx_after_group]['seconds'] + lyrics_delay
+                    last_merged_line_time = media_data.lyrics[current_group_end_index]['seconds'] + lyrics_delay
+                    duration = next_event_time - last_merged_line_time
                 else:
                     duration = 10 
 
                 if duration > 8:
-                    hass.create_task(self._delayed_clear(self.len_lines * 1.8))
+                    hass.create_task(self._delayed_clear(self.len_lines * 1.5))
+
+    def _estimate_visual_lines(self, text: str, line_length: int) -> int:
+        """Helper to count visual lines."""
+        try:
+            processed_text = get_bidi(text) if has_bidi(text) else text
+            lines = split_string(processed_text, line_length)
+            return len(lines)
+        except Exception:
+            return len(text.split('\n'))
 
     async def _delayed_clear(self, delay: float):
-        """Helper to clear text after reading duration."""
         await asyncio.sleep(delay)
         await PixooDevice(self.config, self.session).send_command({"Command": "Draw/ClearHttpText"})
 
@@ -3270,29 +3302,38 @@ class LyricsProvider:
         if not lyrics: return
 
         is_bidi_text = has_bidi(lyrics)
-        text_to_process = get_bidi(lyrics) if is_bidi_text else lyrics
-        all_lines = split_string(text_to_process, line_length)
+        
+        raw_segments = lyrics.split('\n')
+        all_lines = []
 
-        if is_bidi_text:
-            all_lines.reverse()
+        for seg in raw_segments:
+            seg_bidi = get_bidi(seg) if is_bidi_text else seg
+            wrapped = split_string(seg_bidi, line_length)
+            
+            # BIDI FIX: Reverse ONLY the wrapping of this specific segment
+            if is_bidi_text:
+                wrapped.reverse()
+            
+            all_lines.extend(wrapped)
 
+        # Limit to 6 lines
         if len(all_lines) > 6:
-            # If we have too many lines, keep the first 5
-            final_lines = all_lines[:5]
-            # Merge the remaining lines into one string for the 6th line
-            remaining_text = " ".join(all_lines[5:])
-            final_lines.append(remaining_text)
+            final_lines = all_lines[:5] # Keep first 5 lines
+            # Merge all remaining lines into the 6th line
+            final_lines.append(" ".join(all_lines[5:])) 
             all_lines = final_lines
 
         self.len_lines = len(all_lines)
-        font_height = 10 if self.len_lines == 6 else 12
+        
+        # Adjust font height if using 6 lines to fit 64px
+        # 6 lines * 10px = 60px. (2px padding top/bottom)
+        font_height = 10 if self.len_lines >= 6 else 12
         start_y = (64 - self.len_lines * font_height) // 2
 
         item_list = []
         for i, line in enumerate(all_lines):
             y = start_y + i * font_height
             rtl = 1 if has_bidi(line) else 0
-            
             item_list.append({
                 "TextId": i + 1,
                 "type": 22,
@@ -3316,7 +3357,6 @@ class LyricsProvider:
             ]
         }
         await PixooDevice(self.config, self.session).send_command(payload)
-
 
 class SpotifyService:
     """Service to interact with Spotify API for album art and related data.""" 
