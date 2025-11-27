@@ -498,7 +498,6 @@ class PixooDevice:
             _LOGGER.exception(f"Unexpected error getting channel index from Pixoo: {e}") 
         return 1  # Default fallback value
 
-
 class ImageProcessor:
     """Processes images for display on the Pixoo64 device, including caching and filtering.""" 
     def __init__(self, config: "Config", session: aiohttp.ClientSession): 
@@ -516,15 +515,14 @@ class ImageProcessor:
         size = 0
         if isinstance(item, dict):
             for key, value in item.items():
-                if isinstance(value, str):
+                if key == 'pil_image': 
+                    size += 64 * 64 * 3 
+                elif isinstance(value, str):
                     size += sys.getsizeof(value)
                 elif isinstance(value, (int, float, bool)):
                     size += sys.getsizeof(value)
                 elif isinstance(value, tuple):
                     size += sys.getsizeof(value)
-                elif isinstance(value, list):
-                    for list_item in value:
-                        size += sys.getsizeof(list_item)
         return size
 
     def _calculate_cache_memory_size(self) -> float:
@@ -544,39 +542,64 @@ class ImageProcessor:
             cache_key = picture
 
         use_cache = not spotify_slide and not media_data.playing_tv and not self.config.burned
+        cached_data = None
 
-        # Check Cache
+        # 1. Check Cache
         if use_cache and cache_key in self.image_cache:
             _LOGGER.debug(f"Image found in cache: {cache_key}") 
-            cached_item = self.image_cache.pop(cache_key)
-            self.image_cache[cache_key] = cached_item
-            return cached_item
-
-        # Download and Process
-        try:
-            url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
-            
-            async with self.session.get(url, timeout=30) as response: 
-                response.raise_for_status() 
-                image_data = await response.read()
-                processed_data = await self.process_image_data(image_data, media_data)
-                
-                if processed_data and not spotify_slide:
-                    if len(self.image_cache) >= self.cache_size:
-                        self.image_cache.popitem(last=False)
-                    self.image_cache[cache_key] = processed_data
+            # Move to end (LRU)
+            cached_data = self.image_cache.pop(cache_key)
+            self.image_cache[cache_key] = cached_data
+        else:
+            # 2. Download and Process (Create Base Image)
+            try:
+                url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
+                async with self.session.get(url, timeout=30) as response: 
+                    response.raise_for_status() 
+                    image_data = await response.read()
                     
-                    memory_size = self._calculate_cache_memory_size()
-                    media_data.image_cache_memory = format_memory_size(memory_size)
-                    media_data.image_cache_count = self._cache_size
-                return processed_data
+                    # This returns the CLEAN image + extracted colors
+                    cached_data = await self.process_image_data(image_data, media_data)
+                    
+                    if cached_data and not spotify_slide:
+                        if len(self.image_cache) >= self.cache_size:
+                            self.image_cache.popitem(last=False)
+                        self.image_cache[cache_key] = cached_data
+                        
+                        memory_size = self._calculate_cache_memory_size()
+                        media_data.image_cache_memory = format_memory_size(memory_size)
+                        media_data.image_cache_count = self._cache_size
+            except Exception as e: 
+                _LOGGER.error(f"Error fetching/processing image: {e}") 
+                return None
 
-        except aiohttp.ClientError as e: 
-            _LOGGER.error(f"Error fetching image from URL {url}: {e}") 
+        if not cached_data:
             return None
-        except Exception as e: 
-            _LOGGER.exception(f"Unexpected error in get_image: {e}") 
-            return None
+
+        # 3. Apply Dynamic Overlays (Darkening/Text BG) 
+        # We must work on a COPY so we don't modify the cached clean image
+        final_img = cached_data['pil_image'].copy()
+        
+        # Apply darkening if lyrics exist for THIS specific track (Dynamic Logic)
+        final_img = self.text_clock_img(final_img, cached_data['brightness_lower_part'], media_data)
+        
+        # Apply Info Overlay if active
+        if self.config.info:
+            lpc = (0, 10, 64, 30)
+            lower_part_img = final_img.crop(lpc)
+            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
+            lower_part_img = enhancer_lp.enhance(0.4)
+            final_img.paste(lower_part_img, lpc)
+            media_data.info_img = self.gbase64(final_img)
+
+        # Convert to Base64 for sending (Optimized)
+        base64_result = self.gbase64(final_img)
+
+        # Return a merged dictionary with the fresh base64 and original colors
+        return {
+            'base64_image': base64_result,
+            **cached_data # Unpack colors and brightness values
+        }
 
     async def process_image_data(self, image_data: bytes, media_data: "MediaData") -> Optional[dict]: 
         loop = asyncio.get_event_loop()
@@ -589,6 +612,7 @@ class ImageProcessor:
                 return None
 
     def _process_image(self, image_data: bytes, media_data: "MediaData") -> Optional[dict]: 
+        """Generates the CLEAN base image and extracts colors."""
         try:
             with Image.open(BytesIO(image_data)) as img:
                 img = ensure_rgb(img)
@@ -603,26 +627,19 @@ class ImageProcessor:
                 if self.config.burned and not media_data.radio_logo:
                     img = self._draw_burned_text(img, media_data.artist, media_data.title_clean)
 
-                img = self.special_mode(img) if self.config.special_mode else img.resize((64, 64), Image.Resampling.BICUBIC)
+                img = self.special_mode(img) if self.config.special_mode else img.resize((64, 64), Image.Resampling.BILINEAR)
+                
+                # Extract colors/brightness from the clean image (Heavy math happens here once)
                 font_color, brightness, brightness_lower_part, background_color, background_color_rgb, most_common_color_alternative_rgb, most_common_color_alternative, color1, color2, color3 = self.img_values(img)
 
+                # Set global color vars
                 media_data.lyrics_font_color = self.get_optimal_font_color(img) if self.config.show_lyrics or self.config.info else "#FFA000"
                 media_data.color1 = color1
                 media_data.color2 = color2
                 media_data.color3 = color3
-                img = self.text_clock_img(img, brightness_lower_part, media_data) if not self.config.special_mode else img
-                base64_image = self.gbase64(img)
-
-                if self.config.info:
-                    lpc = (0, 10, 64, 30)
-                    lower_part_img = img.crop(lpc)
-                    enhancer_lp = ImageEnhance.Brightness(lower_part_img)
-                    lower_part_img = enhancer_lp.enhance(0.4)
-                    img.paste(lower_part_img, lpc)
-                    media_data.info_img = self.gbase64(img)
 
                 return {
-                    'base64_image': base64_image,
+                    'pil_image': img, # Store object for cloning
                     'font_color': font_color,
                     'brightness': brightness,
                     'brightness_lower_part': brightness_lower_part,
@@ -640,21 +657,18 @@ class ImageProcessor:
             return None
 
     def fixed_size(self, img: Image.Image) -> Image.Image: 
-        """Ensure the image is square."""
         width, height = img.size
         if width == height:
             return img
         elif height < width:
-            # Calculate the border size
             border_size = (width - height) // 2
             try:
                 background_color = img.getpixel((0, 0)) 
             except Exception: 
-                background_color = (0, 0, 0) # Default black if pixel access fails
-                _LOGGER.warning("Could not get pixel from image for background color, using black as default.") 
-            new_img = Image.new("RGB", (width, width), background_color)  # Create a square image
-            new_img.paste(img, (0, border_size))  # Paste the original image onto the new image
-            img = new_img  # Update img to the new image
+                background_color = (0, 0, 0)
+            new_img = Image.new("RGB", (width, width), background_color)
+            new_img.paste(img, (0, border_size))
+            img = new_img
         elif width != height:
             new_size = min(width, height)
             left = (width - new_size) // 2
@@ -663,8 +677,7 @@ class ImageProcessor:
         return img
 
     def filter_image(self, img: Image.Image) -> Image.Image: 
-        """Apply configured image filters to the image."""
-        img = img.resize((64, 64), Image.Resampling.BICUBIC)
+        img = img.resize((64, 64), Image.Resampling.BILINEAR)
 
         if self.config.limit_color:
             colors = int(self.config.limit_color)
@@ -694,25 +707,20 @@ class ImageProcessor:
         return img
 
     def special_mode(self, img: Image.Image) -> Image.Image: 
-        """Apply special mode image processing."""
-        if img is None:
-            _LOGGER.error("Error: Provided image is None in special_mode.") 
-            return None
+        if img is None: return None
 
         output_size = (64, 64)
         album_size = (34, 34) if self.config.show_text else (56, 56)
-        album_art = img.resize(album_size, Image.Resampling.BICUBIC)
+        
+        album_art = img.resize(album_size, Image.Resampling.BILINEAR)
 
-        # Get the colors for the gradient
         try: 
             left_color = album_art.getpixel((0, album_size[1] // 2))
             right_color = album_art.getpixel((album_size[0] - 1, album_size[1] // 2))
         except Exception as e: 
-            _LOGGER.warning(f"Could not get pixel from album_art for gradient colors, using default. Error: {e}") # Log warning
-            left_color = (100, 100, 100) # Default grey color
-            right_color = (150, 150, 150) # Default light grey color
+            left_color = (100, 100, 100) 
+            right_color = (150, 150, 150) 
 
-        # Select a darker color for the background
         dark_background_color = (
             min(left_color[0], right_color[0]) // 2,
             min(left_color[1], right_color[1]) // 2,
@@ -723,10 +731,9 @@ class ImageProcessor:
         background = Image.new('RGB', output_size, dark_background_color)
 
         x = (output_size[0] - album_size[0]) // 2
-        y = 8  # Top padding
+        y = 8 
 
         if album_size == (34, 34):
-            # Create the gradient on the left side, within 32 pixels height
             for i in range(x):
                 gradient_color = (
                     int(left_color[0] * (x - i) / x),
@@ -736,7 +743,6 @@ class ImageProcessor:
                 for j in range(y, y + album_size[1]):
                     background.putpixel((i, j), gradient_color)
 
-            # Create the gradient on the right side, within 32 pixels height
             for i in range(x + album_size[0], output_size[0]):
                 gradient_color = (
                     int(right_color[0] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
@@ -746,18 +752,15 @@ class ImageProcessor:
                 for j in range(y, y + album_size[1]):
                     background.putpixel((i, j), gradient_color)
 
-        # Paste the album art on the background
         background.paste(album_art, (x, y))
-
         return background
 
     def gbase64(self, img: Image.Image) -> Optional[str]: 
         """Convert PIL Image to base64 encoded string."""
         try:
-            pixels = [item for p in list(img.getdata()) for item in p] 
-            b64 = base64.b64encode(bytearray(pixels))
-            gif_base64 = b64.decode("utf-8")
-            return gif_base64
+            raw_data = img.tobytes()
+            b64 = base64.b64encode(raw_data)
+            return b64.decode("utf-8")
         except Exception as e: 
             _LOGGER.error(f"Error converting image to base64: {e}") 
             return None
@@ -767,7 +770,7 @@ class ImageProcessor:
         if media_data.playing_tv or self.config.special_mode or self.config.spotify_slide:
             return img
 
-        # Check if there are no lyrics before proceeding
+        # Dynamic Logic: Uses the passed media_data to check if lyrics exist for THIS view
         if media_data.lyrics and self.config.show_lyrics and self.config.text_bg and brightness_lower_part != None and not media_data.playing_radio:
             enhancer_lp = ImageEnhance.Brightness(img)
             img = enhancer_lp.enhance(0.55)  
@@ -789,7 +792,6 @@ class ImageProcessor:
             lower_part_img = enhancer_lp.enhance(0.3)
             img.paste(lower_part_img, lpc)
 
-
         if self.config.text_bg and self.config.show_text and not self.config.show_lyrics and not media_data.playing_tv:
             lpc = (0, 48, 64, 64)
             lower_part_img = img.crop(lpc)
@@ -798,22 +800,28 @@ class ImageProcessor:
             img.paste(lower_part_img, lpc)
         return img
 
-    def img_values(self, img: Image.Image) -> tuple[str, float, float, str, tuple[int, int, int], tuple[int, int, int], str, str, str, str]: 
+    def img_values(self, img: Image.Image) -> tuple: 
         """Extract color values and brightness from the image."""
         full_img = img
         font_color = '#ff00ff'
         brightness = 0.67
-        brightness_lower_part = '#ffff00'
+        brightness_lower_part = 0.0
         background_color = (255, 255, 0)
         background_color_rgb = (0, 0, 255)
-        recommended_font_color_rgb = (255, 255, 0)
-        most_common_color_alternative_rgb = (0,0,0) # Give default to avoid errors
-        most_common_color_alternative = '#000000' # Give default to avoid errors
+        # recommended_font_color_rgb = (255, 255, 0)
+        most_common_color_alternative_rgb = (0,0,0)
+        most_common_color_alternative = '#000000'
 
         # Lower Part
         lower_part = img.crop((3, 48, 61, 61))
-        color_counts_lower_part = Counter(lower_part.getdata())
-        most_common_colors_lower_part = color_counts_lower_part.most_common()
+        
+        most_common_colors_lower_part_raw = lower_part.getcolors(maxcolors=4096)
+        if most_common_colors_lower_part_raw:
+            most_common_colors_lower_part = [(c[1], c[0]) for c in most_common_colors_lower_part_raw]
+            most_common_colors_lower_part.sort(key=lambda x: x[1], reverse=True)
+        else:
+            most_common_colors_lower_part = []
+
         most_common_color = self.most_vibrant_color(most_common_colors_lower_part)
         opposite_color = tuple(255 - i for i in most_common_color)
         opposite_color_brightness = int(sum(opposite_color) / 3)
@@ -821,20 +829,26 @@ class ImageProcessor:
         font_color = self.get_optimal_font_color(lower_part)
 
         # Full Image
-        small_temp_img = full_img.resize((16, 16), Image.Resampling.BICUBIC)
-        color_counts = Counter(small_temp_img.getdata())
-        most_common_colors = color_counts.most_common()
+        small_temp_img = full_img.resize((16, 16), Image.Resampling.BILINEAR)
+        
+        most_common_colors_raw = small_temp_img.getcolors(maxcolors=256)
+        if most_common_colors_raw:
+            most_common_colors = [(c[1], c[0]) for c in most_common_colors_raw]
+            most_common_colors.sort(key=lambda x: x[1], reverse=True)
+        else:
+            most_common_colors = []
+
         most_common_color_alternative_rgb = self.most_vibrant_color(most_common_colors)
         most_common_color_alternative = '#%02x%02x%02x' % most_common_color_alternative_rgb
         background_color_rgb = self.most_vibrant_color(most_common_colors)
         background_color = '#%02x%02x%02x' % background_color_rgb
-        recommended_font_color_rgb = opposite_color
+        # recommended_font_color_rgb = opposite_color
         brightness = int(sum(most_common_color_alternative_rgb) / 3)
 
+        color1 = color2 = color3 = '%02x%02x%02x' % most_common_color_alternative_rgb
+        
         if self.config.wled:
             color1, color2, color3 = self.most_vibrant_colors_wled(small_temp_img)
-        else:
-            color1 = color2 = color3 = '%02x%02x%02x' % most_common_color_alternative_rgb
 
         return (
             font_color,
@@ -842,13 +856,13 @@ class ImageProcessor:
             brightness_lower_part,
             background_color,
             background_color_rgb,
-            recommended_font_color_rgb,
+            most_common_color_alternative_rgb,
             most_common_color_alternative,
             color1, color2, color3
         )
 
+    # ... Helper methods ...
     def most_vibrant_color(self, most_common_colors: list[tuple[tuple[int, int, int], int]]) -> tuple[int, int, int]: 
-        """Finds the most vibrant color from a list of colors."""
         for color, count in most_common_colors:
             r, g, b = color
             max_color = max(r, g, b)
@@ -861,40 +875,29 @@ class ImageProcessor:
         return tuple(random.randint(100, 200) for _ in range(3))
 
     def rgb_to_hex(self, rgb: tuple[int, int, int]) -> str:
-        """Return #RRGGBB"""
         return '#{:02x}{:02x}{:02x}'.format(*rgb)
 
-
     def is_strong_color(self, color: tuple[int, int, int]) -> bool: 
-        """Check if at least one RGB component is greater than 220."""
         return any(c > 220 for c in color)
 
     def color_distance(self, color1: tuple[int, int, int], color2: tuple[int, int, int]) -> float: 
-        """Calculate the Euclidean distance between two colors."""
         return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
 
     def is_vibrant_color(self, r: int, g: int, b: int) -> bool: 
-        """Simplified vibrancy check, looking for a significant difference between components."""
         return (max(r, g, b) - min(r, g, b) > 50)
 
     def generate_close_but_different_color(self, existing_colors: list[tuple[tuple[int, int, int], int]]) -> tuple[int, int, int]: 
-        """Generates a color close to the existing colors but distinct."""
         if not existing_colors:
             return (random.randint(100, 200), random.randint(100, 200), random.randint(100, 200))
-
-        # Calculate the average color of existing colors
         avg_r = sum(c[0] for c, _ in existing_colors) // len(existing_colors)
         avg_g = sum(c[1] for c, _ in existing_colors) // len(existing_colors)
         avg_b = sum(c[2] for c, _ in existing_colors) // len(existing_colors)
-
         while True:
-            # Generate color based on the average.
             new_color = (
                 max(0, min(255, avg_r + random.randint(-40, 40))),
                 max(0, min(255, avg_g + random.randint(-40, 40))),
                 max(0, min(255, avg_b + random.randint(-40, 40)))
             )
-            # Check if the new color is distinct from existing colors.
             is_distinct = True
             for existing_color, _ in existing_colors:
                 if self.color_distance(new_color, existing_color) < 50:
@@ -904,7 +907,6 @@ class ImageProcessor:
                 return new_color
 
     def color_score(self, color_count: tuple[tuple[int, int, int], int]) -> float: 
-        """Calculate a score for a color based on frequency and saturation."""
         color, count = color_count
         max_val = max(color)
         min_val = min(color)
@@ -912,267 +914,180 @@ class ImageProcessor:
         return count * saturation
 
     def most_vibrant_colors_wled(self, full_img: Image.Image) -> tuple[str, str, str]: 
-        """Extract the three most dominant vibrant colors for WLED, ensuring diverse hues and strong colors."""
-        # Adaptive Color Enhancement
         enhancer = ImageEnhance.Contrast(full_img)
         full_img = enhancer.enhance(2.0)
         enhancer = ImageEnhance.Color(full_img)
-        full_img = enhancer.enhance(3.0) # reduced enhancement
+        full_img = enhancer.enhance(3.0) 
+        
+        color_counts_raw = full_img.getcolors(maxcolors=1024)
+        if not color_counts_raw:
+            return "#000000", "#000000", "#000000"
 
-        color_counts = Counter(full_img.getdata())
-        most_common_colors = color_counts.most_common(50)  # Get more colors
+        most_common_colors = [(c[1], c[0]) for c in color_counts_raw]
+        most_common_colors.sort(key=lambda x: x[1], reverse=True)
+        most_common_colors = most_common_colors[:50]
 
-        # Filter only vibrant colors
         vibrant_colors = [(color, count) for color, count in most_common_colors if self.is_vibrant_color(*color)]
-
-        # Sort by frequency and saturation
         vibrant_colors.sort(key=self.color_score, reverse=True)
-
-        # Select top 3 unique colors by checking for distance between them and if at least one value > 220
         selected_colors = []
-
         for color, _ in vibrant_colors:
             if self.is_strong_color(color):
                 is_similar = False
                 for selected_color, _ in selected_colors:
-                    if self.color_distance(color, selected_color) < 50: # Threshold for color distance
+                    if self.color_distance(color, selected_color) < 50: 
                         is_similar = True
                         break
                 if not is_similar:
                     selected_colors.append((color, _))
                     if len(selected_colors) == 3:
                         break
-
-        if len(selected_colors) < 3: # Less then 3 - check the other colors by the same rule.
+        if len(selected_colors) < 3: 
                 for color, _ in vibrant_colors:
                     is_similar = False
                     if not self.is_strong_color(color):
                         for selected_color, _ in selected_colors:
-                            if self.color_distance(color, selected_color) < 50: # Threshold for color distance
+                            if self.color_distance(color, selected_color) < 50: 
                                 is_similar = True
                                 break
                         if not is_similar:
                             selected_colors.append((color, _))
                             if len(selected_colors) == 3:
                                 break
-        # Ensure we have 3 colors
         while len(selected_colors) < 3:
             new_color = self.generate_close_but_different_color(selected_colors)
             selected_colors.append((new_color, 1))
-
         return self.rgb_to_hex(selected_colors[0][0]), self.rgb_to_hex(selected_colors[1][0]), self.rgb_to_hex(selected_colors[2][0])
 
     def get_optimal_font_color(self, img: Image.Image) -> str: 
-        """Determine a colorful, readable font color."""
-
         if self.config.force_font_color:
             return self.config.force_font_color
         
-        # Resize for faster processing
-        small_img = img.resize((16, 16), Image.Resampling.BICUBIC)
-
-        # Get all unique colors in the image (palette)
+        small_img = img.resize((16, 16), Image.Resampling.BILINEAR)
         image_palette = set(small_img.getdata())
-
-        # Calculate luminance to analyze image brightness
+        
         def luminance(color: tuple[int, int, int]) -> float: 
             r, g, b = color
             return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-        # Calculate average brightness of the image palette
         avg_brightness = sum(luminance(color) for color in image_palette) / len(image_palette)
-
-        # Define the contrast ratio calculation
         def contrast_ratio(color1: tuple[int, int, int], color2: tuple[int, int, int]) -> float: 
             L1 = luminance(color1) + 0.05
             L2 = luminance(color2) + 0.05
             return max(L1, L2) / min(L1, L2)
-
-        # Check if the color is sufficiently distinct from all colors in the image
         def is_distinct_color(color: tuple[int, int, int], threshold: int = 110) -> bool: 
-            return all(self.color_distance(color, img_color) > threshold for img_color in image_palette) # Using self.color_distance
-
-        # Define a set of colorful candidate colors (modified for brightness)
+            return all(self.color_distance(color, img_color) > threshold for img_color in image_palette) 
         candidate_colors = COLOR_PALETTE
         random.shuffle(candidate_colors)
         best_color = None
         max_saturation = -1 
-
-        # Check each candidate color against the image palette
         for font_color in candidate_colors:
             if is_distinct_color(font_color, threshold=100):
-                # Calculate the saturation of the candidate color
                 r, g, b = font_color
                 max_val = max(r, g, b)
                 min_val = min(r, g, b)
                 saturation = (max_val - min_val) / max_val if max_val != 0 else 0
-
-                # Ensure contrast with image brightness
                 contrast_with_white = contrast_ratio(font_color, (255, 255, 255))
                 contrast_with_black = contrast_ratio(font_color, (0, 0, 0))
-                if (avg_brightness < 127 and contrast_with_white >= 2.5) or (avg_brightness >= 127 and contrast_with_black >= 2.5): # Lowering the contrast req.
-                    # Update best color if this candidate has a higher saturation
+                if (avg_brightness < 127 and contrast_with_white >= 2.5) or (avg_brightness >= 127 and contrast_with_black >= 2.5): 
                     if saturation > max_saturation:
                         max_saturation = saturation
                         best_color = font_color
-
-        # If a best color was found, return it
         if best_color:
             return '#%02x%02x%02x' % best_color
-
-        # Fallback if no suitable color is found
         return '#000000' if avg_brightness > 127 else '#ffffff'
 
     def get_dominant_border_color(self, img: Image.Image) -> tuple[int, int, int]:
-        """Get the dominant color from the image borders using collections.Counter."""
         width, height = img.size
         if width == 0 or height == 0:
-            _LOGGER.debug("get_dominant_border_color: Empty image provided.")
             return (0, 0, 0)
-
         img_rgb = img if img.mode == "RGB" else img.convert("RGB")
-
         all_border_pixels = []
-
         if height > 0 and width > 0:
             top_row_img = img_rgb.crop((0, 0, width, 1))
             all_border_pixels.extend(list(top_row_img.getdata()))
-
         if height > 1 and width > 0:
             bottom_row_img = img_rgb.crop((0, height - 1, width, height))
             all_border_pixels.extend(list(bottom_row_img.getdata()))
-
         start_y_for_cols = 1 if height > 1 else 0
         end_y_for_cols = height - 1 if height > 1 else height
-
-        if width > 0 and end_y_for_cols > start_y_for_cols : # only if there's a vertical strip to read
+        if width > 0 and end_y_for_cols > start_y_for_cols : 
             left_col_img = img_rgb.crop((0, start_y_for_cols, 1, end_y_for_cols))
             all_border_pixels.extend(list(left_col_img.getdata()))
-
         if width > 1 and end_y_for_cols > start_y_for_cols:
             right_col_img = img_rgb.crop((width - 1, start_y_for_cols, width, end_y_for_cols))
             all_border_pixels.extend(list(right_col_img.getdata()))
-        
         if not all_border_pixels:
-            # This can happen for 1x1 images or if logic somehow fails for tiny images
             if width > 0 and height > 0:
                 try:
-                    return img_rgb.getpixel((0, 0)) # Fallback to top-left pixel
-                except IndexError: # Should not happen if width/height > 0
-                    _LOGGER.warning("get_dominant_border_color: Could not getpixel for fallback on small image.")
+                    return img_rgb.getpixel((0, 0)) 
+                except IndexError: 
                     return (0, 0, 0)
-            _LOGGER.debug("get_dominant_border_color: No border pixels collected.")
             return (0, 0, 0)
-
         counts = Counter(all_border_pixels)
         return counts.most_common(1)[0][0]
 
-    def _find_content_bounding_box(self,
-                                image_to_scan: Image.Image, # Assumed to be RGB
-                                border_color_to_detect: tuple[int, int, int],
-                                threshold: float
-                                ) -> Optional[Tuple[int, int, int, int]]:
-        """
-        Finds the bounding box of content by identifying pixels different from the border_color.
-        Returns (min_x, min_y, max_x, max_y) or None if no content.
-        Assumes image_to_scan is already in RGB mode.
-        """
+    def _find_content_bounding_box(self, image_to_scan: Image.Image, border_color_to_detect: tuple[int, int, int], threshold: float) -> Optional[Tuple[int, int, int, int]]:
         width, height = image_to_scan.size
         if width == 0 or height == 0:
-            _LOGGER.debug("_find_content_bounding_box: Empty image provided.")
             return None
         try:
             pix = image_to_scan.load()
-        except Exception as e:
-            _LOGGER.error(f"_find_content_bounding_box: Could not load pixels: {e}")
+        except Exception:
             return None
-
         min_x, min_y = width, height
         max_x, max_y = -1, -1
         content_found = False
-
         for y_coord in range(height):
             for x_coord in range(width):
                 try:
                     pixel_data = pix[x_coord, y_coord]
                     r, g, b = pixel_data[0], pixel_data[1], pixel_data[2]
-
-                except (IndexError, TypeError) as e: # TypeError if pixel_data is an int (e.g. paletted)
-                    # This shouldn't happen if image_to_scan is properly converted to RGB beforehand
-                    _LOGGER.warning(f"_find_content_bounding_box: Pixel at ({x_coord},{y_coord}) not RGB. Mode: {image_to_scan.mode}. Pixel: {pixel_data}. Error: {e}")
+                except (IndexError, TypeError): 
                     continue
-
-                if math.hypot(r - border_color_to_detect[0],
-                            g - border_color_to_detect[1],
-                            b - border_color_to_detect[2]) > threshold:
+                if math.hypot(r - border_color_to_detect[0], g - border_color_to_detect[1], b - border_color_to_detect[2]) > threshold:
                     min_x = min(min_x, x_coord)
                     max_x = max(max_x, x_coord)
                     min_y = min(min_y, y_coord)
                     max_y = max(max_y, y_coord)
                     content_found = True
-
         if not content_found:
-            _LOGGER.debug(f"_find_content_bounding_box: No content found distinct from border color {border_color_to_detect} with threshold {threshold}")
             return None
-
         return min_x, min_y, max_x, max_y
 
-    def _balance_border(self, detect: Image.Image, orig: Image.Image,
-                        left: int, top: int, size: int, # left, top, size define the content window found in 'detect'
-                        border_color: tuple, thresh: float) -> Image.Image:
-        """
-        Splits any one-sided border equally between top and bottom by shifting the crop window.
-        The crop is applied to 'orig'. 'detect' (assumed RGB) is used for border analysis.
-        'size' is the target dimension of the square crop.
-        """
+    def _balance_border(self, detect: Image.Image, orig: Image.Image, left: int, top: int, size: int, border_color: tuple, thresh: float) -> Image.Image:
         orig_width, orig_height = orig.size
-        detect_width, detect_height = detect.size # detect image dimensions
-
-
+        detect_width, detect_height = detect.size 
         eff_detect_left = max(0, left)
         eff_detect_top = max(0, top)
-
         eff_detect_right = min(left + size, detect_width)
         eff_detect_bottom = min(top + size, detect_height)
-
         if eff_detect_right <= eff_detect_left or eff_detect_bottom <= eff_detect_top:
-            _LOGGER.warning(f"Invalid crop window for _balance_border on 'detect' image: ({eff_detect_left}, {eff_detect_top}, {eff_detect_right}, {eff_detect_bottom}). Cropping 'orig' with unshifted values.")
             final_left_orig = max(0, min(left, orig_width - size))
             final_top_orig = max(0, min(top, orig_height - size))
             actual_crop_dim_orig = min(size, orig_width - final_left_orig, orig_height - final_top_orig)
-            if actual_crop_dim_orig < 1: return orig # Return full original if crop is invalid
+            if actual_crop_dim_orig < 1: return orig 
             return orig.crop((final_left_orig, final_top_orig, final_left_orig + actual_crop_dim_orig, final_top_orig + actual_crop_dim_orig))
-
         cropped_detect_window = detect.crop((eff_detect_left, eff_detect_top, eff_detect_right, eff_detect_bottom))
-        
         local_size_w = cropped_detect_window.width
         local_size_h = cropped_detect_window.height
-
         if local_size_w == 0 or local_size_h == 0:
-            _LOGGER.warning("Cropped detect window for _balance_border is empty. Cropping 'orig' with unshifted values.")
             final_left_orig = max(0, min(left, orig_width - size))
             final_top_orig = max(0, min(top, orig_height - size))
             actual_crop_dim_orig = min(size, orig_width - final_left_orig, orig_height - final_top_orig)
             if actual_crop_dim_orig < 1: return orig
             return orig.crop((final_left_orig, final_top_orig, final_left_orig + actual_crop_dim_orig, final_top_orig + actual_crop_dim_orig))
-
         try:
             pix_detect = cropped_detect_window.load()
-        except Exception as e:
-            _LOGGER.error(f"_balance_border: Could not load pixels from cropped_detect_window: {e}")
-            # Fallback as above
+        except Exception:
             final_left_orig = max(0, min(left, orig_width - size))
             final_top_orig = max(0, min(top, orig_height - size))
             actual_crop_dim_orig = min(size, orig_width - final_left_orig, orig_height - final_top_orig)
             if actual_crop_dim_orig < 1: return orig
             return orig.crop((final_left_orig, final_top_orig, final_left_orig + actual_crop_dim_orig, final_top_orig + actual_crop_dim_orig))
-
-
         top_border_rows = 0
         for y in range(local_size_h):
             is_border_row = True
             for x in range(local_size_w):
-                r, g, b = pix_detect[x,y][:3] # Safe slice if alpha might be present
+                r, g, b = pix_detect[x,y][:3] 
                 if math.hypot(r - border_color[0], g - border_color[1], b - border_color[2]) > thresh:
                     is_border_row = False
                     break
@@ -1180,7 +1095,6 @@ class ImageProcessor:
                 top_border_rows += 1
             else:
                 break
-        
         bottom_border_rows = 0
         for y in range(local_size_h - 1, -1, -1):
             is_border_row = True
@@ -1193,271 +1107,165 @@ class ImageProcessor:
                 bottom_border_rows += 1
             else:
                 break
-        
         target_crop_dim = size 
-
-        new_top_orig = top # This 'top' is the original top of the content box in 'orig'
-
+        new_top_orig = top 
         if top_border_rows > 0 and bottom_border_rows == 0:
             shift = top_border_rows // 2
-            new_top_orig = top + shift # Shift crop window down
+            new_top_orig = top + shift 
         elif bottom_border_rows > 0 and top_border_rows == 0:
             shift = bottom_border_rows // 2
-            new_top_orig = top - shift # Shift crop window up
-        
-        # Ensure final crop is within bounds of 'orig'
+            new_top_orig = top - shift 
         final_left = max(0, min(left, orig_width - target_crop_dim))
-        final_top = max(0, min(new_top_orig, orig_height - target_crop_dim)) # Use potentially shifted new_top
-        
+        final_top = max(0, min(new_top_orig, orig_height - target_crop_dim)) 
         actual_final_w = min(target_crop_dim, orig_width - final_left)
         actual_final_h = min(target_crop_dim, orig_height - final_top)
-        actual_final_dim = min(actual_final_w, actual_final_h) # Keep it square
-
+        actual_final_dim = min(actual_final_w, actual_final_h) 
         if actual_final_dim < 1:
-            _LOGGER.warning(f"Calculated final crop dimension in _balance_border is invalid ({actual_final_dim}). Returning original image.")
             return orig
-
         return orig.crop((final_left, final_top, final_left + actual_final_dim, final_top + actual_final_dim))
 
     def _perform_border_crop(self, img_to_crop: Image.Image) -> Optional[Image.Image]:
-        _LOGGER.debug("Performing standard border crop.")
-
         detect_img = img_to_crop.convert("RGB") if img_to_crop.mode != "RGB" else img_to_crop.copy()
-
-        border_color = self.get_dominant_border_color(detect_img) # Uses the RGB 'detect_img'
+        border_color = self.get_dominant_border_color(detect_img) 
         threshold = 20
-
-        bbox = self._find_content_bounding_box(detect_img, border_color, threshold) # Uses RGB 'detect_img'
-
+        bbox = self._find_content_bounding_box(detect_img, border_color, threshold) 
         if bbox is None:
-            _LOGGER.debug("Border crop: No content found.")
-            return None # No content found, or image was entirely border
-
+            return None 
         min_x, min_y, max_x, max_y = bbox
         content_w = max_x - min_x + 1
         content_h = max_y - min_y + 1
-
-        # Determine crop size (at least 64x64, or content size, whichever is larger, but square)
         crop_dim = max(64, max(content_w, content_h))
-
-        # Center the crop on the content
         center_x = min_x + content_w // 2
         center_y = min_y + content_h // 2
         half_crop_dim = crop_dim // 2
-
-        # Calculate top-left corner of the crop (these are for 'detect_img' and 'img_to_crop')
         left = max(0, center_x - half_crop_dim)
         top = max(0, center_y - half_crop_dim)
-
-        # Ensure the crop does not go out of bounds (right/bottom)
         img_width, img_height = detect_img.size
         if left + crop_dim > img_width:
             left = img_width - crop_dim
         if top + crop_dim > img_height:
             top = img_height - crop_dim
-        
-        left = max(0, left) # Ensure left/top are not negative
+        left = max(0, left) 
         top = max(0, top)
-
         actual_crop_size = min(crop_dim, img_width - left, img_height - top)
         if actual_crop_size < 1:
-            _LOGGER.warning(f"Border crop: Calculated crop size is invalid ({actual_crop_size}). Bbox: {bbox}, img_size: {detect_img.size}")
-            return img_to_crop # Return original if crop is invalid
-
+            return img_to_crop 
         return self._balance_border(detect_img, img_to_crop, left, top, actual_crop_size, border_color, threshold)
 
     def _perform_object_focus_crop(self, img_to_crop: Image.Image) -> Optional[Image.Image]:
-        _LOGGER.debug("Performing object focus crop.")
-        
         base_for_detect = img_to_crop.convert("RGB") if img_to_crop.mode != "RGB" else img_to_crop.copy()
-
-        # Process this base image for better object detection
         detect_img_processed = base_for_detect.filter(ImageFilter.BoxBlur(5))
         detect_img_processed = ImageEnhance.Brightness(detect_img_processed).enhance(1.95)
         threshold_find_bbox_obj = 50
-
-        border_color_for_detect = self.get_dominant_border_color(detect_img_processed) # Use processed image
-        bbox = self._find_content_bounding_box(detect_img_processed, border_color_for_detect, threshold_find_bbox_obj) # Use processed image
-
+        border_color_for_detect = self.get_dominant_border_color(detect_img_processed) 
+        bbox = self._find_content_bounding_box(detect_img_processed, border_color_for_detect, threshold_find_bbox_obj) 
         if bbox is None:
-            _LOGGER.debug("Object focus: No salient content found with threshold %s.", threshold_find_bbox_obj)
-            return None # Fallback will be handled by caller
-
+            return None 
         min_x_orig_bbox, min_y_orig_bbox, max_x_orig_bbox, max_y_orig_bbox = bbox
-        expansion_pixels = -10 # Shrink the bounding box slightly
-        
-        # Apply expansion to the bbox coordinates, relative to detect_img_processed
+        expansion_pixels = -10 
         min_x = max(0, min_x_orig_bbox - expansion_pixels)
         min_y = max(0, min_y_orig_bbox - expansion_pixels)
         max_x = min(detect_img_processed.width - 1, max_x_orig_bbox + expansion_pixels)
         max_y = min(detect_img_processed.height - 1, max_y_orig_bbox + expansion_pixels)
-
         content_w = max_x - min_x + 1
         content_h = max_y - min_y + 1
-
         if content_w <= 0 or content_h <= 0:
-            _LOGGER.warning(f"Object focus: BBox invalid after expansion. Original: {bbox}, Expanded: {(min_x,min_y,max_x,max_y)}")
-            return img_to_crop # Return original if logic leads to invalid box
-
-        # Target square crop dimension
+            return img_to_crop 
         crop_dim = max(64, max(content_w, content_h))
-
-        # Center the crop on the (potentially expanded/shrunk) content box
         center_x = min_x + content_w // 2
         center_y = min_y + content_h // 2
         half_crop_dim = crop_dim // 2
-
-        # Top-left for the crop window, relative to detect_img_processed / img_to_crop
         left = max(0, center_x - half_crop_dim)
         top = max(0, center_y - half_crop_dim)
-
-        img_width, img_height = base_for_detect.size # Use dimensions of the original RGB base
+        img_width, img_height = base_for_detect.size 
         if left + crop_dim > img_width: left = img_width - crop_dim
         if top + crop_dim > img_height: top = img_height - crop_dim
         left = max(0, left)
         top = max(0, top)
-        
-        # 'actual_crop_size' is the target square dimension for the final crop
         actual_crop_size = min(crop_dim, img_width - left, img_height - top)
         if actual_crop_size < 1:
-            _LOGGER.warning(f"Object focus: Calculated crop size invalid ({actual_crop_size}).")
             return img_to_crop
-
         threshold_balance_obj = 60
-
-        return self._balance_border(detect_img_processed, img_to_crop, left, top, actual_crop_size,
-                                    border_color_for_detect, threshold_balance_obj)
+        return self._balance_border(detect_img_processed, img_to_crop, left, top, actual_crop_size, border_color_for_detect, threshold_balance_obj)
 
     def crop_image_borders(self, img: Image.Image, radio_logo: bool) -> Image.Image:
-        """Crop borders from the image. Dispatches to specific cropping methods."""
-        # This check should use self.config
         if radio_logo or not self.config.crop_borders:
             return img
-
         cropped_image: Optional[Image.Image] = None
-
         if self.config.crop_extra or self.config.special_mode: 
-            _LOGGER.debug("Attempting object focus crop (extra_crop or special_mode).")
             cropped_image = self._perform_object_focus_crop(img)
             if cropped_image is None: 
-                _LOGGER.debug("Object focus crop failed or found no content, falling back to standard border crop.")
                 cropped_image = self._perform_border_crop(img)
         else:
-            _LOGGER.debug("Attempting standard border crop (crop_borders is true, but not extra_crop/special_mode).")
             cropped_image = self._perform_border_crop(img)
-
-        if cropped_image is None: # If all attempts fail (e.g., _perform_border_crop also found no content)
-            _LOGGER.debug("All cropping attempts failed or found no significant content, returning original image.")
+        if cropped_image is None: 
             return img
-
         return cropped_image
 
-    def _draw_text_with_outline(self, draw: ImageDraw.ImageDraw, xy: tuple, text: str, font: ImageFont.FreeTypeFont,
-                                text_color: tuple, outline_color: tuple, outline_width: int = 1):
-        """Draws text with an outline."""
+    def _draw_text_with_outline(self, draw: ImageDraw.ImageDraw, xy: tuple, text: str, font: ImageFont.FreeTypeFont, text_color: tuple, outline_color: tuple, outline_width: int = 1):
         x, y = xy
-        # Outline
         for i in range(-outline_width, outline_width + 1):
             for j in range(-outline_width, outline_width + 1):
                 if i == 0 and j == 0:
-                    continue  # Skip the center for the outline pass
+                    continue  
                 draw.text((x + i, y + j), text, font=font, fill=outline_color)
-        # Main text
         draw.text((x, y), text, font=font, fill=text_color)
 
-    def _draw_text_with_shadow(self,
-                            draw: ImageDraw.ImageDraw,
-                            xy: tuple,
-                            text: str,
-                            font: ImageFont.FreeTypeFont,
-                            text_color: tuple,
-                            shadow_color: tuple):
-        """Draws text with a shadow."""
+    def _draw_text_with_shadow(self, draw: ImageDraw.ImageDraw, xy: tuple, text: str, font: ImageFont.FreeTypeFont, text_color: tuple, shadow_color: tuple):
         x, y = xy
-        
-        # Draw shadow
         draw.text((x + 1, y + 1), text, font=font, fill=shadow_color)
         draw.text((x, y + 1), text, font=font, fill=shadow_color)
         if shadow_color == (255, 255, 255, 128):
             draw.text((x + 1, y - 1), text, font=font, fill=shadow_color)
             draw.text((x - 1, y), text, font=font, fill=shadow_color)
-        # Draw main text on top
         draw.text((x, y), text, font=font, fill=text_color)
 
     def _get_text_dimensions(self, text: str, font: ImageFont.FreeTypeFont, draw: Optional[ImageDraw.ImageDraw] = None) -> tuple[int, int]:
-        """
-        Helper to get text width and height, preferring draw.textbbox if available,
-        then font.getbbox, then falling back to draw.textsize.
-        Returns (width, height).
-        """
         try:
-            if draw: # draw.textbbox is generally preferred for accuracy with PIL 9.2.0+
+            if draw: 
                 bbox = draw.textbbox((0, 0), text, font=font)
                 return bbox[2] - bbox[0], bbox[3] - bbox[1]
-            else: # If draw object isn't passed, use font.getbbox
+            else: 
                 bbox = font.getbbox(text)
                 return bbox[2] - bbox[0], bbox[3] - bbox[1]
-        except AttributeError: # Fallback for older Pillow versions or if methods are missing
-            _LOGGER.debug(f"Falling back to draw.textsize for font metrics for text: '{text[:20]}...'")
+        except AttributeError: 
             if draw:
                 try:
-                    # This is the one that will likely fail on Pillow 10+ if getbbox also failed (which is unlikely)
                     return draw.textsize(text, font=font)
-                except AttributeError: # If draw.textsize is also gone
-                    _LOGGER.warning("draw.textsize also missing. Text dimensioning will be inaccurate.")
-                    # As a last resort, estimate based on number of chars and font size
-                    # This is very rough.
+                except AttributeError: 
                     return len(text) * (font.size // 2 if hasattr(font, 'size') else 5), (font.size if hasattr(font, 'size') else 10)
-
-            else: # No draw object and getbbox failed
-                _LOGGER.warning("font.getbbox failed and no draw object for textsize. Text dimensioning will be inaccurate.")
+            else: 
                 return len(text) * (font.size // 2 if hasattr(font, 'size') else 5), (font.size if hasattr(font, 'size') else 10)
-        except Exception as e:
-            _LOGGER.error(f"Unexpected error getting text dimensions for '{text[:20]}...': {e}")
+        except Exception:
             return 0,0
 
     def _wrap_text(self, text: str, font: ImageFont.FreeTypeFont, max_width: int, draw: ImageDraw.ImageDraw) -> list:
         if not text:
             return []
-        _LOGGER.debug(f"WrapText: Input='{text}', MaxWidthPx={max_width}, Font='{font.path if hasattr(font, 'path') else 'Default'}' size {font.size if hasattr(font,'size') else 'N/A'}")
-
         avg_char_width_fallback = 5
         avg_char_width = avg_char_width_fallback
         try:
             char_width_sample, _ = self._get_text_dimensions("x", font, draw)
             if char_width_sample > 0:
                 avg_char_width = char_width_sample
-        except Exception as e:
-            _LOGGER.warning(f"WrapText: Error getting 'x' width for avg_char_width: {e}. Using fallback {avg_char_width_fallback}.")
+        except Exception:
+            pass
         
-        # Ensure wrap_width for textwrap is at least 1, based on estimated chars
         wrap_width_chars = max(1, max_width // avg_char_width if avg_char_width > 0 else 10)
-        _LOGGER.debug(f"WrapText: avg_char_width={avg_char_width}, est. wrap_width_chars={wrap_width_chars}")
-
         raw_lines = text.splitlines()
         processed_lines = []
-
         for raw_line_idx, raw_line in enumerate(raw_lines):
-            _LOGGER.debug(f"WrapText: Processing raw_line {raw_line_idx+1}/{len(raw_lines)}: '{raw_line}'")
             if not raw_line.strip():
-                _LOGGER.debug("WrapText: Skipping empty raw_line.")
                 continue
-
             current_line_width_px, _ = self._get_text_dimensions(raw_line, font, draw)
-
             if current_line_width_px <= max_width:
                 processed_lines.append(raw_line)
-                _LOGGER.debug(f"WrapText: Raw_line '{raw_line}' fits as is ({current_line_width_px}px).")
                 continue
             
-            _LOGGER.debug(f"WrapText: Raw_line '{raw_line}' too wide ({current_line_width_px}px). Attempting wrap.")
-            # Attempt with textwrap first
             attempt_textwrap = True 
-            if attempt_textwrap and max_width > avg_char_width * 3: # Only if reasonable space
+            if attempt_textwrap and max_width > avg_char_width * 3: 
                 try:
                     wrapped_sub_lines = textwrap.wrap(raw_line, width=wrap_width_chars, break_long_words=True, replace_whitespace=False, drop_whitespace=False)
-                    _LOGGER.debug(f"WrapText: Textwrap (char_width={wrap_width_chars}) for '{raw_line}' -> {wrapped_sub_lines}")
-                    
                     temp_textwrap_lines = []
                     textwrap_failed_to_fit = False
                     for sub_line in wrapped_sub_lines:
@@ -1466,28 +1274,21 @@ class ImageProcessor:
                         if sub_line_pixel_width <= max_width:
                             temp_textwrap_lines.append(sub_line)
                         else:
-                            _LOGGER.debug(f"WrapText: Textwrap sub_line '{sub_line}' still too wide ({sub_line_pixel_width}px). Textwrap strategy failed for this raw_line.")
                             textwrap_failed_to_fit = True
                             break 
                     
                     if not textwrap_failed_to_fit:
                         processed_lines.extend(temp_textwrap_lines)
-                        _LOGGER.debug(f"WrapText: Textwrap successful for raw_line '{raw_line}'. Result: {temp_textwrap_lines}")
-                        continue # Move to next raw_line
-                except Exception as e:
-                    _LOGGER.warning(f"WrapText: textwrap.wrap failed for '{raw_line}': {e}. Falling to manual.")
+                        continue 
+                except Exception:
+                    pass
             
-            # Fallback to Manual Word/Character Wrapping Logic for the current raw_line
-            _LOGGER.debug(f"WrapText: Using manual word/char wrap for raw_line: '{raw_line}'")
             words = raw_line.split(' ')
             current_manual_line = ""
             for word_idx, word in enumerate(words):
                 if not word: continue
-
                 word_pixel_width, _ = self._get_text_dimensions(word, font, draw)
-
                 if word_pixel_width > max_width:
-                    _LOGGER.debug(f"WrapText: Word '{word}' too wide ({word_pixel_width}px). Char wrapping.")
                     if current_manual_line:
                         processed_lines.append(current_manual_line.strip())
                         current_manual_line = ""
@@ -1495,7 +1296,6 @@ class ImageProcessor:
                 else:
                     test_line = f"{current_manual_line} {word}".strip() if current_manual_line else word
                     test_line_pixel_width, _ = self._get_text_dimensions(test_line, font, draw)
-
                     if test_line_pixel_width <= max_width:
                         current_manual_line = test_line
                     else:
@@ -1507,74 +1307,45 @@ class ImageProcessor:
                 processed_lines.append(current_manual_line.strip())
         
         final_cleaned_lines = [line for line in processed_lines if line.strip()]
-        _LOGGER.debug(f"WrapText: Final Output for original '{text}': {final_cleaned_lines}")
         return final_cleaned_lines
 
     def _char_wrap_long_word(self, word: str, font: ImageFont.FreeTypeFont, max_width: int, draw: ImageDraw.ImageDraw) -> list:
-        _LOGGER.debug(f"CharWrap: Word='{word}', MaxWidthPx={max_width}")
         lines = []
         if not word: return lines
-        
         current_char_line = ""
         for char_idx, char in enumerate(word):
             test_char_line = current_char_line + char
             char_line_w, _ = self._get_text_dimensions(test_char_line, font, draw)
-
             if char_line_w <= max_width:
                 current_char_line = test_char_line
             else:
-                # Current char makes it too long. Add previous line (if any)
-                if current_char_line: # This implies current_char_line (without current char) was fitting
+                if current_char_line: 
                     lines.append(current_char_line)
-                
-                # Start new line with the current char
                 current_char_line = char
-                # Check if the single char itself is too wide
                 single_char_w, _ = self._get_text_dimensions(char, font, draw)
                 if single_char_w > max_width:
-                    _LOGGER.warning(f"CharWrap: Single char '{char}' ({single_char_w}px) wider than max_width {max_width}. Will overflow.")
-                    # Add it anyway, it will overflow, then reset current_char_line to prevent it from being added again
                     lines.append(char)
                     current_char_line = "" 
-
-        if current_char_line: # Add any remaining part
+        if current_char_line: 
             lines.append(current_char_line)
-        _LOGGER.debug(f"CharWrap: Result for '{word}': {lines}")
         return lines
 
-    def _contrast_ratio(self,
-                        c1: tuple[int, int, int],
-                        c2: tuple[int, int, int]) -> float:
-        """WCAG contrast ratio between two sRGB colours."""
+    def _contrast_ratio(self, c1: tuple[int, int, int], c2: tuple[int, int, int]) -> float:
         def _luminance(c: tuple[int, int, int]) -> float:
             r, g, b = [v / 255 for v in c]
             r = r / 12.92 if r <= 0.03928 else ((r + 0.055) / 1.055) ** 2.4
             g = g / 12.92 if g <= 0.03928 else ((g + 0.055) / 1.055) ** 2.4
             b = b / 12.92 if b <= 0.03928 else ((b + 0.055) / 1.055) ** 2.4
             return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
         l1, l2 = _luminance(c1) + 0.05, _luminance(c2) + 0.05
         return max(l1, l2) / min(l1, l2)
 
-    def _pick_two_contrasting_colors(self,
-                                    img: Image.Image,
-                                    min_ratio: float = 4.5
-                                    ) -> tuple[tuple[int, int, int],
-                                                tuple[int, int, int]]:
-        """
-        Return two vivid colours that both reach *min_ratio* contrast against
-        the average background and are visually distinct from each other.
-        """
-        # 1) average-colour background
+    def _pick_two_contrasting_colors(self, img: Image.Image, min_ratio: float = 4.5) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
         thumb = img.resize((16, 16), Image.Resampling.BICUBIC)
         pixels = list(thumb.getdata())
-        bg = tuple(sum(ch) // len(pixels) for ch in zip(*pixels))  # (r,g,b)
-
-        # 2) palette to try
+        bg = tuple(sum(ch) // len(pixels) for ch in zip(*pixels))  
         palette = COLOR_PALETTE
-
         random.shuffle(palette)
-
         first = second = None
         for cand in palette:
             if self._contrast_ratio(cand, bg) < min_ratio:
@@ -1585,46 +1356,26 @@ class ImageProcessor:
             if self.color_distance(cand, first) > 80:
                 second = cand
                 break
-
-        # 3) fall-backs
-        if first is None:                       # nothing passed → choose best bw
-            first = (255, 255, 255) if \
-                self._contrast_ratio((255, 255, 255), bg) >= \
-                self._contrast_ratio((0, 0, 0), bg) else (0, 0, 0)
+        if first is None:                       
+            first = (255, 255, 255) if self._contrast_ratio((255, 255, 255), bg) >= self._contrast_ratio((0, 0, 0), bg) else (0, 0, 0)
         if second is None:
             alt = (0, 0, 0) if first == (255, 255, 255) else (255, 255, 255)
             second = alt if self._contrast_ratio(alt, bg) >= min_ratio else first
-
         return first, second
 
-
-    def _draw_burned_text(self,
-                        img: Image.Image,
-                        artist: str,
-                        title: str) -> Image.Image:
-        """Draw artist & title in 'burned' mode with a dynamic, contrast-aware shadow"""
+    def _draw_burned_text(self, img: Image.Image, artist: str, title: str) -> Image.Image:
         if not (artist or title):
             return img
-
-
-        # ── 1. TEXT FILL COLOR SELECTION ───────────────────────────────────
         artist_rgb_text, title_rgb_text = self._pick_two_contrasting_colors(img, 4.5)
-        # Add alpha for drawing
         artist_fill  = (*artist_rgb_text, 255)
         title_fill   = (*title_rgb_text, 255)
-
-        # ── 2. DYNAMIC SHADOW COLOR SELECTION ────────────────────────────────
         def _calculate_perceptual_luminance(rgb_color: tuple[int, int, int]) -> float:
             r, g, b = rgb_color
             return (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
-
-        # A. Determine initial shadow base (black/white) based on image background brightness
         thumb_for_bg_analysis = img.resize((8, 8), Image.Resampling.BICUBIC).convert("RGB")
         pixels_for_bg_analysis = list(thumb_for_bg_analysis.getdata())
-        
         avg_img_rgb: tuple[int, int, int]
         if not pixels_for_bg_analysis:
-            _LOGGER.warning("_draw_burned_text: Could not get pixels for background analysis. Defaulting shadow logic.")
             avg_img_rgb = (128, 128, 128)
         else:
             r_sum = sum(p[0] for p in pixels_for_bg_analysis)
@@ -1632,120 +1383,61 @@ class ImageProcessor:
             b_sum = sum(p[2] for p in pixels_for_bg_analysis)
             num_pixels = len(pixels_for_bg_analysis)
             avg_img_rgb = (r_sum // num_pixels, g_sum // num_pixels, b_sum // num_pixels)
-
         avg_img_luminance = _calculate_perceptual_luminance(avg_img_rgb)
-
-        # Initial shadow choice based on background
         shadow_base_rgb_for_bg: tuple[int, int, int]
-        if avg_img_luminance > 0.5:  # Background is generally light
-            shadow_base_rgb_for_bg = (0, 0, 0)      # Try dark shadow
-        else:  # Background is generally dark
-            shadow_base_rgb_for_bg = (255, 255, 255)  # Try light shadow
-        
-        # B. Adjust shadow to contrast with TEXT FILL colors
+        if avg_img_luminance > 0.5:  
+            shadow_base_rgb_for_bg = (0, 0, 0)      
+        else:  
+            shadow_base_rgb_for_bg = (255, 255, 255)  
         SHADOW_TEXT_MIN_CONTRAST_RATIO = 4.5
         final_shadow_base_rgb = shadow_base_rgb_for_bg
-
         cr_artist_shadow = self._contrast_ratio(final_shadow_base_rgb, artist_rgb_text)
         cr_title_shadow  = self._contrast_ratio(final_shadow_base_rgb, title_rgb_text)
-
-        # If initial shadow (based on BG) doesn't contrast enough with EITHER text color
-        if cr_artist_shadow < SHADOW_TEXT_MIN_CONTRAST_RATIO or \
-            cr_title_shadow < SHADOW_TEXT_MIN_CONTRAST_RATIO:
-            
-            _LOGGER.debug(
-                f"Initial shadow '{final_shadow_base_rgb}' (for BG lum {avg_img_luminance:.2f}) "
-                f"low contrast with text. ArtistCR: {cr_artist_shadow:.2f} (vs {artist_rgb_text}), "
-                f"TitleCR: {cr_title_shadow:.2f} (vs {title_rgb_text}). Attempting to flip shadow."
-            )
-            
-            # Flip the shadow color
+        if cr_artist_shadow < SHADOW_TEXT_MIN_CONTRAST_RATIO or cr_title_shadow < SHADOW_TEXT_MIN_CONTRAST_RATIO:
             flipped_shadow_base_rgb = (0,0,0) if final_shadow_base_rgb == (255,255,255) else (255,255,255)
-            
-            # Check contrast of flipped shadow with text
-            cr_artist_shadow_flipped = self._contrast_ratio(flipped_shadow_base_rgb, artist_rgb_text)
-            cr_title_shadow_flipped  = self._contrast_ratio(flipped_shadow_base_rgb, title_rgb_text)
-
             final_shadow_base_rgb = flipped_shadow_base_rgb
-            _LOGGER.debug(
-                f"Flipped shadow to '{final_shadow_base_rgb}'. "
-                f"New ArtistCR: {cr_artist_shadow_flipped:.2f}, "
-                f"New TitleCR: {cr_title_shadow_flipped:.2f}."
-            )
-
-            if cr_artist_shadow_flipped < SHADOW_TEXT_MIN_CONTRAST_RATIO or \
-                cr_title_shadow_flipped < SHADOW_TEXT_MIN_CONTRAST_RATIO:
-                _LOGGER.warning(
-                    f"Even flipped shadow '{final_shadow_base_rgb}' has low contrast with text. "
-                    f"ArtistCR: {cr_artist_shadow_flipped:.2f}, TitleCR: {cr_title_shadow_flipped:.2f}. "
-                    f"Proceeding with this shadow; text visibility might be suboptimal."
-                )
-
-        shadow_alpha = 128  # Semi-transparent shadow (0-255)
-        dynamic_shadow_color = (*final_shadow_base_rgb, shadow_alpha) # RGBA
-
-        # ── 3. LAYOUT VARS and DRAWING SETUP ──────────────────────────────────
+        shadow_alpha = 128  
+        dynamic_shadow_color = (*final_shadow_base_rgb, shadow_alpha) 
         pad = 2
         max_h = img.height - 2 * pad
         max_w = img.width  - 2 * pad
         spacer_px, inter_px = 4, 2
-
-        img_copy = img.copy().convert("RGBA") # Draw on RGBA for shadow alpha
+        img_copy = img.copy().convert("RGBA") 
         layer = ImageDraw.Draw(img_copy)
         base_font = ImageFont.load_default()
-
         if unidecode_support:
             artist_b = unidecode(artist) if artist else ""
             title_b = unidecode(title) if title else ""
         else:
             artist_b = get_bidi(artist) if artist and has_bidi(artist) else (artist or "")
             title_b  = get_bidi(title)  if title  and has_bidi(title)  else (title or "")
-
         prelim_artist_lines = self._wrap_text(artist_b, base_font, max_w, layer) if artist_b else []
         prelim_title_lines  = self._wrap_text(title_b,  base_font, max_w, layer) if title_b  else []
         prelim = prelim_artist_lines + prelim_title_lines
-
         if not prelim: return img.convert("RGB")
-
         eff_h = max_h - (spacer_px if prelim_artist_lines and prelim_title_lines else 0)
         font = ImageFont.load_default()
-
         art_lines = self._wrap_text(artist_b, font, max_w, layer) if artist_b else []
         tit_lines = self._wrap_text(title_b,  font, max_w, layer) if title_b  else []
-
         all_render_lines = art_lines + tit_lines
         heights = [self._get_text_dimensions(t, font, layer)[1] for t in all_render_lines]
-        
         num_inter_line_spaces = len(all_render_lines) - 1 if len(all_render_lines) > 0 else 0
         total_h = sum(heights) + (inter_px * num_inter_line_spaces)
         if art_lines and tit_lines: total_h += spacer_px
-        
         y = pad + max(0, (max_h - total_h) // 2)
-
         def _blit_text_line_with_shadow(text_line_content, main_text_color_fill, y_current_pos):
             w, h = self._get_text_dimensions(text_line_content, font, layer)
             x_current_pos = pad + max(0, (max_w - w) // 2)
-            
-            self._draw_text_with_shadow(draw=layer,
-                                        xy=(x_current_pos, y_current_pos),
-                                        text=text_line_content,
-                                        font=font,
-                                        text_color=main_text_color_fill,
-                                        shadow_color=dynamic_shadow_color)
+            self._draw_text_with_shadow(draw=layer, xy=(x_current_pos, y_current_pos), text=text_line_content, font=font, text_color=main_text_color_fill, shadow_color=dynamic_shadow_color)
             return h
-
         for i, line_content in enumerate(art_lines):
             line_height = _blit_text_line_with_shadow(line_content, artist_fill, y)
             y += line_height + (inter_px if i < len(art_lines) - 1 else 0)
-
         if art_lines and tit_lines: y += spacer_px
-
         for i, line_content in enumerate(tit_lines):
             line_height = _blit_text_line_with_shadow(line_content, title_fill, y)
             y += line_height + (inter_px if i < len(tit_lines) - 1 else 0)
-
         return img_copy.convert("RGB")
-
 
 class MediaData:
     """Data class to hold and update media information.""" 
@@ -1754,6 +1446,16 @@ class MediaData:
         self.config = config
         self.image_processor = image_processor
         self.session = session
+        
+        # --- Lyrics Provider (Persistent) ---
+        self.lyrics_provider = LyricsProvider(self.config, self.image_processor, self.session)
+        
+        # --- Lyrics State Tracking (For Sync & Seek) ---
+        self.last_group_start_index: int = -1
+        self.last_group_end_index: int = -1
+        self.last_lyrics_len: int = 0
+
+        # --- Standard Media Attributes ---
         self.fallback: bool = False
         self.fail_txt: bool = False
         self.playing_radio: bool = False
@@ -1866,8 +1568,13 @@ class MediaData:
 
             # 5. Fetch Lyrics
             if self.config.show_lyrics and not self.config.special_mode and not self.playing_tv and not self.playing_radio:
-                # UPDATE: Passed album and duration to helper function
                 self.lyrics = await self._get_lyrics(self.artist, self.title, self.album, self.media_duration)
+                
+                # Check if lyrics changed (New Song), if so reset state
+                if len(self.lyrics) != self.last_lyrics_len:
+                    self.last_group_start_index = -1
+                    self.last_group_end_index = -1
+                    self.last_lyrics_len = len(self.lyrics)
             else:
                 self.lyrics = []
 
@@ -1890,10 +1597,9 @@ class MediaData:
             _LOGGER.exception(f"Error updating Media Data: {e}") 
             return None
 
-    # UPDATE: Added arguments here
     async def _get_lyrics(self, artist: Optional[str], title: str, album: Optional[str], duration: int) -> list[dict]: 
-        lyrics_provider = LyricsProvider(self.config, self.image_processor, self.session)
-        return await lyrics_provider.get_lyrics(artist, title, album, duration)
+        """Uses the persistent lyrics provider to fetch lyrics."""
+        return await self.lyrics_provider.get_lyrics(artist, title, album, duration)
 
 
     def format_ai_image_prompt(self, artist: Optional[str], title: str) -> str: 
@@ -2522,619 +2228,8 @@ class FallbackService:
         image = image.resize((final_width, final_height), Image.Resampling.BICUBIC)
         return image
 
-class Pixoo64_Media_Album_Art(hass.Hass):
-    """AppDaemon app to display album art on Divoom Pixoo64 and control related features."""
-
-    def __init__(self, *args, **kwargs):
-        """Initialize Pixoo64_Media_Album_Art app."""
-        super().__init__(*args, **kwargs)
-        self.clear_timer_task: Optional[asyncio.Task[None]] = None
-        self.callback_timeout: int = 20
-        self.current_image_task: Optional[asyncio.Task[None]] = None
-        self.debounce_task = None
-
-    async def initialize(self):
-        _LOGGER.info("Initializing Pixoo64 Album Art Display AppDaemon app…")
-        
-        # 1. Load Config
-        self.config = Config(self.args)
-        
-        # 2. Setup Services
-        self.websession = aiohttp.ClientSession()
-        self.pixoo_device = PixooDevice(self.config)
-        self.image_processor = ImageProcessor(self.config)
-        self.media_data = MediaData(self.config, self.image_processor)
-        self.fallback_service = FallbackService(self.config, self.image_processor)
-
-        # 3. Listeners
-        self.listen_state(self._mode_changed, self.config.mode_entity)
-        self.listen_state(self._crop_mode_changed, self.config.crop_entity)
-        self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_title")
-        self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="state")
-
-        # 4. Fallback Channel Logic
-        try:
-            initial_index = await self.pixoo_device.get_current_channel_index()
-            if initial_index == 4:
-                _LOGGER.info("Pixoo initialized on Fallback Screen (4). Defaulting internal state to Channel 0.")
-                self.select_index = 0
-                self.last_valid_index = 0
-            else:
-                self.select_index = initial_index
-                self.last_valid_index = initial_index
-                _LOGGER.info(f"Pixoo initialized on Channel {initial_index}.")
-        except Exception as e:
-            _LOGGER.error(f"Failed to fetch initial channel index: {e}. Defaulting to 0.")
-            self.select_index = 0
-            self.last_valid_index = 0
-
-        self.media_data_sensor = self.config.pixoo_sensor
-
-        # 5. Apply Settings (with error protection)
-        try:
-            await self._apply_mode_settings()
-        except Exception as e:
-            _LOGGER.error(f"Error applying Mode Settings: {e}")
-
-        try:
-            await self._apply_crop_settings()
-        except Exception as e:
-            _LOGGER.error(f"Error applying Crop Settings: {e}")
-
-        # 6. Lyrics Sync
-        if self.entity_exists(self.config.lyrics_sync_entity):
-            self.config.lyrics_sync = (await self.get_state(self.config.lyrics_sync_entity)) or self.config.lyrics_sync
-            self.listen_state(self._lyrics_sync_changed, self.config.lyrics_sync_entity, attribute="state")
-
-        _LOGGER.info("Initialization complete.")
-
-    async def terminate(self):
-        if hasattr(self, 'websession') and self.websession:
-            await self.websession.close()
-            _LOGGER.info("Closed Pixoo64 aiohttp session.")
-
-    async def _lyrics_sync_changed(self, entity, attribute, old, new, kwargs):
-        await self._apply_lyrics_sync()
-
-    async def _apply_lyrics_sync(self):
-        self.config.lyrics_sync = (await self.get_state(self.config.lyrics_sync_entity))
-
-    async def _crop_mode_changed(self, entity, attribute, old, new, kwargs):
-        await self._apply_crop_settings()
-
-    async def _apply_crop_settings(self):
-        """Creates the input_select if missing and applies the crop configuration."""
-        _LOGGER.debug("Setting up Crop Settings...")
-        
-        options = ["Default", "No Crop", "Crop", "Extra Crop"]
-        default = options[0]
-
-        try:
-            # 1. Create or Update Entity
-            if not self.entity_exists(self.config.crop_entity):
-                _LOGGER.info(f"Creating missing crop entity: {self.config.crop_entity}")
-                await self.set_state(self.config.crop_entity, state=options[0], attributes={"options": options})
-                # Attempt to register options via service call just in case it's a real input_select
-                try:
-                    await self.call_service("input_select/set_options", entity_id=self.config.crop_entity, options=options)
-                except Exception:
-                    pass # Ignore if service call fails on a purely virtual entity
-            else:
-                try:
-                    await self.call_service("input_select/set_options", entity_id=self.config.crop_entity, options=options)
-                except Exception as e:
-                    _LOGGER.debug(f"Could not set options on crop entity (might be virtual): {e}")
-
-            # 2. Read State
-            mode = (await self.get_state(self.config.crop_entity)) or default
-            _LOGGER.debug(f"Applying Crop Mode: {mode}")
-
-            # 3. Apply Config
-            m = mode.lower()
-            if m == "no crop":
-                self.config.crop_borders = False
-                self.config.crop_extra = False
-            elif m == "crop":
-                self.config.crop_borders = True
-                self.config.crop_extra = False
-            elif m == "extra crop":
-                self.config.crop_borders = True
-                self.config.crop_extra = True
-            elif m == "default":
-                self.config.crop_borders = self.config.original_crop_borders
-                self.config.crop_extra = self.config.original_crop_extra
-            
-            # 4. Refresh Cache
-            self.image_processor.image_cache.clear()
-            
-        except Exception as e:
-            _LOGGER.error(f"Failed to apply crop settings: {e}", exc_info=True)
-
-
-    async def _mode_changed(self, entity, attribute, old, new, kwargs):
-        await self._apply_mode_settings()
-
-    async def _apply_mode_settings(self):
-        options = [
-                "Default", "Clean", "AI Generation (Flux)", "AI Generation (Turbo)", "Burned", "Burned | Clock",
-                "Burned | Clock (Background)", "Burned | Temperature", "Burned | Temperature (Background)", "Burned | Clock & Temperature (Background)",
-                "Text", "Text (Background)", "Clock", "Clock (Background)", "Clock | Temperature",
-                "Clock | Temperature (Background)", "Clock | Temperature | Text", "Clock | Temperature | Text (Background)",
-                "Lyrics", "Lyrics (Background)", "Temperature", "Temperature (Background)",
-                "Temperature | Text", "Temperature | Text (Background)", "Special Mode", "Special Mode | Text"
-                ]
-        default = options[0]
-        spotify_api = bool(self.config.spotify_client_id and self.config.spotify_client_secret)
-        if spotify_api:
-            options.append("Spotify Slider (beta)")
-            options.append("Spotify Slider Special Mode with Text (beta)")
-
-        try:
-            if not self.entity_exists(self.config.mode_entity):
-                await self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
-                mode = "Default"
-            else:
-                mode = (await self.get_state(self.config.mode_entity)) or default
-
-            try:
-                await self.call_service("input_select/set_options", entity_id=self.config.mode_entity, options=options)
-            except Exception:
-                pass
-
-            if mode:
-                m = mode.lower()
-                if not m == "default" and not m == "clean":
-                    self.config.show_lyrics     = ("lyrics" in m) if m else False
-                    self.config.spotify_slide   = ("slider" in m) if m else False
-                    self.config.special_mode    = ("special" in m) if m else False
-                    self.config.show_clock      = ("clock" in m) if m else False
-                    self.config.temperature     = ("temperature" in m) if m else False
-                    self.config.show_text       = ("text" in m) if m else False
-                    self.config.text_bg         = ("background" in m) if m else False
-                    self.config.force_ai        = ("ai" in m) if m else False
-                    self.config.burned          = ("burned" in m) if m else False
-
-                    if self.config.force_ai:
-                        ai_fallback_engine_turbo = ("turbo" in m) if m else False
-                        ai_fallback_engine_flux  = ("flux" in m) if m else False
-                        
-                        if ai_fallback_engine_turbo:
-                            self.config.ai_fallback     = "turbo"
-                        elif ai_fallback_engine_flux:
-                            self.config.ai_fallback     = "flux"
-
-                    self.config.special_mode_spotify_slider = bool(self.config.spotify_slide and self.config.special_mode and self.config.show_text)
-
-                elif m == "clean":
-                    self.config.show_lyrics = False
-                    self.config.spotify_slide = False
-                    self.config.special_mode = False
-                    self.config.show_clock = False
-                    self.config.temperature = False
-                    self.config.show_text = False
-                    self.config.text_bg = False
-                    self.config.force_ai = False
-                    self.config.ai_fallback = False
-                    self.config.special_mode_spotify_slider = False
-                    self.config.burned = False
-
-                elif m == "default":
-                    self.config.show_lyrics = self.config.original_show_lyrics
-                    self.config.spotify_slide = self.config.original_spotify_slide
-                    self.config.special_mode = self.config.original_special_mode
-                    self.config.show_clock = self.config.original_show_clock
-                    self.config.temperature = self.config.original_temperature
-                    self.config.show_text = self.config.original_show_text
-                    self.config.text_bg = self.config.original_text_bg
-                    self.config.force_ai = self.config.original_force_ai
-                    self.config.ai_fallback = self.config.original_ai_fallback
-                    self.config.burned = self.config.original_burned
-                    self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
-                
-                self.image_processor.image_cache.clear()
-                # Trigger a refresh
-                await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
-        
-        except Exception as e:
-             _LOGGER.warning(f"Error checking mode entity: {e}")
-
-        if self.config.show_lyrics:
-            self.run_every(self.calculate_position, datetime.now(), 1) 
-
-    async def safe_state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
-        """Wrapper for state change callback with timeout protection."""
-        if self.debounce_task and not self.debounce_task.done():
-            self.debounce_task.cancel()
-        
-        self.debounce_task = asyncio.create_task(
-            self._run_debounced_callback(entity, attribute, old, new, kwargs)
-        )
-
-    async def _run_debounced_callback(self, entity, attribute, old, new, kwargs):
-        try:
-            await asyncio.sleep(1.5)
-            # Standard timeout for the main callback
-            async with asyncio.timeout(self.callback_timeout):
-                await self.state_change_callback(entity, attribute, old, new, kwargs)
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Callback timed out after %s seconds.", self.callback_timeout)
-        except asyncio.CancelledError:
-            pass # Expected when debouncing
-        except Exception as e:
-            _LOGGER.error(f"Error in debounced callback: {e}")
-
-    async def state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
-        try:
-            if new == old or (await self.get_state(self.config.toggle)) != "on":
-                return 
-
-            media_state_str = await self.get_state(self.config.media_player)
-            media_state = media_state_str if media_state_str else "off"
-            
-            if media_state in ["off", "idle", "pause", "paused"]:
-                await asyncio.sleep(6) 
-                
-                media_state_str_validated = await self.get_state(self.config.media_player)
-                media_state_validated = media_state_str_validated if media_state_str_validated else "off"
-                
-                if media_state_validated not in ["playing", "on"]:
-                    pass  
-                else:
-                    return 
-                
-                if self.config.full_control:
-                    await self.pixoo_device.send_command({
-                        "Command": "Draw/CommandList",
-                        "CommandList": [
-                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index},
-                            {"Command": "Channel/OnOffScreen", "OnOff": 0}
-                        ]
-                    })
-                else:
-                    await self.pixoo_device.send_command({
-                        "Command": "Draw/CommandList",
-                        "CommandList": [
-                            {"Command": "Draw/ClearHttpText"},
-                            {"Command": "Draw/ResetHttpGifId"},
-                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
-                        ]
-                    })
-                
-                await self.set_state(self.media_data_sensor, state="off")
-                if self.config.light: await self.control_light('off')
-                if self.config.wled: await self.control_wled_light('off')
-                return 
-
-            await self.update_attributes(entity, attribute, old, new, kwargs)
-        except Exception as e:
-            _LOGGER.error(f"Error in state_change_callback: {e}")
-
-    async def update_attributes(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
-        try:
-            media_state_str = await self.get_state(self.config.media_player)
-            media_state = media_state_str if media_state_str else "off"
-            if media_state not in ["playing", "on"]:
-                if self.config.light: await self.control_light('off')
-                if self.config.wled: await self.control_wled_light('off')
-                return 
-
-            media_data = await self.media_data.update(self)
-            if not media_data:
-                return
-
-            await self.pixoo_run(media_state, media_data)
-        except Exception as e:
-            _LOGGER.error(f"Error in update_attributes: {e}", exc_info=True)
-
-    async def pixoo_run(self, media_state: str, media_data: "MediaData") -> None:
-        try:
-            async with asyncio.timeout(self.callback_timeout):
-                # Only update channel index if we aren't already on fallback screen
-                current_device_channel = await self.pixoo_device.get_current_channel_index()
-                if current_device_channel != 4:
-                    self.select_index = current_device_channel
-                    self.last_valid_index = current_device_channel
-                else:
-                    # If we are on 4, keep internal state as previous valid or 0
-                    if hasattr(self, 'last_valid_index') and self.last_valid_index != 4:
-                        self.select_index = self.last_valid_index
-                    else:
-                        self.select_index = 0
-
-                if media_state in ["playing", "on"]:
-                    if self.current_image_task:
-                        self.current_image_task.cancel()
-                        self.current_image_task = None 
-
-                    self.current_image_task = asyncio.create_task(self._process_and_display_image(media_data))
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Pixoo run timed out after %s seconds.", self.callback_timeout)
-        except Exception as e:
-            _LOGGER.error(f"Error in pixoo_run: {e}", exc_info=True)
-        finally:
-            await asyncio.sleep(0.10)
-
-    async def _process_and_display_image(self, media_data: "MediaData") -> None:
-        """Processes image data and sends display commands to Pixoo device."""
-        # Check TV mode
-        if media_data.picture == "TV_IS_ON":
-            payload = ({
-                "Command": "Draw/CommandList",
-                "CommandList": [
-                    {"Command": "Channel/OnOffScreen", "OnOff": 1},
-                    {"Command": "Draw/ClearHttpText"},
-                    {"Command": "Draw/ResetHttpGifId"},
-                    {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}]
-            })
-            await self.pixoo_device.send_command(payload)
-            if self.config.light: await self.control_light('off')
-            if self.config.wled: await self.control_wled_light('off')
-            return 
-
-        try:
-            start_time = time.perf_counter()
-            processed_data = await self.fallback_service.get_final_url(media_data.picture, media_data)
-
-            if not processed_data:
-                processed_data = self.fallback_service._get_fallback_black_image_data()
-
-            media_data.spotify_frames = 0
-            base64_image = processed_data.get('base64_image')
-            font_color_from_image_processing = processed_data.get('font_color')
-            brightness = processed_data.get('brightness')
-            background_color_str = processed_data.get('background_color')
-            background_color_rgb = processed_data.get('background_color_rgb')
-            most_common_color_alternative_rgb_str = processed_data.get('most_common_color_alternative_rgb')
-            most_common_color_alternative_str = processed_data.get('most_common_color_alternative')
-
-            if self.config.light and not media_data.playing_tv:
-                await self.control_light('on', background_color_rgb, media_data.is_night)
-            if self.config.wled and not media_data.playing_tv:
-                color1 = processed_data.get('color1')
-                color2 = processed_data.get('color2')
-                color3 = processed_data.get('color3')
-                await self.control_wled_light('on', color1, color2, color3, media_data.is_night)
-            if media_data.playing_tv:
-                if self.config.light: await self.control_light('off')
-                if self.config.wled: await self.control_wled_light('off')
-            
-            sensor_state = f"{media_data.artist} / {media_data.title}"
-            new_attributes = {
-                "artist": media_data.artist,
-                "media_title": media_data.title,
-                "font_color": font_color_from_image_processing,
-                "background_color_brightness": brightness,
-                "background_color": background_color_str,
-                "color_alternative_rgb": most_common_color_alternative_str, 
-                "background_color_rgb": background_color_rgb,
-                "color_alternative": most_common_color_alternative_rgb_str,
-                "images_in_cache": media_data.image_cache_count,
-                "image_memory_cache": media_data.image_cache_memory,
-                "process_duration": media_data.process_duration,
-                "spotify_frames": media_data.spotify_frames,
-                "pixoo_channel": self.select_index,
-                "image_source": media_data.pic_source,
-                "image_url": media_data.pic_url,
-                "lyrics": media_data.lyrics
-            }
-
-            image_payload = {
-                "Command": "Draw/CommandList",
-                "CommandList": [
-                    {"Command": "Channel/OnOffScreen", "OnOff": 1},
-                    {"Command": "Draw/ClearHttpText"},
-                    {"Command": "Draw/ResetHttpGifId"},
-                    {"Command": "Draw/SendHttpGif",
-                        "PicNum": 1, "PicWidth": 64, "PicOffset": 0,
-                        "PicID": 0, "PicSpeed": 10000, "PicData": base64_image}]}
-
-            spotify_animation_took_over_display = False
-            if self.config.spotify_slide and not media_data.radio_logo and not media_data.playing_tv:
-                spotify_service = SpotifyService(self.config) 
-                spotify_service.spotify_data = await spotify_service.get_spotify_json(media_data.artist, media_data.title)
-                if spotify_service.spotify_data:
-                    spotify_anim_start_time = time.perf_counter()
-                    if self.config.special_mode:
-                        if self.config.special_mode_spotify_slider:
-                            await spotify_service.spotify_album_art_animation(self.pixoo_device, media_data)
-                    else:
-                        await spotify_service.spotify_albums_slide(self.pixoo_device, media_data)
-
-                    if media_data.spotify_slide_pass:
-                        spotify_animation_took_over_display = True
-                        spotify_anim_end_time = time.perf_counter()
-                        duration = spotify_anim_end_time - spotify_anim_start_time
-                        media_data.process_duration = f"{duration:.2f} seconds (Spotify)"
-                        new_attributes["process_duration"] = media_data.process_duration
-                        new_attributes["spotify_frames"] = media_data.spotify_frames
-                    else:
-                        await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4})
-
-            text_items_for_display_list = []
-            current_text_id = 0
-            
-            text_overlay_font_color = '#ffff00'
-            brightness_factor = 50
-            if self.config.force_font_color:
-                text_overlay_font_color = self.config.force_font_color
-            elif background_color_rgb:
-                try:
-                    color_font_rgb_calc = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
-                    if not self.config.text_bg:
-                        opposite_color_rgb = self.compute_opposite_color(color_font_rgb_calc)
-                        color_font_rgb_calc = opposite_color_rgb
-                    text_overlay_font_color = '#%02x%02x%02x' % color_font_rgb_calc
-                except Exception:
-                    text_overlay_font_color = '#ffff00'
-            
-            # --- Text Generation Logic (Special Mode, Clock, Temp, etc) ---
-            if self.config.special_mode:
-                current_text_id += 1
-                day_item = { "TextId": current_text_id, "type": 14, "x": 4, "y": 1, "dir": 0, "font": 18, "TextWidth": 33, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color}
-                text_items_for_display_list.append(day_item)
-
-                current_text_id += 1
-                clock_item_special = { "TextId": current_text_id, "type": 5, "x": 0, "y": 1, "dir": 0, "font": 18, "TextWidth": 64, "Textheight": 6, "speed": 100, "align": 2, "color": background_color_str}
-                text_items_for_display_list.append(clock_item_special)
-
-                current_text_id += 1
-                if media_data.temperature:
-                    temp_item_special = {"TextId": current_text_id, "type": 22, "x": 46, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color, "TextString": media_data.temperature}
-                else:
-                    temp_item_special = {"TextId": current_text_id, "type": 17, "x": 46, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 3, "color": text_overlay_font_color}
-                text_items_for_display_list.append(temp_item_special)
-
-                if (self.config.show_text and not media_data.playing_tv) or (media_data.spotify_slide_pass and self.config.spotify_slide):
-                    dir_rtl_artist = 1 if has_bidi(media_data.artist) else 0
-                    text_artist_bidi = get_bidi(media_data.artist) if dir_rtl_artist == 1 else media_data.artist
-                    current_text_id += 1
-                    artist_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 42, "dir": dir_rtl_artist, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_artist_bidi, "color": text_overlay_font_color}
-                    text_items_for_display_list.append(artist_item)
-
-                    dir_rtl_title = 1 if has_bidi(media_data.title) else 0
-                    text_title_bidi = get_bidi(media_data.title) if dir_rtl_title == 1 else media_data.title
-                    current_text_id += 1
-                    title_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 52, "dir": dir_rtl_title, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_title_bidi, "color": background_color_str}
-                    text_items_for_display_list.append(title_item)
-            
-            elif (self.config.show_text or self.config.show_clock or self.config.temperature) and not (self.config.show_lyrics or self.config.spotify_slide):
-                text_track = (media_data.artist + " - " + media_data.title)
-                if len(text_track) > 14: text_track = text_track + "       "
-                text_string_bidi = get_bidi(text_track) if media_data.artist else get_bidi(media_data.title)
-                dir_rtl = 1 if has_bidi(text_string_bidi) else 0
-
-                if text_string_bidi and self.config.show_text and not media_data.radio_logo and not media_data.playing_tv:
-                    current_text_id += 1
-                    text_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 48, "dir": dir_rtl, "font": 2, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_string_bidi, "color": text_overlay_font_color}
-                    text_items_for_display_list.append(text_item)
-
-                if self.config.show_clock:
-                    current_text_id += 1
-                    x_clock = 44 if self.config.clock_align == "Right" else 3
-                    clock_item_normal = { "TextId": current_text_id, "type": 5, "x": x_clock, "y": 3, "dir": 0, "font": 18, "TextWidth": 32, "Textheight": 16, "speed": 100, "align": 1, "color": text_overlay_font_color}
-                    text_items_for_display_list.append(clock_item_normal)
-
-                if self.config.temperature:
-                    current_text_id += 1
-                    x_temp = 3 if self.config.clock_align == "Right" else 40
-                    if media_data.temperature:
-                        temp_item_normal = {"TextId": current_text_id, "type": 22, "x": x_temp, "y": 3, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color, "TextString": media_data.temperature}
-                    else:
-                        temp_item_normal = {"TextId": current_text_id, "type": 17, "x": x_temp, "y": 3, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color}
-                    text_items_for_display_list.append(temp_item_normal)
-
-            if not spotify_animation_took_over_display:
-                await self.pixoo_device.send_command(image_payload)
-                if text_items_for_display_list:
-                    txt_payload = ({ "Command": "Draw/SendHttpItemList", "ItemList": text_items_for_display_list })
-                    await asyncio.sleep(0.10)
-                    await self.pixoo_device.send_command(txt_payload)
-            elif spotify_animation_took_over_display and self.config.special_mode and text_items_for_display_list:
-                await self.pixoo_device.send_command({ "Command": "Draw/SendHttpItemList", "ItemList": text_items_for_display_list })
-            
-            end_time = time.perf_counter()
-            if not spotify_animation_took_over_display:
-                duration = end_time - start_time
-                media_data.process_duration = f"{duration:.2f} seconds"
-            new_attributes["process_duration"] = media_data.process_duration
-            new_attributes["spotify_frames"] = media_data.spotify_frames
-            await self.set_state(self.media_data_sensor, state=sensor_state, attributes=new_attributes)
-
-            if self.fallback_service.fail_txt and self.fallback_service.fallback:
-                black_img = self.fallback_service.create_black_screen()
-                black_pic = self.image_processor.gbase64(black_img)
-                payload_fail_commands = {
-                    "Command": "Draw/CommandList",
-                    "CommandList": [
-                        {"Command": "Channel/OnOffScreen", "OnOff": 1},
-                        {"Command": "Draw/ResetHttpGifId"},
-                    ]
-                }
-                await self.pixoo_device.send_command(payload_fail_commands)
-                await self.pixoo_device.send_command({
-                    "Command": "Draw/SendHttpGif",
-                    "PicNum": 1, "PicWidth": 64,
-                    "PicOffset": 0, "PicID": 0,
-                    "PicSpeed": 1000, "PicData": black_pic
-                })
-                payloads_text_fail = self.create_payloads(media_data.artist, media_data.title, 11)
-                await self.pixoo_device.send_command(payloads_text_fail)
-                return
-
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            _LOGGER.error(f"Error in _process_and_display_image: {e}", exc_info=True)
-        finally:
-            self.current_image_task = None
-
-    def compute_opposite_color(self, color: tuple[int,int,int]) -> tuple[int,int,int]:
-        return tuple(255 - c for c in color)
-
-    async def control_light(self, action: str, background_color_rgb: Optional[tuple[int, int, int]] = None, is_night: bool = True) -> None:
-        if not is_night and self.config.only_at_night:
-            return 
-        service_data = {'entity_id': self.config.light}
-        if action == 'on':
-            service_data.update({'rgb_color': background_color_rgb, 'transition': 1, })
-        try:
-            await self.call_service(f'light/turn_{action}', **service_data)  
-        except Exception as e:
-            _LOGGER.error(f"Error controlling Home Assistant light '{self.config.light}': {e}", exc_info=True)
-
-    async def control_wled_light(self, action: str, color1: Optional[str] = None, color2: Optional[str] = None, color3: Optional[str] = None, is_night: bool = True) -> None:
-        if not is_night and self.config.only_at_night:
-            return
-        ip_address = self.config.wled
-        if not ip_address:
-            return
-        effect_id = self.config.effect
-        segment = {"fx": effect_id}
-        clean_colors = [c.lstrip('#') for c in [color1, color2, color3] if c]
-        if clean_colors:
-            if effect_id == 0:
-                segment["col"] = [clean_colors[0]] 
-            else:
-                segment["col"] = clean_colors
-        if self.config.effect_speed: segment["sx"] = self.config.effect_speed
-        if self.config.effect_intensity: segment["ix"] = self.config.effect_intensity
-        if self.config.palette: segment["pal"] = self.config.palette
-        if self.config.sound_effect: segment["si"] = self.config.sound_effect
-        payload = {"on": True, "bri": self.config.brightness, "seg": [segment]}
-        if action == "off":
-            payload = {"on": False}
-        url = f"http://{ip_address}/json/state"
-        try:
-            async with self.websession.post(url, json=payload, timeout=10, ssl=False) as response:
-                response.raise_for_status()
-        except Exception:
-            pass
-
-    def create_payloads(self, artist: str, title: str, line_length: int) -> dict:
-        artist_lines = split_string(artist, line_length)
-        title_lines = split_string(title, line_length)
-        all_lines = artist_lines + title_lines
-        if len(all_lines) > 5:
-            all_lines = all_lines[:5]
-        start_y = (64 - len(all_lines) * 12) // 2
-        item_list = []
-        for i, line in enumerate(all_lines):
-            text_string = get_bidi(line) if has_bidi(line) else line
-            y = start_y + (i * 12)
-            dir_rtl = 1 if has_bidi(line) else 0
-            item_list.append({
-                "TextId": i + 1, "type": 22, "x": 0, "y": y, "dir": dir_rtl, "font": 190,  
-                "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2,
-                "TextString": text_string,
-                "color": "#a0e5ff" if i < len(artist_lines) else "#f9ffa0",  
-            })
-        return { "Command": "Draw/SendHttpItemList", "ItemList": item_list }
-
-    async def calculate_position(self, kwargs: Dict[str, Any]) -> None:
-        await LyricsProvider(self.config, self.image_processor, self.websession).calculate_position(self.media_data, self)
-
 class LyricsProvider:
-    """Provides lyrics for the currently playing track using LrcLib.net."""
+    """Provides lyrics for the currently playing track using LrcLib.net with Caching."""
 
     def __init__(self, config: "Config", image_processor: "ImageProcessor", session: aiohttp.ClientSession):
         """Initialize LyricsProvider object."""
@@ -3143,13 +2238,28 @@ class LyricsProvider:
         self.session = session 
         self.lyrics: list[dict] = []
         self.len_lines: int = 0
+        
+        # --- CACHE SETUP ---
+        self.lyrics_cache: OrderedDict[str, list] = OrderedDict()
+        self.cache_limit: int = 50 # Keep last 50 songs in memory
 
     async def get_lyrics(self, artist: Optional[str], title: str, album: Optional[str] = None, duration: int = 0) -> list[dict]:
-        """Fetch lyrics from LrcLib.net."""
+        """Fetch lyrics from LrcLib.net with Caching and Duration Matching."""
         if not artist or not title:
             return []
 
-        # 1. Try precise match first
+        # 1. Generate Cache Key
+        cache_key = f"{artist}|{title}".lower()
+
+        # 2. Check Cache
+        if cache_key in self.lyrics_cache:
+            self.lyrics_cache.move_to_end(cache_key)
+            _LOGGER.debug(f"LrcLib: Cache hit for '{artist} - {title}'.")
+            return self.lyrics_cache[cache_key]
+
+        fetched_lyrics = []
+
+        # 3. API Logic (Precise Match Endpoint)
         base_url_get = "https://lrclib.net/api/get"
         params = { 'artist_name': artist, 'track_name': title }
         if album: params['album_name'] = album
@@ -3160,29 +2270,62 @@ class LyricsProvider:
                 if response.status == 200:
                     data = await response.json()
                     if data.get('syncedLyrics'):
-                        _LOGGER.info(f"LrcLib: Found precise match for '{artist} - {title}'.")
-                        return self._parse_lrc(data['syncedLyrics'])
+                        _LOGGER.debug(f"LrcLib: Found precise match for '{artist} - {title}'.")
+                        fetched_lyrics = self._parse_lrc(data['syncedLyrics'])
         except Exception:
             pass
 
-        # 2. Fallback to search
-        base_url_search = "https://lrclib.net/api/search"
-        search_params = {'q': f"{artist} {title}"}
-        try:
-            async with self.session.get(base_url_search, params=search_params, timeout=10) as response:
-                if response.status == 200:
-                    results = await response.json()
-                    for item in results:
-                        if item.get('syncedLyrics'):
-                            _LOGGER.info(f"LrcLib: Found search result for '{artist} - {title}'.")
-                            return self._parse_lrc(item['syncedLyrics'])
-        except Exception as e:
-            _LOGGER.error(f"LrcLib search failed: {e}")
+        # 4. API Logic (Search Fallback) - If precise match failed
+        if not fetched_lyrics:
+            base_url_search = "https://lrclib.net/api/search"
+            search_params = {'q': f"{artist} {title}"}
+            try:
+                async with self.session.get(base_url_search, params=search_params, timeout=10) as response:
+                    if response.status == 200:
+                        results = await response.json()
+                        if results and isinstance(results, list):
+                            best_match_item = None
+                            
+                            # --- DURATION MATCHING LOGIC ---
+                            if duration and duration > 0:
+                                min_diff = float('inf')
+                                for item in results:
+                                    if not item.get('syncedLyrics'): continue
+                                    
+                                    item_duration = item.get('duration', 0)
+                                    diff = abs(item_duration - duration)
+                                    
+                                    if diff < min_diff:
+                                        min_diff = diff
+                                        best_match_item = item
+                                
+                                if best_match_item:
+                                    _LOGGER.debug(f"LrcLib: Selected closest duration match (Diff: {min_diff}s)")
 
-        return []
+                            # --- FALLBACK (No duration or no match found yet) ---
+                            if not best_match_item:
+                                for item in results:
+                                    if item.get('syncedLyrics'):
+                                        best_match_item = item
+                                        _LOGGER.debug("LrcLib: Selected first available result.")
+                                        break
+                            
+                            if best_match_item:
+                                fetched_lyrics = self._parse_lrc(best_match_item['syncedLyrics'])
+
+            except Exception as e:
+                _LOGGER.error(f"LrcLib search failed: {e}")
+
+        # 5. Save to Cache
+        if len(self.lyrics_cache) >= self.cache_limit:
+            self.lyrics_cache.popitem(last=False) 
+        
+        self.lyrics_cache[cache_key] = fetched_lyrics
+        
+        return fetched_lyrics
 
     def _parse_lrc(self, lrc_text: str) -> list[dict]:
-        """Robust LRC parser handling [mm:ss.xx] format."""
+        """Robust LRC parser handling [mm:ss.xx] format with Rounding."""
         if not lrc_text: return []
         
         parsed = []
@@ -3194,7 +2337,8 @@ class LyricsProvider:
                 minutes = int(match.group(1))
                 seconds = float(match.group(2))
                 text = match.group(3).strip()
-                total_seconds = minutes * 60 + seconds
+                raw_total = minutes * 60 + seconds
+                total_seconds = int(raw_total + 0.5)
                 
                 if text:
                     parsed.append({'seconds': total_seconds, 'lyrics': text})
@@ -3203,7 +2347,7 @@ class LyricsProvider:
         return parsed
 
     async def calculate_position(self, media_data: "MediaData", hass: "hass.Hass") -> None:
-        """Calculate active lyric using Range Logic, Grouping, and Persistent State."""
+        """Calculate active lyric using Index Range Checking (Supports Seeking)."""
         if not media_data.lyrics or not self.config.show_lyrics:
             return
 
@@ -3213,10 +2357,15 @@ class LyricsProvider:
             lyrics_delay = 0.0
 
         # --- STATE PERSISTENCE ---
+        # Track the range of lines currently displayed on the screen.
+        if not hasattr(media_data, "last_group_start_index"):
+            media_data.last_group_start_index = -1
         if not hasattr(media_data, "last_group_end_index"):
             media_data.last_group_end_index = -1
         
+        # Reset if song changed (Length differs)
         if not hasattr(media_data, "last_lyrics_len") or media_data.last_lyrics_len != len(media_data.lyrics):
+            media_data.last_group_start_index = -1
             media_data.last_group_end_index = -1
             media_data.last_lyrics_len = len(media_data.lyrics)
 
@@ -3225,65 +2374,80 @@ class LyricsProvider:
             elapsed = (now - media_data.media_position_updated_at).total_seconds()
             current_pos = media_data.media_position + elapsed
 
-            # 1. Find 'Base' Active Index
+            # 1. Find the 'Active Index' (The specific line for this exact second)
             active_index = -1
             for i, item in enumerate(media_data.lyrics):
                 lyric_time = item['seconds'] + lyrics_delay
+                # If this line started in the past, it's a candidate
                 if lyric_time <= current_pos:
                     active_index = i
                 else:
+                    # Future line found, stop.
                     break
 
-            # 2. Already Displayed Check
-            if active_index != -1 and active_index <= media_data.last_group_end_index:
-                return 
+            if active_index == -1:
+                return
 
-            # 3. New Group Logic
-            if active_index != -1:
-                current_group_text = media_data.lyrics[active_index]['lyrics']
-                current_group_end_index = active_index
-                
-                # Lookahead for small gaps (<= 2.5s)
-                next_idx = active_index + 1
-                while next_idx < len(media_data.lyrics):
-                    prev_time = media_data.lyrics[next_idx - 1]['seconds']
-                    this_time = media_data.lyrics[next_idx]['seconds']
-                    gap = this_time - prev_time
+            # 2. SEEK & DISPLAY CHECK
+            # Check if the required line is ALREADY displayed within the current merged group.
+            # This handles Normal Playback (we wait), Seeking Back (index < start), and Seeking Forward (index > end).
+            if (media_data.last_group_start_index != -1 and 
+                media_data.last_group_start_index <= active_index <= media_data.last_group_end_index):
+                return # Current text covers this timestamp. Do nothing.
 
-                    if gap <= 2.5:
-                        next_text = media_data.lyrics[next_idx]['lyrics']
-                        combined_test = current_group_text + "\n" + next_text
-                        
-                        # Check if it fits in 6 lines (Increased from 5)
-                        if self._estimate_visual_lines(combined_test, 11) <= 6:
-                            current_group_text = combined_test
-                            current_group_end_index = next_idx
-                            next_idx += 1
-                        else:
-                            break
+            # 3. New Group Logic (Render needed)
+            current_group_text = media_data.lyrics[active_index]['lyrics']
+            current_group_start_index = active_index
+            current_group_end_index = active_index
+            
+            # Lookahead for small gaps (<= 2.5s) to merge lines
+            next_idx = active_index + 1
+            while next_idx < len(media_data.lyrics):
+                prev_time = media_data.lyrics[next_idx - 1]['seconds']
+                this_time = media_data.lyrics[next_idx]['seconds']
+                gap = this_time - prev_time
+
+                if gap <= 2.5:
+                    next_text = media_data.lyrics[next_idx]['lyrics']
+                    combined_test = current_group_text + "\n" + next_text
+                    
+                    # Check if it fits in 6 lines
+                    if self._estimate_visual_lines(combined_test, 11) <= 6:
+                        current_group_text = combined_test
+                        current_group_end_index = next_idx
+                        next_idx += 1
                     else:
                         break
-
-                media_data.last_group_end_index = current_group_end_index
-                
-                await self.create_lyrics_payloads(
-                    current_group_text,
-                    line_length=11,
-                    lyrics_font_color=media_data.lyrics_font_color
-                )
-
-                # Cleanup Timer
-                next_idx_after_group = current_group_end_index + 1
-                if next_idx_after_group < len(media_data.lyrics):
-                    next_event_time = media_data.lyrics[next_idx_after_group]['seconds'] + lyrics_delay
-                    last_merged_line_time = media_data.lyrics[current_group_end_index]['seconds'] + lyrics_delay
-                    duration = next_event_time - last_merged_line_time
                 else:
-                    duration = 10 
+                    break
 
-                if duration > 8:
-                    hass.create_task(self._delayed_clear(self.len_lines * 1.5))
+            # 4. Update State with new Range
+            media_data.last_group_start_index = current_group_start_index
+            media_data.last_group_end_index = current_group_end_index
+            
+            # 5. Send to Pixoo
+            await self.create_lyrics_payloads(
+                current_group_text,
+                line_length=11,
+                lyrics_font_color=media_data.lyrics_font_color
+            )
 
+            # 6. Cleanup Timer
+            # Calculate time until the NEXT line *after* this group appears
+            next_idx_after_group = current_group_end_index + 1
+            
+            if next_idx_after_group < len(media_data.lyrics):
+                next_event_time = media_data.lyrics[next_idx_after_group]['seconds'] + lyrics_delay
+                # Duration is from NOW (or start of this line) until the next event
+                # Using current_pos is smoother for seeks
+                duration = next_event_time - current_pos
+            else:
+                duration = 10 
+
+            # If there is a long instrumental break coming up, schedule a clear
+            if duration > 8:
+                hass.create_task(self._delayed_clear(self.len_lines * 1.5))
+    
     def _estimate_visual_lines(self, text: str, line_length: int) -> int:
         """Helper to count visual lines."""
         try:
@@ -3325,15 +2489,23 @@ class LyricsProvider:
 
         self.len_lines = len(all_lines)
         
-        # Adjust font height if using 6 lines to fit 64px
-        # 6 lines * 10px = 60px. (2px padding top/bottom)
+        # Adjust font height
         font_height = 10 if self.len_lines >= 6 else 12
         start_y = (64 - self.len_lines * font_height) // 2
 
         item_list = []
         for i, line in enumerate(all_lines):
+            
+            # --- BIDI FIX: Swap Brackets ---
+            if is_bidi_text:
+                line = line.replace("(", "###TEMP_OPEN###")
+                line = line.replace(")", "(")
+                line = line.replace("###TEMP_OPEN###", ")")
+            # -------------------------------
+
             y = start_y + i * font_height
             rtl = 1 if has_bidi(line) else 0
+            
             item_list.append({
                 "TextId": i + 1,
                 "type": 22,
@@ -3915,6 +3087,627 @@ class SpotifyService:
             return
 
 class Pixoo64_Media_Album_Art(hass.Hass):
+    """AppDaemon app to display album art on Divoom Pixoo64 and control related features."""
+
+    def __init__(self, *args, **kwargs):
+        """Initialize Pixoo64_Media_Album_Art app."""
+        super().__init__(*args, **kwargs)
+        self.clear_timer_task: Optional[asyncio.Task[None]] = None
+        self.callback_timeout: int = 20
+        self.current_image_task: Optional[asyncio.Task[None]] = None
+        self.debounce_task = None
+        
+        # --- WLED CACHE ---
+        self._last_wled_payload = None
+
+    async def initialize(self):
+        _LOGGER.info("Initializing Pixoo64 Album Art Display AppDaemon app…")
+        
+        # 1. Load Config
+        self.config = Config(self.args)
+        
+        # 2. Setup Services
+        self.websession = aiohttp.ClientSession()
+        self.pixoo_device = PixooDevice(self.config, self.websession)
+        self.image_processor = ImageProcessor(self.config, self.websession)
+        self.media_data = MediaData(self.config, self.image_processor, self.websession)
+        self.fallback_service = FallbackService(self.config, self.image_processor, self.websession)
+
+        # 3. Listeners
+        self.listen_state(self._mode_changed, self.config.mode_entity)
+        self.listen_state(self._crop_mode_changed, self.config.crop_entity)
+        self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_title")
+        self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="state")
+
+        # 4. Fallback Channel Logic
+        try:
+            initial_index = await self.pixoo_device.get_current_channel_index()
+            if initial_index == 4:
+                _LOGGER.info("Pixoo initialized on Fallback Screen (4). Defaulting internal state to Channel 0.")
+                self.select_index = 0
+                self.last_valid_index = 0
+            else:
+                self.select_index = initial_index
+                self.last_valid_index = initial_index
+                _LOGGER.info(f"Pixoo initialized on Channel {initial_index}.")
+        except Exception as e:
+            _LOGGER.error(f"Failed to fetch initial channel index: {e}. Defaulting to 0.")
+            self.select_index = 0
+            self.last_valid_index = 0
+
+        self.media_data_sensor = self.config.pixoo_sensor
+
+        # 5. Apply Settings
+        try:
+            await self._apply_mode_settings()
+        except Exception as e:
+            _LOGGER.error(f"Error applying Mode Settings: {e}")
+
+        try:
+            await self._apply_crop_settings()
+        except Exception as e:
+            _LOGGER.error(f"Error applying Crop Settings: {e}")
+
+        # 6. Lyrics Sync
+        if self.entity_exists(self.config.lyrics_sync_entity):
+            self.config.lyrics_sync = (await self.get_state(self.config.lyrics_sync_entity)) or self.config.lyrics_sync
+            self.listen_state(self._lyrics_sync_changed, self.config.lyrics_sync_entity, attribute="state")
+
+        _LOGGER.info("Initialization complete.")
+
+    async def terminate(self):
+        if hasattr(self, 'websession') and self.websession:
+            await self.websession.close()
+            _LOGGER.info("Closed Pixoo64 aiohttp session.")
+
+    async def _lyrics_sync_changed(self, entity, attribute, old, new, kwargs):
+        await self._apply_lyrics_sync()
+
+    async def _apply_lyrics_sync(self):
+        self.config.lyrics_sync = (await self.get_state(self.config.lyrics_sync_entity))
+
+    async def _crop_mode_changed(self, entity, attribute, old, new, kwargs):
+        await self._apply_crop_settings()
+
+    async def _apply_crop_settings(self):
+        """Creates the input_select if missing and applies the crop configuration."""
+        _LOGGER.debug("Setting up Crop Settings...")
+        
+        options = ["Default", "No Crop", "Crop", "Extra Crop"]
+        default = options[0]
+
+        try:
+            if not self.entity_exists(self.config.crop_entity):
+                _LOGGER.info(f"Creating missing crop entity: {self.config.crop_entity}")
+                await self.set_state(self.config.crop_entity, state=options[0], attributes={"options": options})
+                try:
+                    await self.call_service("input_select/set_options", entity_id=self.config.crop_entity, options=options)
+                except Exception:
+                    pass 
+            else:
+                try:
+                    await self.call_service("input_select/set_options", entity_id=self.config.crop_entity, options=options)
+                except Exception as e:
+                    _LOGGER.debug(f"Could not set options on crop entity (might be virtual): {e}")
+
+            mode = (await self.get_state(self.config.crop_entity)) or default
+            _LOGGER.debug(f"Applying Crop Mode: {mode}")
+
+            m = mode.lower()
+            if m == "no crop":
+                self.config.crop_borders = False
+                self.config.crop_extra = False
+            elif m == "crop":
+                self.config.crop_borders = True
+                self.config.crop_extra = False
+            elif m == "extra crop":
+                self.config.crop_borders = True
+                self.config.crop_extra = True
+            elif m == "default":
+                self.config.crop_borders = self.config.original_crop_borders
+                self.config.crop_extra = self.config.original_crop_extra
+            
+            self.image_processor.image_cache.clear()
+            
+        except Exception as e:
+            _LOGGER.error(f"Failed to apply crop settings: {e}", exc_info=True)
+
+    async def _mode_changed(self, entity, attribute, old, new, kwargs):
+        await self._apply_mode_settings()
+
+    async def _apply_mode_settings(self):
+        options = [
+                "Default", "Clean", "AI Generation (Flux)", "AI Generation (Turbo)", "Burned", "Burned | Clock",
+                "Burned | Clock (Background)", "Burned | Temperature", "Burned | Temperature (Background)", "Burned | Clock & Temperature (Background)",
+                "Text", "Text (Background)", "Clock", "Clock (Background)", "Clock | Temperature",
+                "Clock | Temperature (Background)", "Clock | Temperature | Text", "Clock | Temperature | Text (Background)",
+                "Lyrics", "Lyrics (Background)", "Temperature", "Temperature (Background)",
+                "Temperature | Text", "Temperature | Text (Background)", "Special Mode", "Special Mode | Text"
+                ]
+        default = options[0]
+        spotify_api = bool(self.config.spotify_client_id and self.config.spotify_client_secret)
+        if spotify_api:
+            options.append("Spotify Slider (beta)")
+            options.append("Spotify Slider Special Mode with Text (beta)")
+
+        try:
+            if not self.entity_exists(self.config.mode_entity):
+                await self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
+                mode = "Default"
+            else:
+                mode = (await self.get_state(self.config.mode_entity)) or default
+
+            try:
+                await self.call_service("input_select/set_options", entity_id=self.config.mode_entity, options=options)
+            except Exception:
+                pass
+
+            if mode:
+                m = mode.lower()
+                if not m == "default" and not m == "clean":
+                    self.config.show_lyrics     = ("lyrics" in m) if m else False
+                    self.config.spotify_slide   = ("slider" in m) if m else False
+                    self.config.special_mode    = ("special" in m) if m else False
+                    self.config.show_clock      = ("clock" in m) if m else False
+                    self.config.temperature     = ("temperature" in m) if m else False
+                    self.config.show_text       = ("text" in m) if m else False
+                    self.config.text_bg         = ("background" in m) if m else False
+                    self.config.force_ai        = ("ai" in m) if m else False
+                    self.config.burned          = ("burned" in m) if m else False
+
+                    if self.config.force_ai:
+                        ai_fallback_engine_turbo = ("turbo" in m) if m else False
+                        ai_fallback_engine_flux  = ("flux" in m) if m else False
+                        
+                        if ai_fallback_engine_turbo:
+                            self.config.ai_fallback     = "turbo"
+                        elif ai_fallback_engine_flux:
+                            self.config.ai_fallback     = "flux"
+
+                    self.config.special_mode_spotify_slider = bool(self.config.spotify_slide and self.config.special_mode and self.config.show_text)
+
+                elif m == "clean":
+                    self.config.show_lyrics = False
+                    self.config.spotify_slide = False
+                    self.config.special_mode = False
+                    self.config.show_clock = False
+                    self.config.temperature = False
+                    self.config.show_text = False
+                    self.config.text_bg = False
+                    self.config.force_ai = False
+                    self.config.ai_fallback = False
+                    self.config.special_mode_spotify_slider = False
+                    self.config.burned = False
+
+                elif m == "default":
+                    self.config.show_lyrics = self.config.original_show_lyrics
+                    self.config.spotify_slide = self.config.original_spotify_slide
+                    self.config.special_mode = self.config.original_special_mode
+                    self.config.show_clock = self.config.original_show_clock
+                    self.config.temperature = self.config.original_temperature
+                    self.config.show_text = self.config.original_show_text
+                    self.config.text_bg = self.config.original_text_bg
+                    self.config.force_ai = self.config.original_force_ai
+                    self.config.ai_fallback = self.config.original_ai_fallback
+                    self.config.burned = self.config.original_burned
+                    self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
+                
+                self.image_processor.image_cache.clear()
+                await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
+        
+        except Exception as e:
+            _LOGGER.warning(f"Error checking mode entity: {e}")
+
+        if self.config.show_lyrics:
+            self.run_every(self.calculate_position, datetime.now(), 1) 
+
+    async def safe_state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
+        if self.debounce_task and not self.debounce_task.done():
+            self.debounce_task.cancel()
+        
+        self.debounce_task = asyncio.create_task(
+            self._run_debounced_callback(entity, attribute, old, new, kwargs)
+        )
+
+    async def _run_debounced_callback(self, entity, attribute, old, new, kwargs):
+        try:
+            await asyncio.sleep(1.5)
+            async with asyncio.timeout(self.callback_timeout):
+                await self.state_change_callback(entity, attribute, old, new, kwargs)
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Callback timed out after %s seconds.", self.callback_timeout)
+        except asyncio.CancelledError:
+            pass 
+        except Exception as e:
+            _LOGGER.error(f"Error in debounced callback: {e}")
+
+    async def state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
+        try:
+            if new == old or (await self.get_state(self.config.toggle)) != "on":
+                return 
+
+            media_state_str = await self.get_state(self.config.media_player)
+            media_state = media_state_str if media_state_str else "off"
+            
+            if media_state in ["off", "idle", "pause", "paused"]:
+                await asyncio.sleep(6) 
+                
+                media_state_str_validated = await self.get_state(self.config.media_player)
+                media_state_validated = media_state_str_validated if media_state_str_validated else "off"
+                
+                if media_state_validated not in ["playing", "on"]:
+                    pass  
+                else:
+                    return 
+                
+                if self.config.full_control:
+                    await self.pixoo_device.send_command({
+                        "Command": "Draw/CommandList",
+                        "CommandList": [
+                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index},
+                            {"Command": "Channel/OnOffScreen", "OnOff": 0}
+                        ]
+                    })
+                else:
+                    await self.pixoo_device.send_command({
+                        "Command": "Draw/CommandList",
+                        "CommandList": [
+                            {"Command": "Draw/ClearHttpText"},
+                            {"Command": "Draw/ResetHttpGifId"},
+                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
+                        ]
+                    })
+                
+                await self.set_state(self.media_data_sensor, state="off")
+                if self.config.light: await self.control_light('off')
+                if self.config.wled: await self.control_wled_light('off')
+                return 
+
+            await self.update_attributes(entity, attribute, old, new, kwargs)
+        except Exception as e:
+            _LOGGER.error(f"Error in state_change_callback: {e}")
+
+    async def update_attributes(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
+        try:
+            media_state_str = await self.get_state(self.config.media_player)
+            media_state = media_state_str if media_state_str else "off"
+            if media_state not in ["playing", "on"]:
+                if self.config.light: await self.control_light('off')
+                if self.config.wled: await self.control_wled_light('off')
+                return 
+
+            media_data = await self.media_data.update(self)
+            if not media_data:
+                return
+
+            await self.pixoo_run(media_state, media_data)
+        except Exception as e:
+            _LOGGER.error(f"Error in update_attributes: {e}", exc_info=True)
+
+    async def pixoo_run(self, media_state: str, media_data: "MediaData") -> None:
+        try:
+            async with asyncio.timeout(self.callback_timeout):
+                current_device_channel = await self.pixoo_device.get_current_channel_index()
+                if current_device_channel != 4:
+                    self.select_index = current_device_channel
+                    self.last_valid_index = current_device_channel
+                else:
+                    if hasattr(self, 'last_valid_index') and self.last_valid_index != 4:
+                        self.select_index = self.last_valid_index
+                    else:
+                        self.select_index = 0
+
+                if media_state in ["playing", "on"]:
+                    if self.current_image_task:
+                        self.current_image_task.cancel()
+                        self.current_image_task = None 
+
+                    self.current_image_task = asyncio.create_task(self._process_and_display_image(media_data))
+        except asyncio.TimeoutError:
+            _LOGGER.warning("Pixoo run timed out after %s seconds.", self.callback_timeout)
+        except Exception as e:
+            _LOGGER.error(f"Error in pixoo_run: {e}", exc_info=True)
+        finally:
+            await asyncio.sleep(0.10)
+
+    async def _process_and_display_image(self, media_data: "MediaData") -> None:
+        if media_data.picture == "TV_IS_ON":
+            payload = ({
+                "Command": "Draw/CommandList",
+                "CommandList": [
+                    {"Command": "Channel/OnOffScreen", "OnOff": 1},
+                    {"Command": "Draw/ClearHttpText"},
+                    {"Command": "Draw/ResetHttpGifId"},
+                    {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}]
+            })
+            await self.pixoo_device.send_command(payload)
+            if self.config.light: await self.control_light('off')
+            if self.config.wled: await self.control_wled_light('off')
+            return 
+
+        try:
+            start_time = time.perf_counter()
+            processed_data = await self.fallback_service.get_final_url(media_data.picture, media_data)
+
+            if not processed_data:
+                processed_data = self.fallback_service._get_fallback_black_image_data()
+
+            media_data.spotify_frames = 0
+            base64_image = processed_data.get('base64_image')
+            font_color_from_image_processing = processed_data.get('font_color')
+            brightness = processed_data.get('brightness')
+            background_color_str = processed_data.get('background_color')
+            background_color_rgb = processed_data.get('background_color_rgb')
+            most_common_color_alternative_rgb_str = processed_data.get('most_common_color_alternative_rgb')
+            most_common_color_alternative_str = processed_data.get('most_common_color_alternative')
+
+            if self.config.light and not media_data.playing_tv:
+                await self.control_light('on', background_color_rgb, media_data.is_night)
+            if self.config.wled and not media_data.playing_tv:
+                color1 = processed_data.get('color1')
+                color2 = processed_data.get('color2')
+                color3 = processed_data.get('color3')
+                await self.control_wled_light('on', color1, color2, color3, media_data.is_night)
+            if media_data.playing_tv:
+                if self.config.light: await self.control_light('off')
+                if self.config.wled: await self.control_wled_light('off')
+            
+            sensor_state = f"{media_data.artist} / {media_data.title}"
+            new_attributes = {
+                "artist": media_data.artist,
+                "media_title": media_data.title,
+                "font_color": font_color_from_image_processing,
+                "background_color_brightness": brightness,
+                "background_color": background_color_str,
+                "color_alternative_rgb": most_common_color_alternative_str, 
+                "background_color_rgb": background_color_rgb,
+                "color_alternative": most_common_color_alternative_rgb_str,
+                "images_in_cache": media_data.image_cache_count,
+                "image_memory_cache": media_data.image_cache_memory,
+                "process_duration": media_data.process_duration,
+                "spotify_frames": media_data.spotify_frames,
+                "pixoo_channel": self.select_index,
+                "image_source": media_data.pic_source,
+                "image_url": media_data.pic_url,
+                "lyrics": media_data.lyrics
+            }
+
+            image_payload = {
+                "Command": "Draw/CommandList",
+                "CommandList": [
+                    {"Command": "Channel/OnOffScreen", "OnOff": 1},
+                    {"Command": "Draw/ClearHttpText"},
+                    {"Command": "Draw/ResetHttpGifId"},
+                    {"Command": "Draw/SendHttpGif",
+                        "PicNum": 1, "PicWidth": 64, "PicOffset": 0,
+                        "PicID": 0, "PicSpeed": 10000, "PicData": base64_image}]}
+
+            spotify_animation_took_over_display = False
+            if self.config.spotify_slide and not media_data.radio_logo and not media_data.playing_tv:
+                spotify_service = SpotifyService(self.config, self.websession) 
+                spotify_service.spotify_data = await spotify_service.get_spotify_json(media_data.artist, media_data.title)
+                if spotify_service.spotify_data:
+                    spotify_anim_start_time = time.perf_counter()
+                    if self.config.special_mode:
+                        if self.config.special_mode_spotify_slider:
+                            await spotify_service.spotify_album_art_animation(self.pixoo_device, media_data)
+                    else:
+                        await spotify_service.spotify_albums_slide(self.pixoo_device, media_data)
+
+                    if media_data.spotify_slide_pass:
+                        spotify_animation_took_over_display = True
+                        spotify_anim_end_time = time.perf_counter()
+                        duration = spotify_anim_end_time - spotify_anim_start_time
+                        media_data.process_duration = f"{duration:.2f} seconds (Spotify)"
+                        new_attributes["process_duration"] = media_data.process_duration
+                        new_attributes["spotify_frames"] = media_data.spotify_frames
+                    else:
+                        await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4})
+
+            text_items_for_display_list = []
+            current_text_id = 0
+            
+            text_overlay_font_color = '#ffff00'
+            brightness_factor = 50
+            if self.config.force_font_color:
+                text_overlay_font_color = self.config.force_font_color
+            elif background_color_rgb:
+                try:
+                    color_font_rgb_calc = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
+                    if not self.config.text_bg:
+                        opposite_color_rgb = self.compute_opposite_color(color_font_rgb_calc)
+                        color_font_rgb_calc = opposite_color_rgb
+                    text_overlay_font_color = '#%02x%02x%02x' % color_font_rgb_calc
+                except Exception:
+                    text_overlay_font_color = '#ffff00'
+            
+            if self.config.special_mode:
+                current_text_id += 1
+                day_item = { "TextId": current_text_id, "type": 14, "x": 4, "y": 1, "dir": 0, "font": 18, "TextWidth": 33, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color}
+                text_items_for_display_list.append(day_item)
+
+                current_text_id += 1
+                clock_item_special = { "TextId": current_text_id, "type": 5, "x": 0, "y": 1, "dir": 0, "font": 18, "TextWidth": 64, "Textheight": 6, "speed": 100, "align": 2, "color": background_color_str}
+                text_items_for_display_list.append(clock_item_special)
+
+                current_text_id += 1
+                if media_data.temperature:
+                    temp_item_special = {"TextId": current_text_id, "type": 22, "x": 46, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color, "TextString": media_data.temperature}
+                else:
+                    temp_item_special = {"TextId": current_text_id, "type": 17, "x": 46, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 3, "color": text_overlay_font_color}
+                text_items_for_display_list.append(temp_item_special)
+
+                if (self.config.show_text and not media_data.playing_tv) or (media_data.spotify_slide_pass and self.config.spotify_slide):
+                    dir_rtl_artist = 1 if has_bidi(media_data.artist) else 0
+                    text_artist_bidi = get_bidi(media_data.artist) if dir_rtl_artist == 1 else media_data.artist
+                    current_text_id += 1
+                    artist_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 42, "dir": dir_rtl_artist, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_artist_bidi, "color": text_overlay_font_color}
+                    text_items_for_display_list.append(artist_item)
+
+                    dir_rtl_title = 1 if has_bidi(media_data.title) else 0
+                    text_title_bidi = get_bidi(media_data.title) if dir_rtl_title == 1 else media_data.title
+                    current_text_id += 1
+                    title_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 52, "dir": dir_rtl_title, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_title_bidi, "color": background_color_str}
+                    text_items_for_display_list.append(title_item)
+            
+            elif (self.config.show_text or self.config.show_clock or self.config.temperature) and not (self.config.show_lyrics or self.config.spotify_slide):
+                text_track = (media_data.artist + " - " + media_data.title)
+                if len(text_track) > 14: text_track = text_track + "       "
+                text_string_bidi = get_bidi(text_track) if media_data.artist else get_bidi(media_data.title)
+                dir_rtl = 1 if has_bidi(text_string_bidi) else 0
+
+                if text_string_bidi and self.config.show_text and not media_data.radio_logo and not media_data.playing_tv:
+                    current_text_id += 1
+                    text_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 48, "dir": dir_rtl, "font": 2, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_string_bidi, "color": text_overlay_font_color}
+                    text_items_for_display_list.append(text_item)
+
+                if self.config.show_clock:
+                    current_text_id += 1
+                    x_clock = 44 if self.config.clock_align == "Right" else 3
+                    clock_item_normal = { "TextId": current_text_id, "type": 5, "x": x_clock, "y": 3, "dir": 0, "font": 18, "TextWidth": 32, "Textheight": 16, "speed": 100, "align": 1, "color": text_overlay_font_color}
+                    text_items_for_display_list.append(clock_item_normal)
+
+                if self.config.temperature:
+                    current_text_id += 1
+                    x_temp = 3 if self.config.clock_align == "Right" else 40
+                    if media_data.temperature:
+                        temp_item_normal = {"TextId": current_text_id, "type": 22, "x": x_temp, "y": 3, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color, "TextString": media_data.temperature}
+                    else:
+                        temp_item_normal = {"TextId": current_text_id, "type": 17, "x": x_temp, "y": 3, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color}
+                    text_items_for_display_list.append(temp_item_normal)
+
+            if not spotify_animation_took_over_display:
+                await self.pixoo_device.send_command(image_payload)
+                if text_items_for_display_list:
+                    txt_payload = ({ "Command": "Draw/SendHttpItemList", "ItemList": text_items_for_display_list })
+                    await asyncio.sleep(0.10)
+                    await self.pixoo_device.send_command(txt_payload)
+            elif spotify_animation_took_over_display and self.config.special_mode and text_items_for_display_list:
+                await self.pixoo_device.send_command({ "Command": "Draw/SendHttpItemList", "ItemList": text_items_for_display_list })
+            
+            end_time = time.perf_counter()
+            if not spotify_animation_took_over_display:
+                duration = end_time - start_time
+                media_data.process_duration = f"{duration:.2f} seconds"
+            new_attributes["process_duration"] = media_data.process_duration
+            new_attributes["spotify_frames"] = media_data.spotify_frames
+            await self.set_state(self.media_data_sensor, state=sensor_state, attributes=new_attributes)
+
+            if self.fallback_service.fail_txt and self.fallback_service.fallback:
+                black_img = self.fallback_service.create_black_screen()
+                black_pic = self.image_processor.gbase64(black_img)
+                payload_fail_commands = {
+                    "Command": "Draw/CommandList",
+                    "CommandList": [
+                        {"Command": "Channel/OnOffScreen", "OnOff": 1},
+                        {"Command": "Draw/ResetHttpGifId"},
+                    ]
+                }
+                await self.pixoo_device.send_command(payload_fail_commands)
+                await self.pixoo_device.send_command({
+                    "Command": "Draw/SendHttpGif",
+                    "PicNum": 1, "PicWidth": 64,
+                    "PicOffset": 0, "PicID": 0,
+                    "PicSpeed": 1000, "PicData": black_pic
+                })
+                payloads_text_fail = self.create_payloads(media_data.artist, media_data.title, 11)
+                await self.pixoo_device.send_command(payloads_text_fail)
+                return
+
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            _LOGGER.error(f"Error in _process_and_display_image: {e}", exc_info=True)
+        finally:
+            self.current_image_task = None
+
+    def compute_opposite_color(self, color: tuple[int,int,int]) -> tuple[int,int,int]:
+        return tuple(255 - c for c in color)
+
+    async def control_light(self, action: str, background_color_rgb: Optional[tuple[int, int, int]] = None, is_night: bool = True) -> None:
+        if not is_night and self.config.only_at_night:
+            return 
+        service_data = {'entity_id': self.config.light}
+        if action == 'on':
+            service_data.update({'rgb_color': background_color_rgb, 'transition': 1, })
+        try:
+            await self.call_service(f'light/turn_{action}', **service_data)  
+        except Exception as e:
+            _LOGGER.error(f"Error controlling Home Assistant light '{self.config.light}': {e}", exc_info=True)
+
+    async def control_wled_light(self, action: str, color1: Optional[str] = None, color2: Optional[str] = None, color3: Optional[str] = None, is_night: bool = True) -> None:
+        if not is_night and self.config.only_at_night:
+            return
+        ip_address = self.config.wled
+        if not ip_address:
+            return
+        
+        effect_id = self.config.effect
+        segment = {"fx": effect_id}
+        clean_colors = [c.lstrip('#') for c in [color1, color2, color3] if c]
+        if clean_colors:
+            if effect_id == 0:
+                segment["col"] = [clean_colors[0]] 
+            else:
+                segment["col"] = clean_colors
+        
+        # Build Signature key for caching
+        target_signature = (
+            action, 
+            tuple(clean_colors), 
+            effect_id, 
+            self.config.brightness,
+            self.config.effect_speed,
+            self.config.effect_intensity,
+            self.config.palette,
+            self.config.sound_effect
+        )
+
+        # Check Cache
+        if self._last_wled_payload == target_signature:
+            return
+
+        # Prepare Payload
+        if self.config.effect_speed: segment["sx"] = self.config.effect_speed
+        if self.config.effect_intensity: segment["ix"] = self.config.effect_intensity
+        if self.config.palette: segment["pal"] = self.config.palette
+        if self.config.sound_effect: segment["si"] = self.config.sound_effect
+        payload = {"on": True, "bri": self.config.brightness, "seg": [segment]}
+        if action == "off":
+            payload = {"on": False}
+        
+        url = f"http://{ip_address}/json/state"
+        try:
+            async with self.websession.post(url, json=payload, timeout=10, ssl=False) as response:
+                response.raise_for_status()
+                # Update Cache only on success
+                self._last_wled_payload = target_signature
+        except Exception:
+            pass
+
+    def create_payloads(self, artist: str, title: str, line_length: int) -> dict:
+        artist_lines = split_string(artist, line_length)
+        title_lines = split_string(title, line_length)
+        all_lines = artist_lines + title_lines
+        if len(all_lines) > 5:
+            all_lines = all_lines[:5]
+        start_y = (64 - len(all_lines) * 12) // 2
+        item_list = []
+        for i, line in enumerate(all_lines):
+            text_string = get_bidi(line) if has_bidi(line) else line
+            y = start_y + (i * 12)
+            dir_rtl = 1 if has_bidi(line) else 0
+            item_list.append({
+                "TextId": i + 1, "type": 22,
+                "x": 0, "y": y, "dir": dir_rtl, "font": 190,  
+                "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2,
+                "TextString": text_string,
+                "color": "#a0e5ff" if i < len(artist_lines) else "#f9ffa0",  
+            })
+        return { "Command": "Draw/SendHttpItemList", "ItemList": item_list }
+
+    async def calculate_position(self, kwargs: Dict[str, Any]) -> None:
+        await LyricsProvider(self.config, self.image_processor, self.websession).calculate_position(self.media_data, self)
     """AppDaemon app to display album art on Divoom Pixoo64 and control related features."""  
 
     def __init__(self, *args, **kwargs):
