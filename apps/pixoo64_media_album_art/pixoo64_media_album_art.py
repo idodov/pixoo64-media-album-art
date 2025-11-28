@@ -1472,6 +1472,7 @@ class MediaData:
         self.spotify_data: Optional[dict] = None 
         self.artist: str = ""
         self.title: str = ""
+        self.title_original: str = ""
         self.album: Optional[str] = None 
         self.lyrics: list[dict] = [] 
         self.picture: Optional[str] = None 
@@ -1510,7 +1511,6 @@ class MediaData:
             
             media_state = results[0]
             title = results[1]
-            
             if media_state not in ["playing", "on"] or not title:
                 return None
 
@@ -1532,6 +1532,7 @@ class MediaData:
 
             # 4. Process Title/Artist
             self.title_clean = self.clean_title(title) if self.config.clean_title else title
+            self.title_original = title
             self.title = self.title_clean 
             
             # Handle TV
@@ -1568,7 +1569,7 @@ class MediaData:
 
             # 5. Fetch Lyrics
             if self.config.show_lyrics and not self.config.special_mode and not self.playing_tv and not self.playing_radio:
-                self.lyrics = await self._get_lyrics(self.artist, self.title, self.album, self.media_duration)
+                self.lyrics = await self._get_lyrics(self.artist, self.title_original, self.album, self.media_duration)
                 
                 # Check if lyrics changed (New Song), if so reset state
                 if len(self.lyrics) != self.last_lyrics_len:
@@ -2241,10 +2242,10 @@ class LyricsProvider:
         
         # --- CACHE SETUP ---
         self.lyrics_cache: OrderedDict[str, list] = OrderedDict()
-        self.cache_limit: int = 50 # Keep last 50 songs in memory
+        self.cache_limit: int = 100 # Keep last 100 songs in memory
 
     async def get_lyrics(self, artist: Optional[str], title: str, album: Optional[str] = None, duration: int = 0) -> list[dict]:
-        """Fetch lyrics from LrcLib.net with Caching and Duration Matching."""
+        """Fetch lyrics from LrcLib.net with Caching and Prioritized Matching."""
         if not artist or not title:
             return []
 
@@ -2284,32 +2285,79 @@ class LyricsProvider:
                     if response.status == 200:
                         results = await response.json()
                         if results and isinstance(results, list):
-                            best_match_item = None
                             
-                            # --- DURATION MATCHING LOGIC ---
-                            if duration and duration > 0:
-                                min_diff = float('inf')
-                                for item in results:
-                                    if not item.get('syncedLyrics'): continue
-                                    
-                                    item_duration = item.get('duration', 0)
-                                    diff = abs(item_duration - duration)
-                                    
-                                    if diff < min_diff:
-                                        min_diff = diff
-                                        best_match_item = item
-                                
-                                if best_match_item:
-                                    _LOGGER.debug(f"LrcLib: Selected closest duration match (Diff: {min_diff}s)")
+                            # --- MATCHING CONTAINERS ---
+                            p1_match = None # Exact Title + Exact Duration (+/- 2s)
+                            p1_diff = float('inf')
 
-                            # --- FALLBACK (No duration or no match found yet) ---
-                            if not best_match_item:
-                                for item in results:
-                                    if item.get('syncedLyrics'):
-                                        best_match_item = item
-                                        _LOGGER.debug("LrcLib: Selected first available result.")
-                                        break
-                            
+                            p2_match = None # Fuzzy Title + Exact Duration (+/- 2s)
+                            p2_diff = float('inf')
+
+                            p3_match = None # Fuzzy Title + Loose Duration (+/- 5s)
+                            p3_diff = float('inf')
+
+                            p4_match = None # Fuzzy Title + Closest Duration (Diff < 15s)
+                            p4_diff = float('inf')
+
+                            target_title_clean = title.lower().strip()
+                            target_dur = float(duration) if duration else 0
+
+                            for item in results:
+                                if not item.get('syncedLyrics'): 
+                                    continue
+                                
+                                item_title_clean = item.get('trackName', '').lower().strip()
+                                item_duration = item.get('duration', 0)
+                                
+                                # MANDATORY: Title must include song name (Fuzzy Match)
+                                if target_title_clean not in item_title_clean:
+                                    continue
+
+                                diff = abs(item_duration - target_dur) if target_dur > 0 else 0
+                                is_exact_title = (target_title_clean == item_title_clean)
+
+                                # P1: Exact Title & Exact Duration (<= 2s)
+                                if is_exact_title and diff <= 2.0:
+                                    if diff < p1_diff:
+                                        p1_diff = diff
+                                        p1_match = item
+                                
+                                # P2: Fuzzy Title & Exact Duration (<= 2s)
+                                elif diff <= 2.0:
+                                    if diff < p2_diff:
+                                        p2_diff = diff
+                                        p2_match = item
+
+                                # P3: Fuzzy Title & Loose Duration (<= 5s)
+                                elif diff <= 5.0:
+                                    if diff < p3_diff:
+                                        p3_diff = diff
+                                        p3_match = item
+                                
+                                # P4: Fuzzy Title & Reasonable Duration (<= 15s)
+                                elif diff <= 15.0:
+                                    if diff < p4_diff:
+                                        p4_diff = diff
+                                        p4_match = item
+
+                            # --- FINAL SELECTION ---
+                            best_match_item = None
+
+                            if p1_match:
+                                best_match_item = p1_match
+                                _LOGGER.debug(f"LrcLib: Strategy 1 (Exact Title+Time) Diff: {p1_diff}s")
+                            elif p2_match:
+                                best_match_item = p2_match
+                                _LOGGER.debug(f"LrcLib: Strategy 2 (Fuzzy Title+Exact Time) Diff: {p2_diff}s")
+                            elif p3_match:
+                                best_match_item = p3_match
+                                _LOGGER.debug(f"LrcLib: Strategy 3 (Fuzzy Title+Loose Time) Diff: {p3_diff}s")
+                            elif p4_match:
+                                best_match_item = p4_match
+                                _LOGGER.debug(f"LrcLib: Strategy 4 (Fuzzy Title+Reasonable Time) Diff: {p4_diff}s")
+                            else:
+                                _LOGGER.debug("LrcLib: No matching lyrics found within criteria. Skipping.")
+
                             if best_match_item:
                                 fetched_lyrics = self._parse_lrc(best_match_item['syncedLyrics'])
 
@@ -2336,12 +2384,16 @@ class LyricsProvider:
             if match:
                 minutes = int(match.group(1))
                 seconds = float(match.group(2))
-                text = match.group(3).strip()
+                text = match.group(3).strip() # Removes spaces/tabs
+                
+                # Check if text is empty after stripping (Skip blank lines)
+                if not text:
+                    continue
+
                 raw_total = minutes * 60 + seconds
                 total_seconds = int(raw_total + 0.5)
                 
-                if text:
-                    parsed.append({'seconds': total_seconds, 'lyrics': text})
+                parsed.append({'seconds': total_seconds, 'lyrics': text})
         
         parsed.sort(key=lambda x: x['seconds'])
         return parsed
@@ -2357,13 +2409,11 @@ class LyricsProvider:
             lyrics_delay = 0.0
 
         # --- STATE PERSISTENCE ---
-        # Track the range of lines currently displayed on the screen.
         if not hasattr(media_data, "last_group_start_index"):
             media_data.last_group_start_index = -1
         if not hasattr(media_data, "last_group_end_index"):
             media_data.last_group_end_index = -1
         
-        # Reset if song changed (Length differs)
         if not hasattr(media_data, "last_lyrics_len") or media_data.last_lyrics_len != len(media_data.lyrics):
             media_data.last_group_start_index = -1
             media_data.last_group_end_index = -1
@@ -2378,19 +2428,15 @@ class LyricsProvider:
             active_index = -1
             for i, item in enumerate(media_data.lyrics):
                 lyric_time = item['seconds'] + lyrics_delay
-                # If this line started in the past, it's a candidate
                 if lyric_time <= current_pos:
                     active_index = i
                 else:
-                    # Future line found, stop.
                     break
 
             if active_index == -1:
                 return
 
             # 2. SEEK & DISPLAY CHECK
-            # Check if the required line is ALREADY displayed within the current merged group.
-            # This handles Normal Playback (we wait), Seeking Back (index < start), and Seeking Forward (index > end).
             if (media_data.last_group_start_index != -1 and 
                 media_data.last_group_start_index <= active_index <= media_data.last_group_end_index):
                 return # Current text covers this timestamp. Do nothing.
@@ -2433,18 +2479,13 @@ class LyricsProvider:
             )
 
             # 6. Cleanup Timer
-            # Calculate time until the NEXT line *after* this group appears
             next_idx_after_group = current_group_end_index + 1
-            
             if next_idx_after_group < len(media_data.lyrics):
                 next_event_time = media_data.lyrics[next_idx_after_group]['seconds'] + lyrics_delay
-                # Duration is from NOW (or start of this line) until the next event
-                # Using current_pos is smoother for seeks
                 duration = next_event_time - current_pos
             else:
                 duration = 10 
 
-            # If there is a long instrumental break coming up, schedule a clear
             if duration > 8:
                 hass.create_task(self._delayed_clear(self.len_lines * 1.5))
     
@@ -2467,59 +2508,96 @@ class LyricsProvider:
 
         is_bidi_text = has_bidi(lyrics)
         
-        raw_segments = lyrics.split('\n')
-        all_lines = []
-
-        for seg in raw_segments:
-            seg_bidi = get_bidi(seg) if is_bidi_text else seg
-            wrapped = split_string(seg_bidi, line_length)
-            
-            # BIDI FIX: Reverse ONLY the wrapping of this specific segment
-            if is_bidi_text:
-                wrapped.reverse()
-            
-            all_lines.extend(wrapped)
-
-        # Limit to 6 lines
-        if len(all_lines) > 6:
-            final_lines = all_lines[:5] # Keep first 5 lines
-            # Merge all remaining lines into the 6th line
-            final_lines.append(" ".join(all_lines[5:])) 
-            all_lines = final_lines
-
-        self.len_lines = len(all_lines)
+        # 1. Split into logical blocks (merged segments)
+        raw_blocks = lyrics.split('\n')
         
-        # Adjust font height
-        font_height = 10 if self.len_lines >= 6 else 12
-        start_y = (64 - self.len_lines * font_height) // 2
+        final_render_lines = [] # List of tuples: (text_line, is_start_of_new_block)
+
+        # 2. Process blocks and wrap text
+        for block_idx, block in enumerate(raw_blocks):
+            block_bidi = get_bidi(block) if is_bidi_text else block
+            wrapped_lines = split_string(block_bidi, line_length)
+            
+            if is_bidi_text:
+                wrapped_lines.reverse()
+            
+            for line_idx, line in enumerate(wrapped_lines):
+                # Mark True if this is the first visual line of a new block (except the very first line)
+                is_new_block = (line_idx == 0 and block_idx > 0)
+                final_render_lines.append((line, is_new_block))
+
+        # 3. Limit lines to 6
+        total_lines = len(final_render_lines)
+        if total_lines > 6:
+            # Take first 5 lines standard
+            truncated = final_render_lines[:5]
+            # Merge remaining text into 6th line
+            remaining_text_parts = [item[0] for item in final_render_lines[5:]]
+            # We preserve the is_new_block flag of the 6th line if it was one
+            truncated.append((" ".join(remaining_text_parts), final_render_lines[5][1]))
+            final_render_lines = truncated
+            total_lines = len(final_render_lines)
+
+        self.len_lines = total_lines
+        
+        # 4. Determine Spacing Strategy (Anti-Crash Logic)
+        # Base settings
+        font_height = 12
+        block_gap = 2
+        
+        # Count how many gaps we actually need
+        num_gaps = sum(1 for _, is_new in final_render_lines if is_new)
+
+        # Calculate estimated total pixel height
+        total_pixel_height = (total_lines * font_height) + (num_gaps * block_gap)
+
+        # Logic: 
+        # A. If >= 6 lines: We have zero room for gaps or tall fonts. Force compact, no gaps.
+        # B. If < 6 lines but height > 64: We have too many gaps/lines for standard font. 
+        #    Reduce font size to 10 ("less gap between all lines") but KEEP the extra block gap.
+        
+        if total_lines >= 6:
+            font_height = 10
+            block_gap = 0 # Disable gaps to prevent overflow
+            total_pixel_height = total_lines * font_height
+        elif total_pixel_height > 64:
+            font_height = 10 # Reduce line height/spacing to fit the gaps
+            total_pixel_height = (total_lines * font_height) + (num_gaps * block_gap)
+
+        # Center vertically
+        current_y = (64 - total_pixel_height) // 2
 
         item_list = []
-        for i, line in enumerate(all_lines):
+        for i, (line_text, is_new_block) in enumerate(final_render_lines):
             
-            # --- BIDI FIX: Swap Brackets ---
             if is_bidi_text:
-                line = line.replace("(", "###TEMP_OPEN###")
-                line = line.replace(")", "(")
-                line = line.replace("###TEMP_OPEN###", ")")
-            # -------------------------------
+                line_text = line_text.replace("(", "###TEMP_OPEN###")
+                line_text = line_text.replace(")", "(")
+                line_text = line_text.replace("###TEMP_OPEN###", ")")
 
-            y = start_y + i * font_height
-            rtl = 1 if has_bidi(line) else 0
+            # Add extra gap BEFORE the line if it's a new block phase
+            if is_new_block:
+                current_y += block_gap
+
+            rtl = 1 if has_bidi(line_text) else 0
             
             item_list.append({
                 "TextId": i + 1,
                 "type": 22,
                 "x": 0,
-                "y": y,
+                "y": current_y,
                 "dir": rtl,
                 "font": self.config.lyrics_font,
                 "TextWidth": 64,
                 "Textheight": 16,
                 "speed": 100,
                 "align": 2,
-                "TextString": line,
+                "TextString": line_text,
                 "color": lyrics_font_color,
             })
+            
+            # Advance Y for next line
+            current_y += font_height
 
         payload = {
             "Command": "Draw/CommandList",
@@ -2529,6 +2607,7 @@ class LyricsProvider:
             ]
         }
         await PixooDevice(self.config, self.session).send_command(payload)
+
 
 class SpotifyService:
     """Service to interact with Spotify API for album art and related data.""" 
