@@ -125,7 +125,7 @@ _LOGGER = logging.getLogger(__name__)
 
 # --- CONSTANTS & REGEX ---
 
-# Regex patterns for RTL text detection (Compiled for performance)
+# Regex patterns for RTL text detection
 HEBREW = r"\u0590-\u05FF"
 ARABIC = r"\u0600-\u06FF|\u0750-\u077F|\u08A0-\u08FF|\uFB50-\uFDFF|\uFE70-\uFEFF|\u0621-\u06FF"
 SYRIAC = r"\u0700-\u074F"
@@ -140,18 +140,14 @@ SAMARITAN = r"\u0800-\u08FF"
 BIDI_REGEX_PATTERN = f"[{HEBREW}|{ARABIC}|{SYRIAC}|{THAANA}|{NKOO}|{RUMI}|{ARABIC_MATH}|{SYMBOLS}|{OLD_PERSIAN_PHAISTOS}|{SAMARITAN}]"
 BIDI_REGEX = re.compile(BIDI_REGEX_PATTERN)
 
+# High-visibility colors
 COLOR_PALETTE = [
-    (255, 0, 0), (255, 51, 51), (255, 99, 71), (255, 140, 0),
-    (255, 165, 0), (255, 185, 15), (255, 215, 0), (255, 255, 0),
-    (204, 255, 0), (173, 255, 47), (127, 255, 0), (50, 205, 50),
-    (34, 139, 34), (64, 255, 128), (0, 255, 127), (0, 255, 0),
-    (0, 255, 255), (0, 204, 255), (0, 191, 255), (30, 144, 255),
-    (65, 105, 225), (0, 0, 255), (18, 10, 255), (75, 0, 130),
-    (138, 43, 226), (148, 0, 211), (153, 50, 204), (186, 85, 211),
-    (238, 130, 238), (255, 0, 255), (221, 0, 221), (255, 20, 147),
-    (255, 64, 160),
-    (210, 105, 30), (160, 82, 45), (255, 69, 0), (255, 35, 97),
-    (255, 0, 127), (0, 128, 192), (0, 255, 192), (192, 0, 255),
+    (255, 51, 51), (255, 99, 71), (255, 140, 0),    # Bright Reds/Oranges
+    (255, 215, 0), (255, 255, 0),                   # Golds/Yellows
+    (173, 255, 47), (127, 255, 0), (50, 205, 50),   # Bright Greens
+    (0, 255, 255), (0, 191, 255), (30, 144, 255),   # Cyans/Light Blues
+    (238, 130, 238), (255, 0, 255), (255, 20, 147), # Magentas/Pinks
+    (255, 255, 255)                                 # White
 ]
 
 # --- HELPERS ---
@@ -849,38 +845,39 @@ class ImageProcessor:
         small_img = img.resize((16, 16), Image.Resampling.BILINEAR)
         image_palette = set(small_img.getdata())
         
-        def luminance(color: tuple[int, int, int]) -> float: 
-            r, g, b = color
-            return 0.2126 * r + 0.7152 * g + 0.0722 * b
-        avg_brightness = sum(luminance(color) for color in image_palette) / len(image_palette)
-        def contrast_ratio(color1: tuple[int, int, int], color2: tuple[int, int, int]) -> float: 
-            L1 = luminance(color1) + 0.05
-            L2 = luminance(color2) + 0.05
-            return max(L1, L2) / min(L1, L2)
+        # Helper to calculate brightness
+        def get_brightness(c):
+            return (c[0] * 299 + c[1] * 587 + c[2] * 114) / 1000
+
         def is_distinct_color(color: tuple[int, int, int], threshold: int = 110) -> bool: 
             return all(self.color_distance(color, img_color) > threshold for img_color in image_palette) 
         
-        # FIX: Copy list before shuffle to avoid mutating global constant
         candidate_colors = list(COLOR_PALETTE)
         random.shuffle(candidate_colors)
         
         best_color = None
         max_saturation = -1 
+        
         for font_color in candidate_colors:
-            if is_distinct_color(font_color, threshold=100):
+            text_brightness = get_brightness(font_color)
+
+            if text_brightness < 150:
+                continue
+
+            if is_distinct_color(font_color, threshold=80): # Lowered threshold slightly to allow more matches
                 r, g, b = font_color
                 max_val = max(r, g, b)
                 min_val = min(r, g, b)
                 saturation = (max_val - min_val) / max_val if max_val != 0 else 0
-                contrast_with_white = contrast_ratio(font_color, (255, 255, 255))
-                contrast_with_black = contrast_ratio(font_color, (0, 0, 0))
-                if (avg_brightness < 127 and contrast_with_white >= 2.5) or (avg_brightness >= 127 and contrast_with_black >= 2.5): 
-                    if saturation > max_saturation:
-                        max_saturation = saturation
-                        best_color = font_color
+                
+                if saturation > max_saturation:
+                    max_saturation = saturation
+                    best_color = font_color
+
         if best_color:
             return f'#{best_color[0]:02x}{best_color[1]:02x}{best_color[2]:02x}'
-        return '#000000' if avg_brightness > 127 else '#ffffff'
+        
+        return '#ffffff'
 
     def get_dominant_border_color(self, img: Image.Image) -> tuple[int, int, int]:
         width, height = img.size
@@ -1327,7 +1324,7 @@ class ImageProcessor:
         return img_copy.convert("RGB")
 
 class LyricsProvider:
-    """Provides lyrics with Dynamic Line Width (Bidi vs Standard) and Strict Sync."""
+    """Provides lyrics with 6-Line Limit, Filler Removal, and Stateless Seek Handling."""
 
     def __init__(self, config: "Config", session: aiohttp.ClientSession):
         self.config = config
@@ -1346,6 +1343,8 @@ class LyricsProvider:
         self.last_sent_hash: int = 0        
         self.is_in_gap_state: bool = True
         self.update_lock = asyncio.Lock()
+
+        self.filler_regex = re.compile(r"(?:[\s\W]+(?:oh+|ooh+|yeah|yea|woah|la+|na+)+[\W]*)+$", re.IGNORECASE)
 
     async def get_lyrics(self, artist: Optional[str], title: str, album: Optional[str] = None, duration: int = 0) -> list[dict]:
         if not artist or not title:
@@ -1446,46 +1445,46 @@ class LyricsProvider:
         cleaned.append(current_block)
         return cleaned
 
-    def _smart_wrap(self, text: str, width: int) -> list[str]:
+    def _basic_wrap(self, text: str, width: int) -> list[str]:
         words = text.split(' ')
         lines = []
         current_line = []
         current_len = 0
 
-        # Allow slight overflow for very short words (e.g. "me")
-        squeeze_limit = width + 2
-
         for word in words:
             word_len = len(word)
             space = 1 if current_line else 0
-            
-            # Logic 1: Fits normally
             if current_len + word_len + space <= width:
                 current_line.append(word)
                 current_len += word_len + space
-            
-            # Logic 2: SQUEEZE. Fits within limit + 2 AND word is short (<=3 chars)
-            elif current_len + word_len + space <= squeeze_limit and word_len <= 3:
-                current_line.append(word)
-                current_len += word_len + space
-            
-            # Logic 3: Break
             else:
                 lines.append(current_line)
                 current_line = [word]
                 current_len = word_len
-        
         if current_line: lines.append(current_line)
-
-        # Logic 4: Anti-Orphan
-        if len(lines) > 1:
-            last = lines[-1]
-            prev = lines[-2]
-            if len(last) == 1 and len(prev) > 2:
-                word = prev.pop()
-                last.insert(0, word)
-
         return [" ".join(l) for l in lines]
+
+    def _smart_wrap(self, text: str, width: int) -> list[str]:
+        lines = self._basic_wrap(text, width)
+        if len(lines) <= 6:
+            return lines
+
+        cleaned_text = self.filler_regex.sub("", text).strip()
+        if len(cleaned_text) < len(text):
+            lines = self._basic_wrap(cleaned_text, width)
+            if len(lines) <= 6:
+                return lines
+
+        lines = self._basic_wrap(text, width + 2)
+        if len(lines) <= 6:
+            return lines
+
+        if len(cleaned_text) < len(text):
+            lines = self._basic_wrap(cleaned_text, width + 2)
+            if len(lines) <= 6:
+                return lines
+
+        return lines[:6]
 
     def _build_visual_timeline(self, raw_lyrics: list[dict]):
         self.visual_timeline = []
@@ -1494,70 +1493,35 @@ class LyricsProvider:
         self.last_sent_hash = 0
         
         if not raw_lyrics: return
-
+        
         processed_lyrics = self._deduplicate_timestamps(raw_lyrics)
-
-        i = 0
         n = len(processed_lyrics)
         
-        while i < n:
+        for i in range(n):
             current = processed_lyrics[i]
             text = current['lyrics']
             start_time = current['seconds']
             
-            last_absorbed_start_time = start_time 
-            next_idx = i + 1
-            
-            while next_idx < n:
-                next_item = processed_lyrics[next_idx]
-                gap = next_item['seconds'] - processed_lyrics[next_idx - 1]['seconds']
-                
-                # Identical Repeats (Ignore width, just merge)
-                if text == next_item['lyrics'] and gap < 8.0:
-                    last_absorbed_start_time = next_item['seconds']
-                    next_idx += 1
-                    continue
-
-                # Different Lines Merge
-                # Gap < 3.5s
-                if gap <= 3.5:
-                    test_text = text + "\n" + next_item['lyrics']
-                    
-                    # DYNAMIC WIDTH CHECK
-                    # If Bidi -> 10, Else -> 11
-                    est_width = 10 if has_bidi(test_text) else 11
-                    
-                    # Estimate if it fits
-                    if len(self._smart_wrap(test_text, est_width)) <= 6:
-                        text = test_text
-                        last_absorbed_start_time = next_item['seconds']
-                        next_idx += 1
-                    else:
-                        break
-                else:
-                    break
-            
-            if next_idx < n:
-                next_block_start = processed_lyrics[next_idx]['seconds']
+            if i + 1 < n:
+                next_start = processed_lyrics[i+1]['seconds']
             else:
-                next_block_start = last_absorbed_start_time + 60.0 
+                next_start = start_time + 60.0 
 
             word_count = len(text.split())
             reading_duration = 2.0 + (word_count * 0.4)
             reading_duration = max(3.0, min(reading_duration, 8.0))
             
-            calculated_end_time = last_absorbed_start_time + reading_duration
+            calculated_end_time = start_time + reading_duration
 
-            gap_to_next = next_block_start - calculated_end_time
+            gap_to_next = next_start - calculated_end_time
             if 0 < gap_to_next < 2.5:
-                end_time = next_block_start
+                end_time = next_start
             else:
-                end_time = min(calculated_end_time, next_block_start)
+                end_time = min(calculated_end_time, next_start)
             
             if end_time <= start_time:
-                end_time = start_time + 2.0
+                end_time = start_time + 1.0
 
-            # Calculate Layout using Dynamic Width
             final_width = 10 if has_bidi(text) else 11
             layout_items = self._calculate_layout_items(text, final_width)
 
@@ -1566,8 +1530,6 @@ class LyricsProvider:
                 'end': end_time,
                 'layout': layout_items
             })
-            
-            i = next_idx
 
     def _calculate_layout_items(self, text: str, line_length: int) -> list[dict]:
         is_bidi_text = has_bidi(text)
@@ -1575,10 +1537,20 @@ class LyricsProvider:
         final_render_lines = []
 
         for block_idx, block in enumerate(raw_blocks):
-            # 1. Use Smart Wrap with dynamic width
+            if len(final_render_lines) >= 6:
+                break
+
             wrapped = self._smart_wrap(block, line_length)
-            
-            # 2. Apply Bidi
+            slots_remaining = 6 - len(final_render_lines)
+
+            if len(wrapped) > slots_remaining:
+                if slots_remaining == 1:
+                    wrapped = [" ".join(wrapped)]
+                else:
+                    safe_part = wrapped[:slots_remaining - 1]
+                    overflow_part = " ".join(wrapped[slots_remaining - 1:])
+                    wrapped = safe_part + [overflow_part]
+
             if is_bidi_text:
                 wrapped = [get_bidi(line) for line in wrapped]
 
@@ -1586,32 +1558,31 @@ class LyricsProvider:
                 is_new_block = (line_idx == 0 and block_idx > 0)
                 final_render_lines.append((line, is_new_block))
 
-        if len(final_render_lines) > 6:
-            remaining = [x[0] for x in final_render_lines[5:]]
-            final_render_lines = final_render_lines[:5]
-            final_render_lines.append((" ".join(remaining), False))
-
-        font_height = 10 if len(final_render_lines) >= 6 else 12
-        block_gap = 0 if len(final_render_lines) >= 6 else 2
-        num_gaps = sum(1 for _, is_new in final_render_lines if is_new)
-        total_h = (len(final_render_lines) * font_height) + (num_gaps * block_gap)
-        if total_h > 64:
+        if len(final_render_lines) >= 6:
             font_height = 10
+            block_gap = 0
+            current_y = 1 # Start at the very top (Y=1) to ensure Line 6 fits
+        else:
+            font_height = 12
+            block_gap = 2
+            num_gaps = sum(1 for _, is_new in final_render_lines if is_new)
             total_h = (len(final_render_lines) * font_height) + (num_gaps * block_gap)
-        
-        current_y = (64 - total_h) // 2
+            current_y = (64 - total_h) // 2
         
         items = []
         for i, (line_text, is_new_block) in enumerate(final_render_lines):
             if is_bidi_text:
                 line_text = line_text.replace("(", "###TEMP###").replace(")", "(").replace("###TEMP###", ")")
+            
             if is_new_block: current_y += block_gap
+            
             items.append({
                 "y": current_y,
                 "dir": 1 if has_bidi(line_text) else 0,
                 "text": line_text,
             })
             current_y += font_height
+            
         return items
 
     async def calculate_position(self, media_data: "MediaData", hass_app: "hass.Hass") -> None:
@@ -1633,28 +1604,25 @@ class LyricsProvider:
             now = datetime.now(timezone.utc)
             elapsed = (now - media_data.media_position_updated_at).total_seconds()
             current_pos = media_data.media_position + elapsed - offset
-
-            # 1. Fast Path
+            found_index = -1
+            
             if self.current_frame_index != -1 and self.current_frame_index < len(self.visual_timeline):
                 frame = self.visual_timeline[self.current_frame_index]
                 if frame['start'] <= current_pos < frame['end']:
-                    self.is_in_gap_state = False
-                    current_hash = hash((self.current_frame_index, media_data.lyrics_font_color))
-                    if self.last_sent_hash != current_hash:
-                        await self._send_payload(frame['layout'], media_data.lyrics_font_color, hass_app, self.current_frame_index)
-                        self.last_sent_hash = current_hash
-                    return
-
-            # 2. Search
-            found_index = -1
-            for i, frame in enumerate(self.visual_timeline):
-                if frame['start'] <= current_pos < frame['end']:
-                    found_index = i
-                    break
+                    found_index = self.current_frame_index
             
-            # 3. State Change
+            if found_index == -1:
+                for i, frame in enumerate(self.visual_timeline):
+                    if frame['start'] <= current_pos < frame['end']:
+                        found_index = i
+                        break
+
+                    if frame['start'] > current_pos:
+                        break
+
             if found_index != -1:
                 self.is_in_gap_state = False
+                
                 new_hash = hash((found_index, media_data.lyrics_font_color))
                 
                 if found_index != self.current_frame_index or self.last_sent_hash != new_hash:
@@ -1670,9 +1638,8 @@ class LyricsProvider:
                     self.last_sent_hash = 0
 
     async def _send_payload(self, layout_items: list, color: str, hass_app, target_index: int):
-        if target_index != -999:
-            if target_index != self.current_frame_index:
-                return
+        if target_index != -999 and target_index != self.current_frame_index:
+             return
 
         pixoo_items = []
         for i in range(6):
@@ -1718,15 +1685,10 @@ class MediaData:
         self.image_processor = image_processor
         self.session = session
         
-        # --- Lyrics Provider (Persistent) ---
         self.lyrics_provider = LyricsProvider(self.config, self.session)
-        
-        # --- Lyrics State Tracking (For Sync & Seek) ---
         self.last_group_start_index: int = -1
         self.last_group_end_index: int = -1
         self.last_lyrics_len: int = 0
-
-        # --- Standard Media Attributes ---
         self.reset_state()
 
     def reset_state(self):
@@ -1764,9 +1726,6 @@ class MediaData:
     async def update(self, hass: "hass.Hass") -> Optional["MediaData"]:
         try:
             media_player = self.config.media_player
-            
-            # --- OPTIMIZATION START ---
-            # Fetch ALL state attributes in a single call instead of separate calls
             media_state_obj = await hass.get_state(media_player, attribute="all")
             
             if not media_state_obj:
@@ -1778,7 +1737,6 @@ class MediaData:
 
             attributes = media_state_obj.get('attributes', {})
             
-            # Extract data from the local dictionary
             self.title_original = attributes.get('media_title')
             if not self.title_original:
                 return None
@@ -1792,15 +1750,10 @@ class MediaData:
             album = attributes.get('media_album_name')
             pos_updated_at_str = attributes.get('media_position_updated_at')
             
-            # Sun check
             sun_state = await hass.get_state("sun.sun")
             self.is_night = (sun_state == "below_horizon") if sun_state else False
-            # --- OPTIMIZATION END ---
 
-            # 3. Process Timestamp
             self.media_position_updated_at = datetime.fromisoformat(pos_updated_at_str.replace('Z', '+00:00')) if pos_updated_at_str else None
-
-            # 4. Process Title/Artist
             self.title_clean = self.clean_title(self.title_original) if self.config.clean_title else self.title_original
             self.title = self.title_clean 
             
@@ -1836,11 +1789,9 @@ class MediaData:
                 self.playing_radio = False
                 self.radio_logo = False
 
-            # 5. Fetch Lyrics
             if self.config.show_lyrics and not self.config.special_mode and not self.playing_tv and not self.playing_radio:
                 self.lyrics = await self._get_lyrics(self.artist, self.title_original, self.album, self.media_duration)
                 
-                # Check if lyrics changed (New Song), if so reset state
                 if len(self.lyrics) != self.last_lyrics_len:
                     self.last_group_start_index = -1
                     self.last_group_end_index = -1
@@ -1848,10 +1799,8 @@ class MediaData:
             else:
                 self.lyrics = []
 
-            # 6. Fetch Temperature
             if self.config.temperature_sensor and (self.config.temperature or self.config.special_mode):
                 try:
-                    # Optimized: getting 'all' is cleaner even for single attribute if unit is needed
                     temp_state = await hass.get_state(self.config.temperature_sensor, attribute="all")
                     if temp_state:
                         val = float(temp_state['state'])
@@ -1930,7 +1879,6 @@ class FallbackService:
     """Handles fallback logic to retrieve album art from various sources if the original picture is not available.""" 
 
     def __init__(self, config: "Config", image_processor: "ImageProcessor", session: aiohttp.ClientSession, spotify_service: "SpotifyService"): 
-        # OPTIMIZATION: Dependency Injection of SpotifyService to preserve cache
         self.config = config
         self.image_processor = image_processor
         self.session = session
@@ -1952,14 +1900,12 @@ class FallbackService:
         else:
             media_data.pic_url = picture 
         
-        # 1. Force AI Logic
         if self.config.force_ai and not media_data.radio_logo and not media_data.playing_tv:
             _LOGGER.info("Force AI mode enabled, trying to generate AI album art.") 
             if self.config.info:
                 await self.send_info(media_data.artist, "FORCE   AI", media_data.lyrics_font_color)
             return await self._try_ai_generation(media_data)
 
-        # 2. TV Icon Logic
         if picture == "TV_IS_ON_ICON":
             _LOGGER.info("Using TV icon image as album art.") 
             media_data.pic_url = "TV Icon"
@@ -1977,7 +1923,6 @@ class FallbackService:
                     'most_common_color_alternative': '#ffff00',
                     'color1': '#000000', 'color2': '#000000', 'color3': '#000000'}
 
-        # 3. Try Original Image
         try:
             if not media_data.playing_radio or media_data.radio_logo:
                 result = await self.image_processor.get_image(picture, media_data, media_data.spotify_slide_pass)
@@ -1988,7 +1933,6 @@ class FallbackService:
         except Exception as e: 
             _LOGGER.error(f"Original picture processing failed: {e}") 
 
-        # 4. Fallbacks
         _LOGGER.info(f"Falling back to alternative album art sources for '{media_data.artist} - {media_data.title}'.") 
         self.spotify_first_album = None
         self.spotify_artist_pic = None
@@ -2000,7 +1944,6 @@ class FallbackService:
         if self.config.spotify_client_id and self.config.spotify_client_secret:
             if self.config.info: await self.send_info(media_data.artist, "SPOTIFY", media_data.lyrics_font_color)
             try:
-                # Use the injected singleton service
                 spotify_service = self.spotify_service 
                 album_id, first_album = await spotify_service.get_spotify_album_id(media_data)
                 
@@ -2574,7 +2517,6 @@ class SpotifyService:
                 if album_id not in albums:
                     albums[album_id] = album
 
-            # FIX: Reverse sort so prioritized albums (True) appear first
             sorted_albums = sorted(albums.values(), key=lambda x: (
                 x.get("album_type") == "single",  
                 x.get("album_type") == "album",  
@@ -2620,7 +2562,6 @@ class SpotifyService:
             with Image.open(BytesIO(image_raw_data)) as img:
                 img = ensure_rgb(img)
 
-                # Initialize processor ONCE with session
                 proc = ImageProcessor(self.config, self.session)
 
                 if self.config.crop_borders:
@@ -2792,7 +2733,6 @@ class SpotifyService:
             media_data.spotify_frames = 0
             return
 
-# --- MAIN APPDAEMON CLASS ---
 class Pixoo64_Media_Album_Art(hass.Hass):
     """AppDaemon app to display album art on Divoom Pixoo64 and control related features."""
 
@@ -2803,18 +2743,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.callback_timeout: int = 20
         self.current_image_task: Optional[asyncio.Task[None]] = None
         self.debounce_task = None
-        
-        # --- WLED CACHE ---
-        # Stores the last sent configuration to prevent spamming the WLED controller
         self._last_wled_payload = None
 
     async def initialize(self):
         _LOGGER.info("Initializing Pixoo64 Album Art Display AppDaemon app…")
         
-        # 1. Load Config
         self.config = Config(self.args)
         
-        # 2. Setup Services (Initialized ONCE)
         self.websession = aiohttp.ClientSession()
         self.pixoo_device = PixooDevice(self.config, self.websession)
         self.image_processor = ImageProcessor(self.config, self.websession)
@@ -2822,13 +2757,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.media_data = MediaData(self.config, self.image_processor, self.websession)
         self.fallback_service = FallbackService(self.config, self.image_processor, self.websession, self.spotify_service)
 
-        # 3. Listeners
         self.listen_state(self._mode_changed, self.config.mode_entity)
         self.listen_state(self._crop_mode_changed, self.config.crop_entity)
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_title")
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="state")
+        self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_position_updated_at")
 
-        # 4. Fallback Channel Logic
         try:
             initial_index = await self.pixoo_device.get_current_channel_index()
             if initial_index == 4:
@@ -2846,7 +2780,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         self.media_data_sensor = self.config.pixoo_sensor
 
-        # 5. Apply Settings
         try:
             await self._apply_mode_settings()
         except Exception as e:
@@ -2857,7 +2790,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         except Exception as e:
             _LOGGER.error(f"Error applying Crop Settings: {e}")
 
-        # 6. Lyrics Sync
         if self.entity_exists(self.config.lyrics_sync_entity):
             self.config.lyrics_sync = (await self.get_state(self.config.lyrics_sync_entity)) or self.config.lyrics_sync
             self.listen_state(self._lyrics_sync_changed, self.config.lyrics_sync_entity, attribute="state")
@@ -2997,13 +2929,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
                 
                 self.image_processor.image_cache.clear()
-                # Trigger update
                 await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
         
         except Exception as e:
             _LOGGER.warning(f"Error checking mode entity: {e}")
 
-        # Start/Stop Lyrics Timer
         if self.config.show_lyrics:
             self.run_every(self.calculate_position, datetime.now(), 1) 
 
@@ -3021,7 +2951,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def _run_debounced_callback(self, entity, attribute, old, new, kwargs):
         try:
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(0.5)
             async with asyncio.timeout(self.callback_timeout):
                 await self.state_change_callback(entity, attribute, old, new, kwargs)
         except asyncio.TimeoutError:
@@ -3040,7 +2970,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             media_state = media_state_str if media_state_str else "off"
             
             if media_state in ["off", "idle", "pause", "paused"]:
-                # Wait to see if it's just a track change gap
                 await asyncio.sleep(6) 
                 
                 media_state_str_validated = await self.get_state(self.config.media_player)
@@ -3049,7 +2978,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if media_state_validated in ["playing", "on"]:
                     return
                 
-                # Turn off screen / Reset
                 if self.config.full_control:
                     await self.pixoo_device.send_command({
                         "Command": "Draw/CommandList",
@@ -3159,7 +3087,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if self.config.light and not media_data.playing_tv:
                 await self.control_light('on', background_color_rgb, media_data.is_night)
             
-            # WLED Control
             if self.config.wled and not media_data.playing_tv:
                 color1 = processed_data.get('color1')
                 color2 = processed_data.get('color2')
@@ -3404,7 +3331,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         try:
             async with self.websession.post(url, json=payload, timeout=10, ssl=False) as response:
                 response.raise_for_status()
-                # Update Cache only on success
                 self._last_wled_payload = target_signature
         except Exception:
             pass
