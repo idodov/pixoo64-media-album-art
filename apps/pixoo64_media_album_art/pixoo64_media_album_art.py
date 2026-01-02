@@ -2972,6 +2972,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             media_state = media_state_str if media_state_str else "off"
             
             if media_state in ["off", "idle", "pause", "paused"]:
+                self.last_text_payload_hash = None
                 await asyncio.sleep(6) 
                 
                 media_state_str_validated = await self.get_state(self.config.media_player)
@@ -2997,7 +2998,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                             {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
                         ]
                     })
-                
+                self.last_text_payload_hash = None
                 await self.set_state(self.media_data_sensor, state="off")
                 if self.config.light: await self.control_light('off')
                 if self.config.wled: await self.control_wled_light('off')
@@ -3068,6 +3069,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             await self.pixoo_device.send_command(payload)
             if self.config.light: await self.control_light('off')
             if self.config.wled: await self.control_wled_light('off')
+            self.last_text_payload_hash = None
             return 
 
         try:
@@ -3198,7 +3200,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     current_text_id += 1
                     title_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 52, "dir": dir_rtl_title, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_title_bidi, "color": background_color_str}
                     text_items_for_display_list.append(title_item)
-            
+        
             elif (self.config.show_text or self.config.show_clock or self.config.temperature) and not (self.config.show_lyrics or self.config.spotify_slide):
                 text_track = (media_data.artist + " - " + media_data.title)
                 if len(text_track) > 14: text_track = text_track + "       "
