@@ -159,8 +159,6 @@ Using HACS is the best method because it allows for easy updates. Because HACS a
    - If "AppDaemon" repositories are not found, enable AppDaemon apps discovery and tracking in HACS settings:
      - Navigate to **Settings** > **Integrations** > **HACS** > **Configure**.
      - Enable **AppDaemon apps discovery & tracking**.
-   - Click on **Custom Repositories** and add `https://github.com/idodov/pixoo64-media-album-art` as an **AppDaemon** repository.
-   - Search for and download `PIXOO64 Media Album Art` in HACS.
 
 #### **2. Add the Custom Repository**
 *   Open **HACS** and click on **AppDaemon** (top menu).
