@@ -152,10 +152,15 @@ You can install the script using either **HACS** (Home Assistant Community Store
 <summary><strong>HACS (Recommended)</strong></summary>
 
 Using HACS is the best method because it allows for easy updates. Because HACS and AppDaemon use different default folders, you must perform a one-time configuration change to link them.
+##### If you don’t have HACS installed, follow the instructions on the [HACS GitHub page](https://hacs.xyz/) to install it.
 
 #### **1. Enable AppDaemon in HACS**
-*   Go to **Settings** > **Integrations** > **HACS** > **Configure**.
-*   Ensure **Enable AppDaemon apps discovery & tracking** is checked. If not, check it and restart Home Assistant.
+   - Go to the HACS page in Home Assistant.
+   - If "AppDaemon" repositories are not found, enable AppDaemon apps discovery and tracking in HACS settings:
+     - Navigate to **Settings** > **Integrations** > **HACS** > **Configure**.
+     - Enable **AppDaemon apps discovery & tracking**.
+   - Click on **Custom Repositories** and add `https://github.com/idodov/pixoo64-media-album-art` as an **AppDaemon** repository.
+   - Search for and download `PIXOO64 Media Album Art` in HACS.
 
 #### **2. Add the Custom Repository**
 *   Open **HACS** and click on **AppDaemon** (top menu).
@@ -189,16 +194,6 @@ After downloading via HACS, your files should automatically be in this structure
 
 #### **6. Restart AppDaemon**
 *   Go to **Settings** > **Add-ons** > **AppDaemon** and click **Restart**.
-
-2. If you don’t have HACS installed, follow the instructions on the [HACS GitHub page](https://hacs.xyz/) to install it.
-
-3. After HACS is set up:
-   - Go to the HACS page in Home Assistant.
-   - If "AppDaemon" repositories are not found, enable AppDaemon apps discovery and tracking in HACS settings:
-     - Navigate to **Settings** > **Integrations** > **HACS** > **Configure**.
-     - Enable **AppDaemon apps discovery & tracking**.
-   - Click on **Custom Repositories** and add `https://github.com/idodov/pixoo64-media-album-art` as an **AppDaemon** repository.
-   - Search for and download `PIXOO64 Media Album Art` in HACS.
 
 </details>
 
