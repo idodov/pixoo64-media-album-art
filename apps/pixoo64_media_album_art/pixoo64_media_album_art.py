@@ -1874,6 +1874,7 @@ class MediaData:
 
         cleaned_title = ' '.join(cleaned_title.split())
         return cleaned_title
+        
 
 class FallbackService:
     """Handles fallback logic to retrieve album art from various sources if the original picture is not available.""" 
@@ -2744,6 +2745,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.current_image_task: Optional[asyncio.Task[None]] = None
         self.debounce_task = None
         self._last_wled_payload = None
+        self.last_text_payload_hash = None
 
     async def initialize(self):
         _LOGGER.info("Initializing Pixoo64 Album Art Display AppDaemon app…")
@@ -3227,8 +3229,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 await self.pixoo_device.send_command(image_payload)
                 if text_items_for_display_list:
                     txt_payload = ({ "Command": "Draw/SendHttpItemList", "ItemList": text_items_for_display_list })
-                    await asyncio.sleep(0.10)
-                    await self.pixoo_device.send_command(txt_payload)
+                    current_payload_hash = str(txt_payload)
+                
+                    # Only send if the payload is different from the last one sent
+                    if current_payload_hash != self.last_text_payload_hash:
+                        await asyncio.sleep(0.10)
+                        await self.pixoo_device.send_command(txt_payload)
+                        self.last_text_payload_hash = current_payload_hash
+
             elif spotify_animation_took_over_display and self.config.special_mode and text_items_for_display_list:
                 await self.pixoo_device.send_command({ "Command": "Draw/SendHttpItemList", "ItemList": text_items_for_display_list })
             
