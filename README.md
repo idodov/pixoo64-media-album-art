@@ -151,23 +151,48 @@ You can install the script using either **HACS** (Home Assistant Community Store
 <details>
 <summary><strong>HACS (Recommended)</strong></summary>
 
-- When installing through HACS, you **MUST** manually move all files from `/addon_configs/a0d7b954_appdaemon/apps/` to `/homeassistant/appdaemon/apps/`.
-- HACS places files in the `/homeassistant` directory (which can also be mapped as `/config` directory), while AppDaemon expects them in the `/addon_configs` directory.
-- If you're using the SAMBA SHARE add-on, Windows File Explorer will show the directory as `/config`, meaning that files should be moved to `/config/appdaemon/apps/`.
+Using HACS is the best method because it allows for easy updates. Because HACS and AppDaemon use different default folders, you must perform a one-time configuration change to link them.
 
-1. Open `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml` and configure it by adding the following line under `appdaemon:`:
-   ```yaml
-   appdaemon:
-      app_dir: /homeassistant/appdaemon/apps/ # DO NOT CHANGE THIS LINE, even if the files are located in the /config directory (when using Samba Share addon)
-      latitude: 51.507351 # Update value from https://www.latlong.net
-      longitude: -0.127758 # Update value from https://www.latlong.net
-   ```
+#### **1. Enable AppDaemon in HACS**
+*   Go to **Settings** > **Integrations** > **HACS** > **Configure**.
+*   Ensure **Enable AppDaemon apps discovery & tracking** is checked. If not, check it and restart Home Assistant.
 
-2. Do not remove any existing lines from the file; just add the new line and update the Latitude and Longitude values from https://www.latlong.net
+#### **2. Add the Custom Repository**
+*   Open **HACS** and click on **AppDaemon** (top menu).
+*   Click the **three dots** in the top right corner and select **Custom repositories**.
+*   Paste this URL: `https://github.com/idodov/pixoo64-media-album-art`
+*   Select **AppDaemon** as the Category and click **Add**.
 
-3. If you don’t have HACS installed, follow the instructions on the [HACS GitHub page](https://hacs.xyz/) to install it.
+#### **3. Download the App**
+*   Search for **PIXOO64 Media Album Art** in HACS.
+*   Click **Download** in the bottom right corner.
 
-4. After HACS is set up:
+#### **4. The "Path Fix" (Critical Step)**
+By default, HACS downloads files to the `/config` folder, but the AppDaemon Add-on looks in the `/addon_configs` folder. **To fix this so you don't have to move files manually:**
+
+1.  Open your file editor (e.g., File Editor add-on or Samba Share).
+2.  Navigate to `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`.
+3.  Add the `app_dir` line exactly as shown below:
+
+```yaml
+appdaemon:
+  app_dir: /homeassistant/appdaemon/apps/  # <--- ADD THIS LINE
+  latitude: 51.507351 
+  longitude: -0.127758
+```
+*Note: Do not delete existing lines in that file. Just add the `app_dir` entry.* Just add the new line and update the Latitude and Longitude values from https://www.latlong.net
+
+#### **5. Verify File Location**
+After downloading via HACS, your files should automatically be in this structure (viewed via Samba/File Editor):
+*   **Path:** `/config/appdaemon/apps/pixoo64_media_album_art/`
+*   **App Config:** `/config/appdaemon/apps/apps.yaml` 
+
+#### **6. Restart AppDaemon**
+*   Go to **Settings** > **Add-ons** > **AppDaemon** and click **Restart**.
+
+2. If you don’t have HACS installed, follow the instructions on the [HACS GitHub page](https://hacs.xyz/) to install it.
+
+3. After HACS is set up:
    - Go to the HACS page in Home Assistant.
    - If "AppDaemon" repositories are not found, enable AppDaemon apps discovery and tracking in HACS settings:
      - Navigate to **Settings** > **Integrations** > **HACS** > **Configure**.
