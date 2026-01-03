@@ -293,6 +293,7 @@ pixoo64_media_album_art:
       special_mode_spotify_slider: False                # Enable animated album slider when using special mode.
       force_font_color: False                           # Force text color (e.g., "#FFFFFF" for white).
       burned: False                                     # Enable static (non-animated) burned text above the image.
+      top_text: True                                    # If True, show text (Artist/Title) at the top bar
     crop_borders:
       enabled: True                                     # Enable basic border cropping.
       extra: True                                       # Enable advanced border cropping.
@@ -341,7 +342,7 @@ Below is a detailed breakdown of all configuration parameters for the PIXOO64 Me
 | `tidal_client_secret`   | Your TIDAL API client secret (optional).                                         | `False` or `"your_tidal_client_secret"`         |
 | `last.fm`               | Your Last.fm API key (optional).                                                 | `False` or `"your_lastfm_api_key"`              |
 | `discogs`               | Your Discogs personal access token (optional).                                   | `False` or `"your_discogs_token"`               |
-| `pollinations`          | Your Pollinations.ai API key (optional).                                         | `False` or `"your_pollinations_key"`            |
+| `pollinations`          | Your Pollinations.ai API key.                                                    | `False` or `"your_pollinations_key"`            |
 
 </details>
 
@@ -378,6 +379,7 @@ Below is a detailed breakdown of all configuration parameters for the PIXOO64 Me
 | `text_background`             | Adds a background color behind text to improve contrast.            | `True`                 |
 | `special_mode_spotify_slider` | Animates album art when used with `special_mode` and `show_text`.   | `True`                 |
 | `force_text_color`            | Overrides dynamic text color. Use `False` or a hex value.           | `False` or `"#FFFFFF"` |
+| `top_text`                    | Show artist/title info at the top bar                               | `True`                 |
 
 </details>
 
