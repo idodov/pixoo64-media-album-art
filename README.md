@@ -183,7 +183,8 @@ appdaemon:
   latitude: 51.507351 
   longitude: -0.127758
 ```
-*Note: Do not delete existing lines in that file. Just add the `app_dir` entry.* Just add the new line and update the Latitude and Longitude values from https://www.latlong.net
+*Note: Do not delete existing lines in that file. Just add the `app_dir` entry.* 
+*Update the Latitude and Longitude values from `https://www.latlong.net`*
 
 #### **5. Verify File Location**
 After downloading via HACS, your files should automatically be in this structure (viewed via Samba/File Editor):
@@ -266,6 +267,7 @@ pixoo64_media_album_art:
     tidal_client_secret: False                          # TIDAL client secret.
     last.fm: False                                      # Last.fm API key.
     discogs: False                                      # Discogs API key.
+    pollinations: False                                 # Pollinations.ai API key (Optional).
   pixoo:
     url: "192.168.86.21"                                # The IP address of your Pixoo64 device.
     full_control: True                                  # Controls Pixoo64's power state in sync with media playback.
@@ -273,13 +275,13 @@ pixoo64_media_album_art:
     sharpness: False                                    # Enables a sharpness filter on album art.
     colors: False                                       # Enhances color intensity.
     kernel: False                                       # Applies emboss/edge effect.
-    special_mode: False                                 # Show day, time, and temperature in a top bar.
+    special_mode: False                                 # Show day, time, and temperature in a top bar overlay.
     info: False                                         # Show fallback info when no image is available.
     temperature: True                                   # Show temperature from sensor.
     clock: True                                         # Display a clock in the screen's top corner.
     clock_align: "Right"                                # Clock alignment: "Left" or "Right".
     tv_icon: True                                       # Display TV icon if audio source is a TV.
-    lyrics: False                                       # Show synchronized lyrics (disables clock and text).
+    lyrics: False                                       # Show synchronized lyrics (disables `show_text` and `clock`).
     lyrics_font: 2                                      # Recommended values: 2, 4, 32, 52, 58, 62, etc.
     limit_colors: False                                 # Limit color palette to 4–256 colors, or use full color if False.
     spotify_slide: False                                # Enable Spotify album slideshow (disables clock and text).
@@ -339,6 +341,7 @@ Below is a detailed breakdown of all configuration parameters for the PIXOO64 Me
 | `tidal_client_secret`   | Your TIDAL API client secret (optional).                                         | `False` or `"your_tidal_client_secret"`         |
 | `last.fm`               | Your Last.fm API key (optional).                                                 | `False` or `"your_lastfm_api_key"`              |
 | `discogs`               | Your Discogs personal access token (optional).                                   | `False` or `"your_discogs_token"`               |
+| `pollinations`          | Your Pollinations.ai API key (optional).                                         | `False` or `"your_pollinations_key"`            |
 
 </details>
 
@@ -588,6 +591,20 @@ Generate a Client ID and Client Secret from the TIDAL developer dashboard.
 2. **Obtain API Key**:  
    - Once your application is created, you’ll be provided with a Client ID and Client Secret.  
    - Copy these values and store them in the `apps.yaml` file under `tidal_client_id` and `tidal_client_secret`.
+
+</details>
+<details>
+<summary><strong>Pollinations.ai API Key (AI Generation)</strong></summary>
+
+Obtain a free API key to ensure reliable AI image generation.
+
+#### **Steps**
+1. **Log in to Pollinations.ai**:
+   Go to [pollinations.ai](https://pollinations.ai/login) and log in (usually via GitHub).
+
+2. **Copy API Key**:
+   - Once logged in, copy the API key displayed on the dashboard.
+   - Store it in the `apps.yaml` file under `pollinations`.
 
 </details>
 
