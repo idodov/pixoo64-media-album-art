@@ -49,7 +49,7 @@ pixoo64_media_album_art:
         tidal_client_secret: False                  # Your TIDAL client secret.
         last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create
         discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers
-        pollinations: False                         # Your pollinations API key (Optional use for quick access). Obtain from https://pollinations.ai/
+        pollinations: False                         # Your pollinations API key (Optional use for quick access). Obtain from https://auth.pollinations.ai/
     pixoo:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
         full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
@@ -1737,54 +1737,48 @@ class MediaData:
                 return None
 
             attributes = media_state_obj.get('attributes', {})
-            
-            # --- HASS.AGENT & ATTRIBUTE VALIDATION FIXES ---
-            
-            # 1. Fetch raw attributes
             raw_title = attributes.get('media_title')
             raw_artist = attributes.get('media_artist')
             app_name = attributes.get('app_name')
 
-            # 2. Strict Validation: Ensure title is not None, not Empty, and not just Whitespace
-            # This catches the "split second empty attribute" issue.
             if raw_title is None or str(raw_title).strip() == "":
-                # Try fallback to app_name if title is truly missing but we have an app name
                 if app_name and str(app_name).strip() != "":
                     raw_title = app_name
                 else:
-                    # If we still don't have a valid title string, ABORT.
-                    # This prevents the script from trying to process an empty song, 
-                    # which causes the blank screen/flicker.
                     return None
 
-            # 3. Fallback for Artist
             if (raw_artist is None or str(raw_artist).strip() == "") and app_name:
                 raw_artist = app_name
 
-            # 4. ANTI-SPOOFING CHECKS
-            # Normalize strings for comparison
+            # ANTI-SPOOFING CHECKS
             t_check = str(raw_title).strip().lower()
             a_check = str(app_name).strip().lower() if app_name else ""
             art_check = str(raw_artist).strip().lower() if raw_artist else ""
 
-            # Check A: Title is exactly the App Name (e.g. Title: "Spotify", App: "Spotify")
             if a_check and t_check == a_check:
                 _LOGGER.debug(f"Ignoring spoofed media (Title == App): {raw_title}")
                 return None
 
-            # Check B: Title is exactly the Artist (e.g. Title: "Spotify", Artist: "Spotify")
             if art_check and t_check == art_check:
                 _LOGGER.debug(f"Ignoring spoofed media (Title == Artist): {raw_title}")
                 return None
-
-            # --- END VALIDATION ---
 
             self.title_original = raw_title
             self.artist = raw_artist if raw_artist else ""
 
             self.media_position = attributes.get('media_position', 0)
             self.media_duration = attributes.get('media_duration', 0)
+            
             original_picture = attributes.get('entity_picture')
+            
+            if original_picture:
+                # Check for Windows Drive letters (e.g. C:\) or file:// protocol
+                if re.match(r'^[a-zA-Z]:\\', original_picture) or original_picture.startswith("file://"):
+                    _LOGGER.info(f"Local image path detected ({original_picture}). Using fallback sources.")
+                    original_picture = None
+            
+            self.picture = original_picture
+
             media_content_id = attributes.get('media_content_id')
             media_channel = attributes.get('media_channel')
             album = attributes.get('media_album_name')
@@ -1807,10 +1801,8 @@ class MediaData:
                 return self 
 
             self.playing_tv = False
-            # self.artist is already set above in validation block
             self.title = self.title_clean
             self.album = album
-            self.picture = original_picture
 
             # Radio Logic
             if media_channel and (media_content_id and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac://http") or media_content_id.startswith("rtsp://"))): 
@@ -1865,8 +1857,8 @@ class MediaData:
     def format_ai_image_prompt(self, artist: Optional[str], title: str) -> str: 
         """Format prompt for the Pollinations AI image generation API."""
         if not self.config.pollinations:
-            self.log("Missing Pollinations AI image generation API. Create API key: https://enter.pollinations.ai/")
-            return
+            self.log("Missing Pollinations AI image generation API.\n Create API: key https://enter.pollinations.ai/")
+            return # Return None explicitly if no key, handled by caller
         
         artist_name = artist if artist else 'Pixoo64' 
 
@@ -1923,6 +1915,7 @@ class MediaData:
 
         cleaned_title = ' '.join(cleaned_title.split())
         return cleaned_title
+
 
 class FallbackService:
     """Handles fallback logic to retrieve album art from various sources if the original picture is not available.""" 
@@ -3013,6 +3006,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
         try:
+            if attribute == "media_position_updated_at" and not self.config.show_lyrics:
+                return
+            
             if new == old or (await self.get_state(self.config.toggle)) != "on":
                 return 
 
