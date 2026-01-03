@@ -3039,6 +3039,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
         try:
+            if attribute == "media_position_updated_at" and not self.config.show_lyrics:
+                return
+            
             if new == old or (await self.get_state(self.config.toggle)) != "on":
                 return 
 
