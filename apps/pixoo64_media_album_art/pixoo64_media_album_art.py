@@ -49,7 +49,7 @@ pixoo64_media_album_art:
         tidal_client_secret: False                  # Your TIDAL client secret.
         last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create
         discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers
-        pollinations: False                         # Your pollinations API key (Optional use for quick access). Obtain from https://auth.pollinations.ai/
+        pollinations: False                         # Your pollinations API key. Obtain from https://pollinations.ai/
     pixoo:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
         full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
@@ -74,6 +74,7 @@ pixoo64_media_album_art:
             text_background: True                   # If True, adjusts the background color behind the text for improved visibility.
             special_mode_spotify_slider: False      # Create animation album art slider
             force_font_color: False                 # Or HEX value, example: "#000000" for black or "#FFFFFF" for white.
+            top_text: True                          # If True, show text (Artist/Title) at the top bar
         crop_borders:
             enabled: True                           # If True, attempts to crop any borders from the album art.
             extra: True                             # If True, applies an enhanced border cropping algorithm.
@@ -249,6 +250,7 @@ class Config:
             'special_mode_spotify_slider': False,
             'force_font_color': None, 
             'burned': False,
+            'top_text': False,
         },
         'crop_borders': { 
             'crop_borders': ('enabled', False),
@@ -310,6 +312,7 @@ class Config:
         self.original_full_control = self.full_control
         self.original_ai_fallback = self.ai_fallback
         self.original_burned = self.burned
+        self.original_top = self.top_text
 
     def _fix_config_args(self, pixoo_url_raw: Optional[str]):
         if pixoo_url_raw:
@@ -663,26 +666,48 @@ class ImageProcessor:
             img = enhancer.enhance(0.5)
             return img
 
+        # 1. Clock Background
         if bool(self.config.show_clock and self.config.text_bg) and not self.config.show_lyrics:
-            lpc = (43, 2, 62, 9) if self.config.clock_align == "Right" else (2, 2, 21, 9)
+            if self.config.top_text:
+                # Text is Top, so Clock is Bottom (y=55 to y=62)
+                lpc = (43, 55, 62, 62) if self.config.clock_align == "Right" else (2, 55, 21, 62)
+            else:
+                # Default: Clock is Top (y=2 to y=9)
+                lpc = (43, 2, 62, 9) if self.config.clock_align == "Right" else (2, 2, 21, 9)
+            
             lower_part_img = img.crop(lpc)
             enhancer_lp = ImageEnhance.Brightness(lower_part_img)
             lower_part_img = enhancer_lp.enhance(0.3)
             img.paste(lower_part_img, lpc)
 
+        # 2. Temperature Background
         if bool(self.config.temperature and self.config.text_bg) and not self.config.show_lyrics:
-            lpc = (2, 2, 18, 9) if self.config.clock_align == "Right" else (47, 2, 63, 9)
+            if self.config.top_text:
+                # Text is Top, so Temp is Bottom (y=55 to y=62)
+                lpc = (2, 55, 18, 62) if self.config.clock_align == "Right" else (47, 55, 63, 62)
+            else:
+                # Default: Temp is Top (y=2 to y=9)
+                lpc = (2, 2, 18, 9) if self.config.clock_align == "Right" else (47, 2, 63, 9)
+                
             lower_part_img = img.crop(lpc)
             enhancer_lp = ImageEnhance.Brightness(lower_part_img)
             lower_part_img = enhancer_lp.enhance(0.3)
             img.paste(lower_part_img, lpc)
 
+        # 3. Text (Artist/Title) Background
         if self.config.text_bg and self.config.show_text and not self.config.show_lyrics and not media_data.playing_tv:
-            lpc = (0, 48, 64, 64)
+            if self.config.top_text:
+                # Text is Top (y=0 to y=16)
+                lpc = (0, 0, 64, 16)
+            else:
+                # Default: Text is Bottom (y=48 to y=64)
+                lpc = (0, 48, 64, 64)
+                
             lower_part_img = img.crop(lpc)
             enhancer_lp = ImageEnhance.Brightness(lower_part_img)
             lower_part_img = enhancer_lp.enhance(brightness_lower_part)
             img.paste(lower_part_img, lpc)
+            
         return img
 
     def img_values(self, img: Image.Image) -> dict: 
@@ -1747,10 +1772,11 @@ class MediaData:
                 else:
                     return None
 
+            # 3. Fallback for Artist
             if (raw_artist is None or str(raw_artist).strip() == "") and app_name:
                 raw_artist = app_name
 
-            # ANTI-SPOOFING CHECKS
+            # 4. ANTI-SPOOFING CHECKS
             t_check = str(raw_title).strip().lower()
             a_check = str(app_name).strip().lower() if app_name else ""
             art_check = str(raw_artist).strip().lower() if raw_artist else ""
@@ -1763,14 +1789,19 @@ class MediaData:
                 _LOGGER.debug(f"Ignoring spoofed media (Title == Artist): {raw_title}")
                 return None
 
+            # --- END VALIDATION ---
+
             self.title_original = raw_title
             self.artist = raw_artist if raw_artist else ""
 
             self.media_position = attributes.get('media_position', 0)
             self.media_duration = attributes.get('media_duration', 0)
             
+            # --- IMAGE PATH FIX ---
             original_picture = attributes.get('entity_picture')
             
+            # Detect local Windows paths (e.g. C:\Users...) or file:// URIs that AppDaemon cannot access
+            # This prevents URL errors and forces the script to use Online Fallback immediately.
             if original_picture:
                 # Check for Windows Drive letters (e.g. C:\) or file:// protocol
                 if re.match(r'^[a-zA-Z]:\\', original_picture) or original_picture.startswith("file://"):
@@ -1778,6 +1809,7 @@ class MediaData:
                     original_picture = None
             
             self.picture = original_picture
+            # ----------------------
 
             media_content_id = attributes.get('media_content_id')
             media_channel = attributes.get('media_channel')
@@ -1803,6 +1835,7 @@ class MediaData:
             self.playing_tv = False
             self.title = self.title_clean
             self.album = album
+            # self.picture already set above
 
             # Radio Logic
             if media_channel and (media_content_id and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac://http") or media_content_id.startswith("rtsp://"))): 
@@ -1857,7 +1890,7 @@ class MediaData:
     def format_ai_image_prompt(self, artist: Optional[str], title: str) -> str: 
         """Format prompt for the Pollinations AI image generation API."""
         if not self.config.pollinations:
-            self.log("Missing Pollinations AI image generation API.\n Create API: key https://enter.pollinations.ai/")
+            self.log("Missing Pollinations AI image generation API. Create API: key https://enter.pollinations.ai/")
             return # Return None explicitly if no key, handled by caller
         
         artist_name = artist if artist else 'Pixoo64' 
@@ -3006,9 +3039,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
         try:
-            if attribute == "media_position_updated_at" and not self.config.show_lyrics:
-                return
-            
             if new == old or (await self.get_state(self.config.toggle)) != "on":
                 return 
 
@@ -3246,6 +3276,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     text_items_for_display_list.append(title_item)
         
             elif (self.config.show_text or self.config.show_clock or self.config.temperature) and not (self.config.show_lyrics or self.config.spotify_slide):
+                if self.config.top_text:
+                    y_text = 0
+                    y_info = 56
+                else:
+                    y_text = 48
+                    y_info = 3
+
                 text_track = (media_data.artist + " - " + media_data.title)
                 if len(text_track) > 14: text_track = text_track + "       "
                 text_string_bidi = get_bidi(text_track) if media_data.artist else get_bidi(media_data.title)
@@ -3253,22 +3290,22 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
                 if text_string_bidi and self.config.show_text and not media_data.radio_logo and not media_data.playing_tv:
                     current_text_id += 1
-                    text_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 48, "dir": dir_rtl, "font": 2, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_string_bidi, "color": text_overlay_font_color}
+                    text_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": y_text, "dir": dir_rtl, "font": 2, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_string_bidi, "color": text_overlay_font_color}
                     text_items_for_display_list.append(text_item)
 
                 if self.config.show_clock:
                     current_text_id += 1
                     x_clock = 44 if self.config.clock_align == "Right" else 3
-                    clock_item_normal = { "TextId": current_text_id, "type": 5, "x": x_clock, "y": 3, "dir": 0, "font": 18, "TextWidth": 32, "Textheight": 16, "speed": 100, "align": 1, "color": text_overlay_font_color}
+                    clock_item_normal = { "TextId": current_text_id, "type": 5, "x": x_clock, "y": y_info, "dir": 0, "font": 18, "TextWidth": 32, "Textheight": 16, "speed": 100, "align": 1, "color": text_overlay_font_color}
                     text_items_for_display_list.append(clock_item_normal)
 
                 if self.config.temperature:
                     current_text_id += 1
                     x_temp = 3 if self.config.clock_align == "Right" else 40
                     if media_data.temperature:
-                        temp_item_normal = {"TextId": current_text_id, "type": 22, "x": x_temp, "y": 3, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color, "TextString": media_data.temperature}
+                        temp_item_normal = {"TextId": current_text_id, "type": 22, "x": x_temp, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color, "TextString": media_data.temperature}
                     else:
-                        temp_item_normal = {"TextId": current_text_id, "type": 17, "x": x_temp, "y": 3, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color}
+                        temp_item_normal = {"TextId": current_text_id, "type": 17, "x": x_temp, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color}
                     text_items_for_display_list.append(temp_item_normal)
 
             if not spotify_animation_took_over_display:
