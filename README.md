@@ -674,172 +674,186 @@ lyrics: []
 
 If you encounter any issues while setting up or using the PIXOO64 Media Album Art Display script, refer to the troubleshooting guide below. These are some of the most common problems and their solutions:
 
-- Always double-check your configuration (`apps.yaml`) for typos or missing parameters.
-- Ensure proper power supply (3A charger) and Wi-Fi performance for optimal functionality.
-- Use appdaemon logging to diagnose issues with the script or integrations.
+* Always double-check your configuration (`apps.yaml`) for typos or missing parameters.
+* Ensure proper power supply (3A charger) and Wi-Fi performance for optimal functionality.
+* Use AppDaemon logging to diagnose issues with the script or integrations.
 
 <details>
 <summary><strong>The PIXOO64 is rebooting</strong></summary>
 
 #### **Possible Causes:**
-The PIXOO64 has a known internal issue that after sending approximately 300 +/- commands, it crashes.
+
+The PIXOO64 has a known internal issue where it may crash after receiving approximately 300 +/- commands.
 
 #### **Solutions:**
-Wait for the PIXOO64 to finish initializing. 
+
+Wait for the PIXOO64 to finish initializing. The script is designed to recover, but continuous rebooting might indicate a need for a power cycle.
+
 </details>
+
 <details>
-<summary><strong>The PIXOO64 Screen is Blank or Not Updating</summary>
-   
+<summary><strong>The PIXOO64 Screen is Blank or Not Updating</strong></summary>
+
 #### **Possible Causes:**
-- The `input_boolean.pixoo64_album_art` toggle is turned off.
-- The media player entity ID in the configuration is incorrect.
-- The PIXOO64 device is not connected to the same Wi-Fi network as Home Assistant.
-- The script is not running
+
+* The `input_boolean.pixoo64_album_art` toggle is turned off.
+* The `media_player` entity ID in the configuration is incorrect.
+* The PIXOO64 device is not connected to the same Wi-Fi network as Home Assistant.
+* The script is not running.
 
 #### **Solutions:**
-1. **Check the Toggle Helper:**  
-   - Ensure that the `input_boolean.pixoo64_album_art` toggle is turned **ON**. You can check this in Home Assistant under **Developer Tools**.
 
-2. **Verify Media Player Entity ID:**  
-   - Double-check the `media_player` entity ID in your `apps.yaml` file. It should match the entity ID of your media player in Home Assistant.
+1. **Check the Toggle Helper:** - Ensure that the `input_boolean.pixoo64_album_art` toggle is turned **ON**. You can check this in Home Assistant under **Developer Tools**.
+2. **Verify Media Player Entity ID:** - Double-check the `media_player` entity ID in your `apps.yaml` file. It must match the entity ID of your media player in Home Assistant exactly.
+3. **Check Network Connectivity:** - Ensure the PIXOO64 device is connected to the same Wi-Fi network as your Home Assistant instance.
+4. **Check AppDaemon Logs:**
+* Go to the AppDaemon add-on logs. The log often contains the exact reason why the script failed (e.g., connection timeout, missing configuration).
 
-3. **Check Network Connectivity:**  
-   - Ensure the PIXOO64 device is connected to the same Wi-Fi network as your Home Assistant instance. 
 
-4. **Check Appdaemon Logs**
-   - The log can contains reason why the script is fail.
-
-4. **Restart AppDaemon:**  
-   - Restart the AppDaemon add-on in Home Assistant to ensure the script is running correctly.
+5. **Restart AppDaemon:** - Restart the AppDaemon add-on in Home Assistant to ensure the script is running correctly.
 
 </details>
+
 <details>
 <summary><strong>Album Art is Not Displaying</strong></summary>
-   
+
 #### **Possible Causes:**
-- The media player does not provide album art metadata.
-- The media player does not provide artist / track metadata.
-- API keys for services like Spotify, Discogs, or Last.fm are missing or incorrect.
-- The fallback system (MusicBrainz, AI) is not configured properly.
+
+* The media player does not provide album art metadata.
+* The media player does not provide artist/track metadata.
+* API keys for services like Spotify, Discogs, or Last.fm are missing or incorrect.
+* The fallback system (MusicBrainz, AI) is not configured properly.
 
 #### **Solutions:**
-1. **Check Metadata Support:**  
-   - Verify that your media player provides album art metadata. Some players (e.g., radio streams) may not include album art.
 
-2. **Verify API Keys:**  
-   - Ensure that all required API keys from the servies you choose (Spotify, Discogs, Last.fm, TIDAL) are correctly entered in the `apps.yaml` file. Refer to the [API Keys](#api-keys) section for instructions on obtaining these keys. 
+1. **Check Metadata Support:** - Verify that your media player provides album art metadata. Some players (e.g., generic radio streams) may not include album art.
+2. **Verify API Keys:** - Ensure that all required API keys for the services you choose (Spotify, Discogs, Last.fm, TIDAL) are correctly entered in the `apps.yaml` file. Refer to the [API Keys](https://www.google.com/search?q=%23api-keys) section for instructions on obtaining these keys.
+3. **Enable Fallback Options:** - If album art is unavailable, ensure that fallback options like MusicBrainz or AI image generation are enabled in the configuration:
+```yaml
+musicbrainz: True
+ai_fallback: "turbo"
 
-3. **Enable Fallback Options:**  
-   - If album art is unavailable, ensure that fallback options like MusicBrainz or AI image generation are enabled in the configuration:
-     ```yaml
-     musicbrainz: True
-     ai_fallback: "turbo"
-     ```
+```
 
-4. **Test with Different Tracks:**  
-   - Try playing tracks from different sources (e.g., Spotify, local files, Radio statations) to see if the issue persists.
+
+4. **Test with Different Tracks:** - Try playing tracks from different sources (e.g., Spotify, local files, Radio stations) to see if the issue persists.
 
 </details>
+
 <details>
 <summary><strong>AI-Generated Images Are Not Appearing</strong></summary>
-   
+
 #### **Possible Causes:**
-- The AI service (`pollinations.ai`) is unavailable or laggy.
-- The `ai_fallback` parameter is not set correctly.
+
+* **Missing API Key:** Pollinations.ai now requires an API key for stable access.
+* **Incorrect Configuration:** The `ai_fallback` parameter might be set incorrectly.
+* **Service Outage:** The Pollinations service might be temporarily down or overloaded.
 
 #### **Solutions:**
-1. **Check AI Service Status:**  
-   - Visit [pollinations.ai](https://pollinations.ai) to verify that the service is operational. Note that this is a free service and may occasionally be slow or unavailable.
 
-2. **Verify Configuration:**  
-   - Ensure that the `ai_fallback` parameter is set to either `"flux"` or `"turbo"` in your `apps.yaml` file:
-     ```yaml
-     ai_fallback: "turbo"
-     ```
+1. **Add Pollinations Key:**
+* Obtain a key from [enter.pollinations.ai](https://enter.pollinations.ai/).
+* Add `pollinations: "your_key"` to your `apps.yaml` under the `home_assistant:` section.
 
-3. **Enable Force AI (Optional):**  
-   - If you want to test AI-generated images exclusively, set `force_ai` to `True`:
-     ```yaml
-     force_ai: True
-     ```
+
+2. **Verify Configuration:** - Ensure that the `ai_fallback` parameter is set to either `"flux"` or `"turbo"` in your `apps.yaml` file:
+```yaml
+ai_fallback: "turbo"
+
+```
+
+
+3. **Enable Force AI (Optional):** - If you want to test AI-generated images exclusively to verify the service works, set `force_ai` to `True`:
+```yaml
+force_ai: True
+
+```
+
+
 
 </details>
+
 <details>
-<summary><strong>RGB Light Sync Is Not Working</summary>
-   
+<summary><strong>RGB Light Sync Is Not Working</strong></summary>
+
 #### **Possible Causes:**
-- The RGB light entity ID in the configuration is incorrect.
+
+* The RGB light entity ID in the configuration is incorrect.
+* The light does not support RGB color control.
 
 #### **Solutions:**
-1. **Verify Light Entity ID:**  
-   - Double-check the `light` parameter in your `apps.yaml` file. It should match the entity ID of your RGB light in Home Assistant:
-     ```yaml
-     light: "light.living_room"
-     ```
 
-2. **Test with Different Images:**  
-   - Play tracks with colorful album art to ensure the RGB light sync works as expected.
+1. **Verify Light Entity ID:** - Double-check the `light` parameter in your `apps.yaml` file. It should match the entity ID of your RGB light in Home Assistant:
+```yaml
+light: "light.living_room"
 
+```
+
+
+2. **Test with Different Images:** - Play tracks with colorful album art to ensure the RGB light sync works as expected (black/white images may result in subtle or no color changes).
 
 </details>
+
 <details>
 <summary><strong>Script Performance Issues</strong></summary>
-   
+
 #### **Possible Causes:**
-- Insufficient memory due to a large number of cached images.
-- Slow Wi-Fi network or power supply issues.
+
+* Insufficient memory due to a large number of cached images.
+* Slow Wi-Fi network or power supply issues.
 
 #### **Solutions:**
-1. **Reduce Image Cache Size:**  
-   - Lower the `images_cache` value in your `apps.yaml` file to reduce memory usage:
-     ```yaml
-     images_cache: 10
-     ```
 
-2. **Optimize Power Supply:**  
-   - Use a USB charger with an output of **3A** for optimal performance. Limit screen brightness to no more than **90%** if using a lower-voltage charger.
+1. **Reduce Image Cache Size:** - Lower the `images_cache` value in your `apps.yaml` file to reduce memory usage:
+```yaml
+images_cache: 10
 
-3. **Reboot Wi-Fi Router:**  
-   - If the PIXOO64 responds slowly, reboot your Wi-Fi router to improve network performance.
-  
+```
+
+
+2. **Optimize Power Supply:** - Use a USB charger with an output of **3A** for optimal performance. Limit screen brightness to no more than **90%** if using a lower-voltage charger.
+3. **Reboot Wi-Fi Router:** - If the PIXOO64 responds slowly, reboot your Wi-Fi router to improve network performance.
 
 </details>
+
 <details>
 <summary><strong>Sensor Data is Missing or Incorrect</strong></summary>
-   
+
 #### **Possible Causes:**
-- The `sensor.pixoo64_media_data` sensor is not updating correctly.
-- There is an issue with the media player or AppDaemon script.
+
+* **No Music Playing:** The `sensor.pixoo64_media_data` is a **virtual sensor**. It is **only created** when the script detects music playing. It will disappear or show `off` when music stops.
+* The `sensor.pixoo64_media_data` sensor is not updating correctly due to an AppDaemon error.
 
 #### **Solutions:**
-1. **Check Sensor State:**  
-   - Verify that the `sensor.pixoo64_media_data` sensor exists and is updating in Home Assistant. You can view its attributes in the Developer Tools.
 
-2. **Restart AppDaemon:**  
-   - Restart the AppDaemon add-on to refresh the script and sensor data.
+1. **Play Music First:** - Start playing music on your configured media player *before* looking for the sensor.
+2. **Check Sensor State:** - Verify that the `sensor.pixoo64_media_data` sensor exists and is updating in **Developer Tools > States** while music is active.
+3. **Restart AppDaemon:** - Restart the AppDaemon add-on to refresh the script and force it to re-register the sensor.
 
 </details>
+
 <details>
 <summary><strong>Lyrics Are Not Displaying</strong></summary>
-   Note: Radio stations does not support lyrics.
-   
+
+*Note: Radio stations & Hass.agent do not support lyrics.*
+
 #### **Possible Causes:**
-- The track does not have synchronized lyrics that can be found on database.
-- Media Player not support needed metadata.
-- The `lyrics` parameter is not enabled in the configuration
+
+* The track does not have synchronized lyrics in the database.
+* The media player does not support needed metadata (specifically `media_duration` and `media_position`).
+* The `lyrics` parameter is not enabled in the configuration.
 
 #### **Solutions:**
-1. **Verify Media Player Support:**  
-   - Ensure that your media player supports synchronized lyrics (media player contains the attribues: `media_duration`, `media_atrist` and `media_title`).
 
-2. **Enable Lyrics in Configuration:**  
-   - Set the `lyrics` parameter to `True` in your `apps.yaml` file:
-     ```yaml
-     lyrics: True
-     ```
+1. **Verify Media Player Support:** - Ensure that your media player supports synchronized lyrics. The media player entity must contain these attributes: `media_duration`, `media_artist`, and `media_title`.
+2. **Enable Lyrics in Configuration:** - Set the `lyrics` parameter to `True` in your `apps.yaml` file:
+```yaml
+lyrics: True
 
-3. **Check Font Settings:**  
-   - Ensure that the `lyrics_font` parameter is set to a valid font ID.
+```
+
+
+3. **Check Font Settings:** - Ensure that the `lyrics_font` parameter is set to a valid font ID (e.g., 2, 32, 52).
 
 </details>
 
