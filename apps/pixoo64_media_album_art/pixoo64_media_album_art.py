@@ -3049,6 +3049,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             media_state = media_state_str if media_state_str else "off"
             
             if media_state in ["off", "idle", "pause", "paused"]:
+                if self.current_image_task and not self.current_image_task.done():
+                    self.current_image_task.cancel()
+                    self.current_image_task = None
+                
                 self.last_text_payload_hash = None
                 await asyncio.sleep(6) 
                 
