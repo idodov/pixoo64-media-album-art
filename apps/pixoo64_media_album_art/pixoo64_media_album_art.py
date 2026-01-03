@@ -3229,23 +3229,15 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     else:
                         await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4})
 
-            # Text Overlay Logic
             text_items_for_display_list = []
             current_text_id = 0
             
-            text_overlay_font_color = '#ffff00'
-            brightness_factor = 50
             if self.config.force_font_color:
                 text_overlay_font_color = self.config.force_font_color
-            elif background_color_rgb:
-                try:
-                    color_font_rgb_calc = tuple(min(255, c + brightness_factor) for c in background_color_rgb)
-                    if not self.config.text_bg:
-                        opposite_color_rgb = self.compute_opposite_color(color_font_rgb_calc)
-                        color_font_rgb_calc = opposite_color_rgb
-                    text_overlay_font_color = f'#{color_font_rgb_calc[0]:02x}{color_font_rgb_calc[1]:02x}{color_font_rgb_calc[2]:02x}'
-                except Exception:
-                    text_overlay_font_color = '#ffff00'
+            elif font_color_from_image_processing:
+                text_overlay_font_color = font_color_from_image_processing
+            else:
+                text_overlay_font_color = '#ffff00' # Fallback to Yellow
             
             if self.config.special_mode:
                 current_text_id += 1
@@ -3311,11 +3303,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
             if not spotify_animation_took_over_display:
                 await self.pixoo_device.send_command(image_payload)
+                self.last_text_payload_hash = None 
+
                 if text_items_for_display_list:
                     txt_payload = ({ "Command": "Draw/SendHttpItemList", "ItemList": text_items_for_display_list })
                     current_payload_hash = str(txt_payload)
                 
-                    # Only send if the payload is different from the last one sent
                     if current_payload_hash != self.last_text_payload_hash:
                         await asyncio.sleep(0.10)
                         await self.pixoo_device.send_command(txt_payload)
