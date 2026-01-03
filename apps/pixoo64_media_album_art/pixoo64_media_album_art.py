@@ -49,7 +49,7 @@ pixoo64_media_album_art:
         tidal_client_secret: False                  # Your TIDAL client secret.
         last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create
         discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers
-        pollinations: False                         # Your pollinations API key (Optional use for quick access). Obtain from https://auth.pollinations.ai/
+        pollinations: False                         # Your pollinations API key (Optional use for quick access). Obtain from https://pollinations.ai/
     pixoo:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
         full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
@@ -99,6 +99,7 @@ import re
 import sys
 import time
 import textwrap 
+import urllib.parse
 from appdaemon.plugins.hass import hassapi as hass
 from collections import Counter, OrderedDict
 from concurrent.futures import ThreadPoolExecutor
@@ -1737,11 +1738,50 @@ class MediaData:
 
             attributes = media_state_obj.get('attributes', {})
             
-            self.title_original = attributes.get('media_title')
-            if not self.title_original:
+            # --- HASS.AGENT & ATTRIBUTE VALIDATION FIXES ---
+            
+            # 1. Fetch raw attributes
+            raw_title = attributes.get('media_title')
+            raw_artist = attributes.get('media_artist')
+            app_name = attributes.get('app_name')
+
+            # 2. Strict Validation: Ensure title is not None, not Empty, and not just Whitespace
+            # This catches the "split second empty attribute" issue.
+            if raw_title is None or str(raw_title).strip() == "":
+                # Try fallback to app_name if title is truly missing but we have an app name
+                if app_name and str(app_name).strip() != "":
+                    raw_title = app_name
+                else:
+                    # If we still don't have a valid title string, ABORT.
+                    # This prevents the script from trying to process an empty song, 
+                    # which causes the blank screen/flicker.
+                    return None
+
+            # 3. Fallback for Artist
+            if (raw_artist is None or str(raw_artist).strip() == "") and app_name:
+                raw_artist = app_name
+
+            # 4. ANTI-SPOOFING CHECKS
+            # Normalize strings for comparison
+            t_check = str(raw_title).strip().lower()
+            a_check = str(app_name).strip().lower() if app_name else ""
+            art_check = str(raw_artist).strip().lower() if raw_artist else ""
+
+            # Check A: Title is exactly the App Name (e.g. Title: "Spotify", App: "Spotify")
+            if a_check and t_check == a_check:
+                _LOGGER.debug(f"Ignoring spoofed media (Title == App): {raw_title}")
                 return None
 
-            raw_artist = attributes.get('media_artist')
+            # Check B: Title is exactly the Artist (e.g. Title: "Spotify", Artist: "Spotify")
+            if art_check and t_check == art_check:
+                _LOGGER.debug(f"Ignoring spoofed media (Title == Artist): {raw_title}")
+                return None
+
+            # --- END VALIDATION ---
+
+            self.title_original = raw_title
+            self.artist = raw_artist if raw_artist else ""
+
             self.media_position = attributes.get('media_position', 0)
             self.media_duration = attributes.get('media_duration', 0)
             original_picture = attributes.get('entity_picture')
@@ -1767,7 +1807,7 @@ class MediaData:
                 return self 
 
             self.playing_tv = False
-            self.artist = raw_artist if raw_artist else ""
+            # self.artist is already set above in validation block
             self.title = self.title_clean
             self.album = album
             self.picture = original_picture
@@ -1823,27 +1863,36 @@ class MediaData:
 
 
     def format_ai_image_prompt(self, artist: Optional[str], title: str) -> str: 
-        """Format prompt for AI image generation."""
+        """Format prompt for the Pollinations AI image generation API."""
+        if not self.config.pollinations:
+            self.log("Missing Pollinations AI image generation API. Create API key: https://enter.pollinations.ai/")
+            return
+        
         artist_name = artist if artist else 'Pixoo64' 
 
         prompts = [
-            f"Create an image inspired by the music artist {artist_name}, titled: '{title}'. The artwork should feature an accurate likeness of the artist and creatively interpret the title into a visual imagery.",
-            f"Design a vibrant album cover for '{title}' by {artist_name}, incorporating elements that reflect the mood and theme of the music.",
-            f"Imagine a surreal landscape that represents the essence of '{title}' by {artist_name}. Use bold colors and abstract shapes.",
-            f"Create a retro-style album cover for '{title}' by {artist_name}, featuring pixel art and nostalgic elements from the 80s.",
-            f"Illustrate a dreamlike scene inspired by '{title}' by {artist_name}, blending fantasy and reality in a captivating way.",
-            f"Generate a minimalist design for '{title}' by {artist_name}, focusing on simplicity and elegance in the artwork.",
-            f"Craft a dynamic and energetic cover for '{title}' by {artist_name}, using motion and vibrant colors to convey excitement.",
-            f"Produce a whimsical and playful illustration for '{title}' by {artist_name}, incorporating fun characters and imaginative elements.",
-            f"Create a dark and moody artwork for '{title}' by {artist_name}, using shadows and deep colors to evoke emotion.",
-            f"Design a futuristic album cover for '{title}' by {artist_name}, featuring sci-fi elements and innovative designs."
+            f"Album cover art for '{title}' by {artist_name}, highly detailed, digital art style",
+            f"Vibrant album cover for '{title}' by {artist_name}, reflecting the mood of the music",
+            f"Surreal landscape representing the song '{title}' by {artist_name}, bold colors",
+            f"Retro pixel art album cover for '{title}' by {artist_name}, 80s aesthetic",
+            f"Dreamlike scene inspired by '{title}' by {artist_name}, fantasy art",
+            f"Minimalist design for album '{title}' by {artist_name}, elegant",
+            f"Dynamic and energetic cover for '{title}' by {artist_name}, motion and vibrant colors",
+            f"Whimsical illustration for '{title}' by {artist_name}, imaginative elements",
+            f"Dark and moody artwork for '{title}' by {artist_name}, shadows and deep colors",
+            f"Futuristic album cover for '{title}' by {artist_name}, sci-fi elements"
         ]
 
-        prompt = random.choice(prompts)
-        prompt = f"https://pollinations.ai/p/{prompt}?model={self.config.ai_fallback}"
-        if self.config.pollinations:
-            prompt = f"{prompt}&token={self.config.pollinations}" 
-        return prompt
+        selected_prompt = random.choice(prompts)
+        # URL encode the prompt for safety
+        encoded_prompt = urllib.parse.quote(selected_prompt)
+        
+        model = self.config.ai_fallback if self.config.ai_fallback else "flux"
+        seed = random.randint(0, 100000)
+        
+        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model={model}&width=1024&height=1024&nologo=true&seed={seed}&key={self.config.pollinations}"
+        
+        return url
 
 
     def clean_title(self, title: str) -> str: 
@@ -1874,7 +1923,6 @@ class MediaData:
 
         cleaned_title = ' '.join(cleaned_title.split())
         return cleaned_title
-        
 
 class FallbackService:
     """Handles fallback logic to retrieve album art from various sources if the original picture is not available.""" 
