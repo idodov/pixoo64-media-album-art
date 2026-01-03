@@ -2837,8 +2837,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.listen_state(self._crop_mode_changed, self.config.crop_entity)
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_title")
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="state")
-        self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_position_updated_at")
-
+        if self.config.show_lyrics:
+            self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_position_updated_at")
         try:
             initial_index = await self.pixoo_device.get_current_channel_index()
             if initial_index == 4:
@@ -3039,8 +3039,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
         try:
-            if attribute == "media_position_updated_at" and not self.config.show_lyrics:
-                return
             
             if new == old or (await self.get_state(self.config.toggle)) != "on":
                 return 
@@ -3049,10 +3047,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             media_state = media_state_str if media_state_str else "off"
             
             if media_state in ["off", "idle", "pause", "paused"]:
-                if self.current_image_task and not self.current_image_task.done():
-                    self.current_image_task.cancel()
-                    self.current_image_task = None
-                
                 self.last_text_payload_hash = None
                 await asyncio.sleep(6) 
                 
