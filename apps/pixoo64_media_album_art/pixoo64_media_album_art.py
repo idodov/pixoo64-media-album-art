@@ -2827,6 +2827,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.config = Config(self.args)
         
         self.websession = aiohttp.ClientSession()
+        self.is_art_visible = False
         self.pixoo_device = PixooDevice(self.config, self.websession)
         self.image_processor = ImageProcessor(self.config, self.websession)
         self.spotify_service = SpotifyService(self.config, self.websession)
@@ -3074,6 +3075,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         ]
                     })
                 self.last_text_payload_hash = None
+                self.is_art_visible = False
                 await self.set_state(self.media_data_sensor, state="off")
                 if self.config.light: await self.control_light('off')
                 if self.config.wled: await self.control_wled_light('off')
@@ -3133,18 +3135,23 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def _process_and_display_image(self, media_data: "MediaData") -> None:
         if media_data.picture == "TV_IS_ON":
-            payload = ({
-                "Command": "Draw/CommandList",
-                "CommandList": [
-                    {"Command": "Channel/OnOffScreen", "OnOff": 1},
-                    {"Command": "Draw/ClearHttpText"},
-                    {"Command": "Draw/ResetHttpGifId"},
-                    {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}]
-            })
-            await self.pixoo_device.send_command(payload)
-            if self.config.light: await self.control_light('off')
-            if self.config.wled: await self.control_wled_light('off')
-            self.last_text_payload_hash = None
+            if getattr(self, 'is_art_visible', False):
+                payload = ({
+                    "Command": "Draw/CommandList",
+                    "CommandList": [
+                        {"Command": "Channel/OnOffScreen", "OnOff": 1},
+                        {"Command": "Draw/ClearHttpText"},
+                        {"Command": "Draw/ResetHttpGifId"},
+                        {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
+                    ]
+                })
+                await self.pixoo_device.send_command(payload)
+                
+                if self.config.light: await self.control_light('off')
+                if self.config.wled: await self.control_wled_light('off')
+                
+                self.last_text_payload_hash = None
+                self.is_art_visible = False 
             return 
 
         try:
@@ -3221,6 +3228,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
                     if media_data.spotify_slide_pass:
                         spotify_animation_took_over_display = True
+                        self.is_art_visible = True # Mark art as visible
                         spotify_anim_end_time = time.perf_counter()
                         duration = spotify_anim_end_time - spotify_anim_start_time
                         media_data.process_duration = f"{duration:.2f} seconds (Spotify)"
@@ -3277,7 +3285,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     y_info = 3
 
                 text_track = (media_data.artist + " - " + media_data.title)
-                if len(text_track) > 14: text_track = text_track + "       "
+                if len(text_track) > 14: text_track = text_track + "        "
                 text_string_bidi = get_bidi(text_track) if media_data.artist else get_bidi(media_data.title)
                 dir_rtl = 1 if has_bidi(text_string_bidi) else 0
 
@@ -3303,6 +3311,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
             if not spotify_animation_took_over_display:
                 await self.pixoo_device.send_command(image_payload)
+                self.is_art_visible = True # Mark art as visible
                 self.last_text_payload_hash = None 
 
                 if text_items_for_display_list:
@@ -3345,6 +3354,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 })
                 payloads_text_fail = self.create_payloads(media_data.artist, media_data.title, 11)
                 await self.pixoo_device.send_command(payloads_text_fail)
+                self.is_art_visible = True # Mark as visible even for fallback
                 return
 
         except asyncio.CancelledError:
