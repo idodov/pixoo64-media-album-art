@@ -3147,11 +3147,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 })
                 await self.pixoo_device.send_command(payload)
                 
+                # Turn off ambient lights
                 if self.config.light: await self.control_light('off')
                 if self.config.wled: await self.control_wled_light('off')
                 
                 self.last_text_payload_hash = None
-                self.is_art_visible = False 
+                self.is_art_visible = False  # Mark state as cleared
+            
             return 
 
         try:
