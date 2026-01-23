@@ -235,7 +235,7 @@ class Config:
             'show_clock': ('clock', False),
             'clock_align': 'Right',
             'temperature': False,
-            'tv_icon_pic': ('tv_icon', True),
+            'tv_icon_pic': ('tv_icon', False),
             'spotify_slide': False,
             'images_cache': 25,
             'limit_color': ('limit_colors', None),
@@ -1617,7 +1617,7 @@ class LyricsProvider:
 
         if self.update_lock.locked():
             return
-
+        
         async with self.update_lock:
             try:
                 offset = float(self.config.lyrics_sync)
@@ -1665,7 +1665,7 @@ class LyricsProvider:
 
     async def _send_payload(self, layout_items: list, color: str, hass_app, target_index: int):
         if target_index != -999 and target_index != self.current_frame_index:
-             return
+            return
 
         pixoo_items = []
         for i in range(6):
@@ -2808,6 +2808,7 @@ class SpotifyService:
             media_data.spotify_frames = 0
             return
 
+
 class Pixoo64_Media_Album_Art(hass.Hass):
     """AppDaemon app to display album art on Divoom Pixoo64 and control related features."""
 
@@ -2820,6 +2821,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.debounce_task = None
         self._last_wled_payload = None
         self.last_text_payload_hash = None
+        
+        # Scheduler variables
+        self.lyrics_active_mode = False 
+        self.scheduler_generation_id = 0 # Unique ID to invalidate old timers
 
     async def initialize(self):
         _LOGGER.info("Initializing Pixoo64 Album Art Display AppDaemon app…")
@@ -2838,8 +2843,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.listen_state(self._crop_mode_changed, self.config.crop_entity)
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_title")
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="state")
-        if self.config.show_lyrics:
-            self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_position_updated_at")
+        
+        # Listen for position changes (seeking/skipping) to re-sync scheduler
+        self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_position")
+
         try:
             initial_index = await self.pixoo_device.get_current_channel_index()
             if initial_index == 4:
@@ -2874,6 +2881,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         _LOGGER.info("Initialization complete.")
 
     async def terminate(self):
+        self._stop_lyrics_scheduler()
+        
         if hasattr(self, 'websession') and self.websession:
             await self.websession.close()
             _LOGGER.info("Closed Pixoo64 aiohttp session.")
@@ -2884,6 +2893,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def _lyrics_sync_changed(self, entity, attribute, old, new, kwargs):
         await self._apply_lyrics_sync()
+        # Trigger resync if active
+        if self.lyrics_active_mode:
+            await self._calculate_and_schedule_next()
 
     async def _apply_lyrics_sync(self):
         self.config.lyrics_sync = (await self.get_state(self.config.lyrics_sync_entity))
@@ -2892,7 +2904,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         await self._apply_crop_settings()
 
     async def _apply_crop_settings(self):
-        """Creates the input_select if missing and applies the crop configuration."""
         options = ["Default", "No Crop", "Crop", "Extra Crop"]
         default = options[0]
 
@@ -3006,13 +3017,133 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
                 
                 self.image_processor.image_cache.clear()
-                await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
+                
+                # Check mode change
+                await self._start_or_stop_lyrics_scheduler()
+                
+                # Refresh display if playing
+                current_state = await self.get_state(self.config.media_player)
+                if current_state in ["playing", "on"]:
+                    await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
         
         except Exception as e:
             _LOGGER.warning(f"Error checking mode entity: {e}")
 
-        if self.config.show_lyrics:
-            self.run_every(self.calculate_position, datetime.now(), 1) 
+    # =========================================================================
+    # ROBUST EVENT-BASED LYRICS SCHEDULER (ID Generation)
+    # =========================================================================
+
+    def _stop_lyrics_scheduler(self):
+        """
+        Disables the scheduler.
+        Crucially, this logic NEVER calls cancel_timer.
+        It simply changes the Generation ID. When the pending timer fires,
+        it will check the ID, see it's old, and self-terminate silently.
+        """
+        self.lyrics_active_mode = False
+        self.scheduler_generation_id += 1 # Invalidate any pending timers
+
+    async def _start_or_stop_lyrics_scheduler(self):
+        """Decides whether to Start or Stop based on ALL conditions."""
+        
+        should_run = True
+        
+        if not self.config.show_lyrics:
+            should_run = False
+        
+        if not self.media_data.lyrics:
+            should_run = False
+            
+        state = await self.get_state(self.config.media_player)
+        if str(state).lower() not in ["playing", "on"]:
+            should_run = False
+
+        if should_run:
+            self.lyrics_active_mode = True
+            await self._calculate_and_schedule_next()
+        else:
+            self._stop_lyrics_scheduler()
+
+    async def _timer_callback_wrapper(self, kwargs):
+        """
+        Wrapper executed when timer fires.
+        Checks if the generation ID matches the current one.
+        """
+        gen_id = kwargs.get('gen_id')
+        if gen_id != self.scheduler_generation_id:
+            return
+
+        await self._calculate_and_schedule_next()
+
+    async def _calculate_and_schedule_next(self):
+        """
+        Calculates the state (Show vs Clear) and schedules the NEXT event.
+        Also performs the immediate update to Pixoo.
+        """
+        # Gatekeeper
+        if not self.lyrics_active_mode:
+            return
+
+        self.scheduler_generation_id += 1
+        current_gen_id = self.scheduler_generation_id
+
+        timeline = self.media_data.lyrics_provider.visual_timeline
+        if not timeline:
+            return
+
+        if not self.media_data.media_position_updated_at:
+            current_track_pos = self.media_data.media_position 
+        else:
+            now_utc = datetime.now(timezone.utc)
+            elapsed = (now_utc - self.media_data.media_position_updated_at).total_seconds()
+            sync_offset = float(self.config.lyrics_sync) if self.config.lyrics_sync else 0.0
+            current_track_pos = self.media_data.media_position + elapsed - sync_offset
+
+        active_index = -1
+        next_event_time = -1
+
+        for i, frame in enumerate(timeline):
+            if frame['start'] <= current_track_pos < frame['end']:
+                active_index = i
+                break
+
+        if active_index != -1:
+            # --- SHOW LYRIC ---
+            self.media_data.lyrics_provider.current_frame_index = active_index
+            await self.media_data.lyrics_provider._send_payload(
+                timeline[active_index]['layout'], 
+                self.media_data.lyrics_font_color, 
+                self, 
+                active_index
+            )
+
+            next_event_time = timeline[active_index]['end']
+            
+            if active_index + 1 < len(timeline):
+                next_start = timeline[active_index + 1]['start']
+                if next_start - next_event_time < 0.15:
+                    next_event_time = next_start # Extend directly to next start
+
+        else:
+            # --- CLEAR SCREEN (GAP) ---
+            await self.media_data.lyrics_provider._send_payload(
+                [], 
+                self.media_data.lyrics_font_color, 
+                self, 
+                -999
+            )
+
+            # Find next start
+            for frame in timeline:
+                if frame['start'] > current_track_pos:
+                    next_event_time = frame['start']
+                    break
+        
+        if next_event_time != -1:
+            delay = next_event_time - current_track_pos
+            delay = max(0, delay)
+            
+            self.run_in(self._timer_callback_wrapper, delay, gen_id=current_gen_id)
 
     # =========================================================================
     # STATE CALLBACKS & DEBOUNCING
@@ -3040,21 +3171,27 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
         try:
-            
             if new == old or (await self.get_state(self.config.toggle)) != "on":
                 return 
 
-            media_state_str = await self.get_state(self.config.media_player)
-            media_state = media_state_str if media_state_str else "off"
+            if attribute == "state":
+                current_media_state = str(new).lower()
+            else:
+                s = await self.get_state(self.config.media_player)
+                current_media_state = str(s).lower() if s else "off"
             
-            if media_state in ["off", "idle", "pause", "paused"]:
+            # Handle Pause/Idle/Off
+            if current_media_state in ["off", "idle", "pause", "paused"]:
+                # STOP SCHEDULER (Invalidates ID)
+                self._stop_lyrics_scheduler()
+                
                 self.last_text_payload_hash = None
                 await asyncio.sleep(6) 
                 
-                media_state_str_validated = await self.get_state(self.config.media_player)
-                media_state_validated = media_state_str_validated if media_state_str_validated else "off"
+                rechecked_state = await self.get_state(self.config.media_player)
+                rechecked_state_str = str(rechecked_state).lower() if rechecked_state else "off"
                 
-                if media_state_validated in ["playing", "on"]:
+                if rechecked_state_str in ["playing", "on"]:
                     return
                 
                 if self.config.full_control:
@@ -3089,12 +3226,19 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         try:
             media_state_str = await self.get_state(self.config.media_player)
             media_state = media_state_str if media_state_str else "off"
+            
             if media_state not in ["playing", "on"]:
+                self._stop_lyrics_scheduler()
                 if self.config.light: await self.control_light('off')
                 if self.config.wled: await self.control_wled_light('off')
                 return 
 
+            # Update Media Data
             media_data = await self.media_data.update(self)
+            
+            # Re-evaluate scheduling (handles new track, seek, etc)
+            await self._start_or_stop_lyrics_scheduler()
+            
             if not media_data:
                 return
 
@@ -3452,6 +3596,3 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "color": "#a0e5ff" if i < len(artist_lines) else "#f9ffa0",  
             })
         return { "Command": "Draw/SendHttpItemList", "ItemList": item_list }
-
-    async def calculate_position(self, kwargs: Dict[str, Any]) -> None:
-        await self.media_data.lyrics_provider.calculate_position(self.media_data, self)
