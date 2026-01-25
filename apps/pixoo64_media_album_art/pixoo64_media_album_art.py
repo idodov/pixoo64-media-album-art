@@ -568,33 +568,31 @@ class ImageProcessor:
         return img
 
     def filter_image(self, img: Image.Image) -> Image.Image: 
-        img = img.resize((64, 64), Image.Resampling.BILINEAR)
-
-        if self.config.limit_color:
-            colors = int(self.config.limit_color)
-            img = img_adptive(img, colors)
-
-        if self.config.sharpness:
-            enhancer = ImageEnhance.Sharpness(img)
-            img = enhancer.enhance(4.0)
-
-        if self.config.contrast:
-            enhancer = ImageEnhance.Contrast(img)
-            img = enhancer.enhance(1.5)
-
+        # Apply Enhancements on full color depth first for much smoother results
         if self.config.colors:
-            enhancer = ImageEnhance.Color(img)
-            img = enhancer.enhance(1.5)
+            img = ImageEnhance.Color(img).enhance(1.5)
+        
+        if self.config.contrast:
+            img = ImageEnhance.Contrast(img).enhance(1.5)
+        
+        if self.config.sharpness:
+            img = ImageEnhance.Sharpness(img).enhance(4.0)
 
+        # Apply Custom 5x5 Kernel (Emboss/Edge Detection)
         if self.config.kernel:
             kernel_5x5 = [-2,  0, -1,  0,  0,
                         0, -2, -1,  0,  0,
                         -1, -1,  1,  1,  1,
                         0,  0,  1,  2,  0,
                         0,  0,  1,  0,  2]
-
             img = img.filter(ImageFilter.Kernel((5, 5), kernel_5x5, 1, 0))
+        
+        img = img.resize((64, 64), Image.Resampling.BILINEAR)
+        target_colors = int(self.config.limit_color) if self.config.limit_color else 64
 
+        if self.config.limit_color:
+            img = img.quantize(colors=target_colors, method=Image.Quantize.MAXCOVERAGE).convert("RGB")
+        
         return img
 
     def special_mode(self, img: Image.Image) -> Image.Image: 
@@ -3046,6 +3044,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     async def _start_or_stop_lyrics_scheduler(self):
         """Decides whether to Start or Stop based on ALL conditions."""
         
+        # 1. Validation
         should_run = True
         
         if not self.config.show_lyrics:
@@ -3058,6 +3057,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if str(state).lower() not in ["playing", "on"]:
             should_run = False
 
+        # 2. Action
         if should_run:
             self.lyrics_active_mode = True
             await self._calculate_and_schedule_next()
@@ -3071,6 +3071,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         """
         gen_id = kwargs.get('gen_id')
         if gen_id != self.scheduler_generation_id:
+            # This timer is from an old session/song/seek. Ignore it.
             return
 
         await self._calculate_and_schedule_next()
@@ -3084,6 +3085,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if not self.lyrics_active_mode:
             return
 
+        # Increment ID to invalidate any previous schedules that might still be pending
+        # (Though we shouldn't have overlapping ones, this is safe)
         self.scheduler_generation_id += 1
         current_gen_id = self.scheduler_generation_id
 
@@ -3091,6 +3094,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if not timeline:
             return
 
+        # 1. Calculate Time
         if not self.media_data.media_position_updated_at:
             current_track_pos = self.media_data.media_position 
         else:
@@ -3099,6 +3103,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             sync_offset = float(self.config.lyrics_sync) if self.config.lyrics_sync else 0.0
             current_track_pos = self.media_data.media_position + elapsed - sync_offset
 
+        # 2. Determine State
         active_index = -1
         next_event_time = -1
 
@@ -3119,6 +3124,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
             next_event_time = timeline[active_index]['end']
             
+            # Optimization: Skip 'Clear' if next line is immediate
             if active_index + 1 < len(timeline):
                 next_start = timeline[active_index + 1]['start']
                 if next_start - next_event_time < 0.15:
@@ -3139,10 +3145,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     next_event_time = frame['start']
                     break
         
+        # 3. Schedule Next
         if next_event_time != -1:
             delay = next_event_time - current_track_pos
             delay = max(0, delay)
             
+            # Schedule the WRAPPER with the current Generation ID
             self.run_in(self._timer_callback_wrapper, delay, gen_id=current_gen_id)
 
     # =========================================================================
@@ -3279,7 +3287,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def _process_and_display_image(self, media_data: "MediaData") -> None:
         if media_data.picture == "TV_IS_ON":
-            if getattr(self, 'is_art_visible', False):
+            if not self.is_art_visible and not self.tv_icon_pic:
                 payload = ({
                     "Command": "Draw/CommandList",
                     "CommandList": [
