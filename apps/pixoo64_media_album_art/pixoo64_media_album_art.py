@@ -3287,25 +3287,16 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def _process_and_display_image(self, media_data: "MediaData") -> None:
         if media_data.picture == "TV_IS_ON":
-            if not self.is_art_visible and not self.tv_icon_pic:
-                payload = ({
-                    "Command": "Draw/CommandList",
-                    "CommandList": [
-                        {"Command": "Channel/OnOffScreen", "OnOff": 1},
-                        {"Command": "Draw/ClearHttpText"},
-                        {"Command": "Draw/ResetHttpGifId"},
-                        {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
-                    ]
-                })
-                await self.pixoo_device.send_command(payload)
+            payload = {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
+            await self.pixoo_device.send_command(payload)
                 
-                # Turn off ambient lights
-                if self.config.light: await self.control_light('off')
-                if self.config.wled: await self.control_wled_light('off')
+            # Turn off ambient lights
+            if self.config.light: await self.control_light('off')
+            if self.config.wled: await self.control_wled_light('off')
                 
-                self.last_text_payload_hash = None
-                self.is_art_visible = False  # Mark state as cleared
-            
+            self.last_text_payload_hash = None
+            self.is_art_visible = False  # Mark state as cleared
+        
             return 
 
         try:
@@ -3336,7 +3327,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if media_data.playing_tv:
                 if self.config.light: await self.control_light('off')
                 if self.config.wled: await self.control_wled_light('off')
-            
+
             sensor_state = f"{media_data.artist} / {media_data.title}"
             new_attributes = {
                 "artist": media_data.artist,
@@ -3351,12 +3342,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "image_memory_cache": media_data.image_cache_memory,
                 "process_duration": media_data.process_duration,
                 "spotify_frames": media_data.spotify_frames,
-                "pixoo_channel": self.select_index,
+                "pixoo64_channel": self.select_index if self.select_index != 0 else "0",
                 "image_source": media_data.pic_source,
                 "image_url": media_data.pic_url,
                 "lyrics": media_data.lyrics
             }
-
+            
             image_payload = {
                 "Command": "Draw/CommandList",
                 "CommandList": [
