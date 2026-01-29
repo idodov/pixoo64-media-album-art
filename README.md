@@ -7,8 +7,9 @@ This AppDaemon script for Home Assistant enhances your music experience by displ
 ## 🎨 Features
 
 - **📀 Dynamic Album Art** — Displays 64x64 optimized artwork for the current track.
+- **📊 Progress Bar** — **(New)** Real-time playback progress bar overlaid on the display.
 - **🧠 Intelligent Fallback** — Searches Spotify, Discogs, Last.fm, TIDAL, and MusicBrainz. If all fail, uses AI-generated art via pollinations.ai (`turbo` or `flux`).
-- **🎤 Synchronized Lyrics** — Shows lyrics with timing when supported by the media player.
+- **🎤 Synchronized Lyrics** — Shows lyrics with timing when supported by the media player (Supports RTL languages).
 - **🕒 Real-Time Overlay** — Displays track info, time, temperature, and more as overlays.
 - **🔥 Burned Mode** — Adds high-contrast styling. Can be combined with overlays like clock, temperature, or text.
 - **🎞️ Spotify Slider** — Scrolls through Spotify-recommended album covers.
@@ -68,11 +69,12 @@ python_packages:
   - pillow
   - python-bidi
   - unidecode
+
 ```
 
-- `pillow` — Required for image handling.
-- `python-bidi` — Supports right-to-left (RTL) text (Arabic, Hebrew, etc).
-- `unidecode` — Standardizes non-ASCII text for filenames, caching, and comparison. Used in **Burned Mode**.
+* `pillow` — Required for image handling.
+* `python-bidi` — Supports right-to-left (RTL) text (Arabic, Hebrew, etc).
+* `unidecode` — Standardizes non-ASCII text for filenames, caching, and comparison. Used in **Burned Mode**.
 
 </details>
 
@@ -85,10 +87,8 @@ python_packages:
 2. Click on **Helpers**.
 3. Click the **Create Helper** button (lower right corner).
 4. Select **Toggle** and give it an appropriate name (e.g., `PIXOO64 Album Art`).
-5. Note if the `entity_id` of this helper is not named `input_boolean.pixoo64_album_art`; you will need it later for configuration.
-   - **Important:** Ensure this new helper entity is toggled **ON**. If it's off, the script will not run. This toggle allows you to easily disable the script when needed.
+5. **(New)** Create another Toggle for the Progress Bar named `PIXOO64 Progress Bar` (entity_id: `input_boolean.pixoo64_progress_bar`).
 6. Add this code to `configuration.yaml` if you want to control the display from Homeassistant UI (or add them as helpers):
-![image](https://github.com/user-attachments/assets/a7923467-c901-4981-8017-282c741957de)
 
 ```yaml
 input_number:
@@ -138,11 +138,11 @@ input_select:
       - "Default"
       - "No Crop"
       - "Crop"
-      - "Crop Exra"
+      - "Crop Extra"
 
 ```
-</details>
 
+</details>
 
 ### **Step 4: Download the Script**
 
@@ -152,64 +152,72 @@ You can install the script using either **HACS** (Home Assistant Community Store
 <summary><strong>HACS (Recommended)</strong></summary>
 
 Using HACS is the best method because it allows for easy updates. Because HACS and AppDaemon use different default folders, you must perform a one-time configuration change to link them.
+
 ##### If you don’t have HACS installed, follow the instructions on the [HACS GitHub page](https://hacs.xyz/) to install it.
 
 #### **1. Enable AppDaemon in HACS**
-   - Go to the HACS page in Home Assistant.
-   - If "AppDaemon" repositories are not found, enable AppDaemon apps discovery and tracking in HACS settings:
-     - Navigate to **Settings** > **Integrations** > **HACS** > **Configure**.
-     - Enable **AppDaemon apps discovery & tracking**.
+
+* Go to the HACS page in Home Assistant.
+* If "AppDaemon" repositories are not found, enable AppDaemon apps discovery and tracking in HACS settings:
+* Navigate to **Settings** > **Integrations** > **HACS** > **Configure**.
+* Enable **AppDaemon apps discovery & tracking**.
 
 #### **2. Add the Custom Repository**
-*   Open **HACS** and click on **AppDaemon** (top menu).
-*   Click the **three dots** in the top right corner and select **Custom repositories**.
-*   Paste this URL: `https://github.com/idodov/pixoo64-media-album-art`
-*   Select **AppDaemon** as the Category and click **Add**.
+
+* Open **HACS** and click on **AppDaemon** (top menu).
+* Click the **three dots** in the top right corner and select **Custom repositories**.
+* Paste this URL: `https://github.com/idodov/pixoo64-media-album-art`
+* Select **AppDaemon** as the Category and click **Add**.
 
 #### **3. Download the App**
-*   Search for **PIXOO64 Media Album Art** in HACS.
-*   Click **Download** in the bottom right corner.
+
+* Search for **PIXOO64 Media Album Art** in HACS.
+* Click **Download** in the bottom right corner.
 
 #### **4. The "Path Fix" (Critical Step)**
+
 By default, HACS downloads files to the `/config` folder, but the AppDaemon Add-on looks in the `/addon_configs` folder. **To fix this so you don't have to move files manually:**
 
-1.  Open your file editor (e.g., File Editor add-on or Samba Share).
-2.  Navigate to `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`.
-3.  Add the `app_dir` line exactly as shown below:
+1. Open your file editor (e.g., File Editor add-on or Samba Share).
+2. Navigate to `/addon_configs/a0d7b954_appdaemon/appdaemon.yaml`.
+3. Add the `app_dir` line exactly as shown below:
 
 ```yaml
 appdaemon:
   app_dir: /homeassistant/appdaemon/apps/  # <--- ADD THIS LINE
   latitude: 51.507351 
   longitude: -0.127758
+
 ```
-*Note: Do not delete existing lines in that file. Just add the `app_dir` entry.* 
-*Update the Latitude and Longitude values from `https://www.latlong.net`*
+
+*Note: Do not delete existing lines in that file. Just add the `app_dir` entry.* *Update the Latitude and Longitude values from `https://www.latlong.net*`
 
 #### **5. Verify File Location**
+
 After downloading via HACS, your files should automatically be in this structure (viewed via Samba/File Editor):
-*   **Path:** `/config/appdaemon/apps/pixoo64_media_album_art/`
-*   **App Config:** `/config/appdaemon/apps/apps.yaml` 
+
+* **Path:** `/config/appdaemon/apps/pixoo64_media_album_art/`
+* **App Config:** `/config/appdaemon/apps/apps.yaml`
 
 #### **6. Restart AppDaemon**
-*   Go to **Settings** > **Add-ons** > **AppDaemon** and click **Restart**.
+
+* Go to **Settings** > **Add-ons** > **AppDaemon** and click **Restart**.
 
 </details>
 
 <details>
 <summary><strong>Manual Download</strong></summary>
-   With this method, you will not receive automatic updates.
+With this method, you will not receive automatic updates.
 
-   
-   - Download the Python script directly from the GitHub repository [Download Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py)
-   - Place the file into the directory `/addon_configs/a0d7b954_appdaemon/apps`.
+* Download the Python script directly from the GitHub repository [Download Link](https://github.com/idodov/pixoo64-media-album-art/blob/main/apps/pixoo64_media_album_art/pixoo64_media_album_art.py)
+* Place the file into the directory `/addon_configs/a0d7b954_appdaemon/apps`.
 
 </details>
-
 
 ### **Step 5: Configure AppDaemon**
 
 To activate the script, you’ll need to modify the `apps.yaml` file. This file is typically located in the `/appdaemon/apps` directory that you added in the previous step.
+
 <details>
 <summary><strong>Basic Configuration</strong></summary>
 For a minimal setup, add the following to your `/appdaemon/apps/apps.yaml` file. Adjust the `ha_url`, `media_player`, and `url` parameters to match your setup.
@@ -219,10 +227,11 @@ pixoo64_media_album_art:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
-        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
+        ha_url: "[http://homeassistant.local:8123](http://homeassistant.local:8123)"   # Your Home Assistant URL.
         media_player: "media_player.living_room"    # The entity ID of your media player.
     pixoo:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
+
 ```
 
 If you have more than one PIXOO64 screen, you can add another configuration block and **change the first line's name**. For example:
@@ -232,10 +241,11 @@ pixoo64_media_album_art_2:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
-        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
+        ha_url: "[http://homeassistant.local:8123](http://homeassistant.local:8123)"   # Your Home Assistant URL.
         media_player: "media_player.tv_room"        # The entity ID of your media player.
     pixoo:
         url: "192.168.86.22"                        # The IP address of your Pixoo64 device.
+
 ```
 
 </details>
@@ -248,8 +258,10 @@ For all features, use the following configuration. Adjust the values to match yo
 pixoo64_media_album_art:
   module: pixoo64_media_album_art
   class: Pixoo64_Media_Album_Art
+  
+  # --- Home Assistant Configuration ---
   home_assistant:
-    ha_url: "http://homeassistant.local:8123"           # Your Home Assistant URL.
+    ha_url: "[http://homeassistant.local:8123](http://homeassistant.local:8123)"           # Your Home Assistant URL.
     media_player: "media_player.era300"                 # The entity ID of your media player.
     toggle: "input_boolean.pixoo64_album_art"           # Input boolean to enable or disable the script.
     pixoo_sensor: "sensor.pixoo64_media_data"           # Sensor to store extracted media data.
@@ -268,6 +280,8 @@ pixoo64_media_album_art:
     last.fm: False                                      # Last.fm API key.
     discogs: False                                      # Discogs API key.
     pollinations: False                                 # Pollinations.ai API key (Optional).
+
+  # --- Pixoo Device Configuration ---
   pixoo:
     url: "192.168.86.21"                                # The IP address of your Pixoo64 device.
     full_control: True                                  # Controls Pixoo64's power state in sync with media playback.
@@ -297,6 +311,15 @@ pixoo64_media_album_art:
     crop_borders:
       enabled: True                                     # Enable basic border cropping.
       extra: True                                       # Enable advanced border cropping.
+
+  # --- Progress Bar Configuration ---
+  progress_bar:
+    enabled: True                                     # Master switch for the feature
+    entity: "input_boolean.pixoo64_progress_bar"      # Helper to toggle via dashboard
+    color: "match"                                    # "match" (auto-contrast) or hex "#FF0000"
+    y_offset: 64                                      # Vertical position (1-64)
+
+  # --- WLED Integration (Optional) ---
   wled:
     wled_ip: "192.168.86.55"                            # WLED device IP address.
     brightness: 255                                     # Brightness level (0–255).
@@ -308,12 +331,11 @@ pixoo64_media_album_art:
     only_at_night: False                                # Only enable WLED at night.
 
 ```
+
 </details>
 With these steps completed, you have installed and set up the script and can now configure it to fit your needs.
 
 Make sure that `input_boolean.pixoo64_album_art` is toggled **ON**. The next time you play a track, the album cover art will be displayed, and all usable picture data will be stored in a new sensor.
-
-![animated-g](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/2a716425-dd65-429c-be0f-13acf862cb10)
 
 ---
 
@@ -324,65 +346,76 @@ Below is a detailed breakdown of all configuration parameters for the PIXOO64 Me
 <details>
 <summary><strong>Core Parameters</strong></summary>
 
-| Parameter               | Description                                                                      | Example Values                                  |
-| ----------------------- | -------------------------------------------------------------------------------- | ----------------------------------------------- |
-| `ha_url`                | The URL of your Home Assistant instance.                                         | `"http://homeassistant.local:8123"`             |
-| `media_player`          | The entity ID of your media player.                                              | `"media_player.living_room"`                    |
-| `toggle`                | An input boolean to enable or disable the script (optional).                     | `"input_boolean.pixoo64_album_art"`             |
-| `pixoo_sensor`          | Sensor used to store extracted media metadata (optional).                        | `"sensor.pixoo64_media_data"`                   |
-| `light`                 | RGB light entity to sync with album art colors (optional).                       | `False` or `"light.living_room"`                |
-| `ai_fallback`           | AI model to generate fallback album art (`flux` or `turbo`).                     | `"turbo"`                                       |
-| `temperature_sensor`    | Temperature sensor entity used instead of the Divoom weather service (optional). | `"sensor.temperature"`                          |
-| `mode_select`           | Entity ID of the input select for display mode selection (optional).             | `"input_select.pixoo64_album_art_display_mode"` |
-| `crop_select`           | Entity ID of the input select for crop mode selection (optional).                | `"input_select.pixoo64_album_art_crop_mode"`    |
-| `musicbrainz`           | Enables fallback album art lookup via MusicBrainz.                               | `True`                                          |
-| `spotify_client_id`     | Your Spotify API client ID (required for Spotify features).                      | `False` or `"your_spotify_client_id"`           |
-| `spotify_client_secret` | Your Spotify API client secret (required for Spotify features).                  | `False` or `"your_spotify_client_secret"`       |
-| `tidal_client_id`       | Your TIDAL API client ID (optional).                                             | `False` or `"your_tidal_client_id"`             |
-| `tidal_client_secret`   | Your TIDAL API client secret (optional).                                         | `False` or `"your_tidal_client_secret"`         |
-| `last.fm`               | Your Last.fm API key (optional).                                                 | `False` or `"your_lastfm_api_key"`              |
-| `discogs`               | Your Discogs personal access token (optional).                                   | `False` or `"your_discogs_token"`               |
-| `pollinations`          | Your Pollinations.ai API key.                                                    | `False` or `"your_pollinations_key"`            |
+| Parameter | Description | Example Values |
+| --- | --- | --- |
+| `ha_url` | The URL of your Home Assistant instance. | `"http://homeassistant.local:8123"` |
+| `media_player` | The entity ID of your media player. | `"media_player.living_room"` |
+| `toggle` | An input boolean to enable or disable the script (optional). | `"input_boolean.pixoo64_album_art"` |
+| `pixoo_sensor` | Sensor used to store extracted media metadata (optional). | `"sensor.pixoo64_media_data"` |
+| `light` | RGB light entity to sync with album art colors (optional). | `False` or `"light.living_room"` |
+| `ai_fallback` | AI model to generate fallback album art (`flux` or `turbo`). | `"turbo"` |
+| `temperature_sensor` | Temperature sensor entity used instead of the Divoom weather service (optional). | `"sensor.temperature"` |
+| `mode_select` | Entity ID of the input select for display mode selection (optional). | `"input_select.pixoo64_album_art_display_mode"` |
+| `crop_select` | Entity ID of the input select for crop mode selection (optional). | `"input_select.pixoo64_album_art_crop_mode"` |
+| `musicbrainz` | Enables fallback album art lookup via MusicBrainz. | `True` |
+| `spotify_client_id` | Your Spotify API client ID (required for Spotify features). | `False` or `"your_spotify_client_id"` |
+| `spotify_client_secret` | Your Spotify API client secret (required for Spotify features). | `False` or `"your_spotify_client_secret"` |
+| `tidal_client_id` | Your TIDAL API client ID (optional). | `False` or `"your_tidal_client_id"` |
+| `tidal_client_secret` | Your TIDAL API client secret (optional). | `False` or `"your_tidal_client_secret"` |
+| `last.fm` | Your Last.fm API key (optional). | `False` or `"your_lastfm_api_key"` |
+| `discogs` | Your Discogs personal access token (optional). | `False` or `"your_discogs_token"` |
+| `pollinations` | Your Pollinations.ai API key. | `False` or `"your_pollinations_key"` |
 
 </details>
 
 <details>
 <summary><strong>PIXOO64-Specific Parameters</strong></summary>
 
-| Parameter       | Description                                                                                               | Example Values                  |
-| --------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `url`           | IP address of your PIXOO64 device.                                                                        | `"192.168.86.21"`               |
-| `full_control`  | Controls the Pixoo64's on/off state based on media playback.                                              | `True`                          |
-| `contrast`      | Applies 50% contrast filter to displayed images.                                                          | `True`                          |
-| `sharpness`     | Applies a sharpness enhancement to images.                                                                | `True`                          |
-| `colors`        | Enhances colors in the image.                                                                             | `True`                          |
-| `special_mode`  | Displays time, date, and temperature in a top bar overlay.                                                | `False`                         |
-| `temperature`   | Displays temperature data from the configured sensor.                                                     | `True`                          |
-| `clock`         | Displays a digital clock in the top corner of the screen.                                                 | `True`                          |
-| `clock_align`   | Clock alignment on screen.                                                                                | `"Left"` or `"Right"`           |
-| `tv_icon`       | Displays a TV icon when audio comes from a TV source.                                                     | `True`                          |
-| `lyrics`        | Displays synchronized lyrics (disables `show_text` and `clock`).                                          | `True`                          |
-| `lyrics_font`   | Font ID used to display lyrics. See [DIVOOM Fonts](https://app.divoom-gz.com/Device/GetTimeDialFontList). | `2`, `4`, `32`, `52`, etc.      |
-| `limit_colors`  | Reduces color palette size for performance or style; set to `False` to use original colors.               | `4`, `8`, ..., `256` or `False` |
-| `spotify_slide` | Enables a slideshow of album covers from Spotify (disables clock and text).                               | `True`                          |
-| `images_cache`  | Number of processed images stored in memory (approx. 17KB each).                                          | `1` to `500`                    |
+| Parameter | Description | Example Values |
+| --- | --- | --- |
+| `url` | IP address of your PIXOO64 device. | `"192.168.86.21"` |
+| `full_control` | Controls the Pixoo64's on/off state based on media playback. | `True` |
+| `contrast` | Applies 50% contrast filter to displayed images. | `True` |
+| `sharpness` | Applies a sharpness enhancement to images. | `True` |
+| `colors` | Enhances colors in the image. | `True` |
+| `special_mode` | Displays time, date, and temperature in a top bar overlay. | `False` |
+| `temperature` | Displays temperature data from the configured sensor. | `True` |
+| `clock` | Displays a digital clock in the top corner of the screen. | `True` |
+| `clock_align` | Clock alignment on screen. | `"Left"` or `"Right"` |
+| `tv_icon` | Displays a TV icon when audio comes from a TV source. | `True` |
+| `lyrics` | Displays synchronized lyrics (disables `show_text` and `clock`). | `True` |
+| `lyrics_font` | Font ID used to display lyrics. See [DIVOOM Fonts](https://app.divoom-gz.com/Device/GetTimeDialFontList). | `2`, `4`, `32`, `52`, etc. |
+| `limit_colors` | Reduces color palette size for performance or style; set to `False` to use original colors. | `4`, `8`, ..., `256` or `False` |
+| `spotify_slide` | Enables a slideshow of album covers from Spotify (disables clock and text). | `True` |
+| `images_cache` | Number of processed images stored in memory (approx. 17KB each). | `1` to `500` |
 
 </details>
 
 <details>
 <summary><strong>Text Display Options</strong></summary>
 
-| Parameter                     | Description                                                         | Example Values         |
-| ----------------------------- | ------------------------------------------------------------------- | ---------------------- |
-| `enabled`                     | If `True`, displays artist and track title.                         | `True`                 |
-| `clean_title`                 | Removes metadata from titles (e.g., "Remastered", file extensions). | `True`                 |
-| `text_background`             | Adds a background color behind text to improve contrast.            | `True`                 |
-| `special_mode_spotify_slider` | Animates album art when used with `special_mode` and `show_text`.   | `True`                 |
-| `force_text_color`            | Overrides dynamic text color. Use `False` or a hex value.           | `False` or `"#FFFFFF"` |
-| `top_text`                    | Show artist/title info at the top bar                               | `True`                 |
+| Parameter | Description | Example Values |
+| --- | --- | --- |
+| `enabled` | If `True`, displays artist and track title. | `True` |
+| `clean_title` | Removes metadata from titles (e.g., "Remastered", file extensions). | `True` |
+| `text_background` | Adds a background color behind text for better contrast. | `True` |
+| `special_mode_spotify_slider` | Animates album art when used with `special_mode` and `show_text`. | `True` |
+| `force_text_color` | Overrides dynamic text color. Use `False` or a hex value. | `False` or `"#FFFFFF"` |
+| `top_text` | Show artist/title info at the top bar | `True` |
 
 </details>
 
+<details>
+<summary><strong>Progress Bar Options (New)</strong></summary>
+
+| Parameter | Description | Example Values |
+| --- | --- | --- |
+| `enabled` | Master switch to enable the progress bar feature. | `True` |
+| `entity` | The input_boolean helper to toggle the bar via dashboard. | `input_boolean...` |
+| `color` | Color of the bar. Use `"match"` for auto-color or a hex code. | `"match"` or `"#ff0000"` |
+| `y_offset` | Vertical position (row) of the bar (1-64). | `64` |
+
+</details>
 
 <summary><strong>Image Cropping Options</strong></summary>
 
@@ -396,6 +429,7 @@ Many album covers come with borders that can distort the display on the PIXOO64'
 |---|---|---|
 | ![cover2](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/71fda47e-f4fe-4142-9303-16d95d2c109e) | ![cover2_crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/ad32fb20-7b94-4795-a1af-16148dac473f) | ![kb-crop_extra](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/4e6bec64-0fa3-4bb3-a863-9e1ace780b58) |
 | ![psb-original](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/beb0d74c-5a27-4ad8-b7a8-f11f6ae8d3ea) | ![psb-crop](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/efc4f44a-4c7d-4aca-b1bf-a158b252b26d) | ![psb-crop_extra](https://github.com/idodov/pixoo64-media-album-art/assets/19820046/b25cc2e7-aa22-4e73-9c7a-b30ea4ec73fb) |
+
 ```yaml
 pixoo64_media_album_art:
     module: pixoo64_media_album_art
@@ -404,41 +438,47 @@ pixoo64_media_album_art:
         crop_borders:
             enabled: True  # If True, attempts to crop any borders from the album art.
             extra: True    # If True, applies an enhanced border cropping algorithm.
+
 ```
+
 </details>
 
 <details>
 <summary><strong>WLED Configuration</strong></summary>
 
-| Parameter               | Description                                                                                   | Example Values                          |
-|-------------------------|-----------------------------------------------------------------------------------------------|-----------------------------------------|
-| `wled_ip`               | The IP address of your WLED device.                                                           | `"192.168.86.55"`                       |
-| `brightness`            | Brightness level for WLED lights (0–255).                                                     | `255`                                   |
-| `effect`                | WLED effect ID (see [WLED Effects](https://kno.wled.ge/features/effects/)).                   | `0` to `186`                            |
-| `effect_speed`          | Speed of the WLED effect (0–255).                                                             | `50`                                    |
-| `effect_intensity`      | Intensity of the WLED effect (0–255).                                                         | `128`                                   |
-| `palette`               | WLED palette ID (see [WLED Palettes](https://kno.wled.ge/features/palettes/)).                | `0` to `70`                             |
-| `only_at_night`         | Run WLED automation only during nighttime hours.                                              | `True`                                  |
-
+| Parameter | Description | Example Values |
+| --- | --- | --- |
+| `wled_ip` | The IP address of your WLED device. | `"192.168.86.55"` |
+| `brightness` | Brightness level for WLED lights (0–255). | `255` |
+| `effect` | WLED effect ID (see [WLED Effects](https://kno.wled.ge/features/effects/)). | `0` to `186` |
+| `effect_speed` | Speed of the WLED effect (0–255). | `50` |
+| `effect_intensity` | Intensity of the WLED effect (0–255). | `128` |
+| `palette` | WLED palette ID (see [WLED Palettes](https://kno.wled.ge/features/palettes/)). | `0` to `70` |
+| `only_at_night` | Run WLED automation only during nighttime hours. | `True` |
 
 </details>
 <details>
 <summary><strong>Additional Notes</strong></summary>
 
 ### **Light Feature**
+
 The `light` parameter allows you to sync RGB lights with the dominant color of the album art. If the image is black, white, or gray, a soft random color will be selected. You can configure multiple lights using the following syntax:
- ```yaml
+
+```yaml
 pixoo64_media_album_art:
-    module: pixoo64_media_album_art
-    class: Pixoo64_Media_Album_Art
-    home_assistant:
-       light:
-         - "light.living_room"
-         - "light.bed_room"
+   module: pixoo64_media_album_art
+   class: Pixoo64_Media_Album_Art
+   home_assistant:
+      light:
+        - "light.living_room"
+        - "light.bed_room"
+
 ```
 
 ### **WLED Integration**
- The WLED feature is designed specifically for WLED lights. It sends a "turn on" command with RGB values corresponding to the dominant colors in the album art. You can control brightness, effects, and palettes, and optionally restrict automation to nighttime hours.
+
+The WLED feature is designed specifically for WLED lights. It sends a "turn on" command with RGB values corresponding to the dominant colors in the album art. You can control brightness, effects, and palettes, and optionally restrict automation to nighttime hours.
+
 ```yaml
 pixoo64_media_album_art:
    module: pixoo64_media_album_art
@@ -446,17 +486,20 @@ pixoo64_media_album_art:
    wled:
         wled_ip: "192.168.86.55"                    # Your WLED IP Adress
         brightness: 255                             # 0 to 255
-        effect: 38                                  # 0 to 186 (Effect ID - https://kno.wled.ge/features/effects/)
+        effect: 38                                  # 0 to 186 (Effect ID - [https://kno.wled.ge/features/effects/](https://kno.wled.ge/features/effects/))
         effect_speed: 50                            # 0 to 255
         effect_intensity: 128                       # 0 to 255
-        pallete: 0                                  # 0 to 70 (Pallete ID - https://kno.wled.ge/features/palettes/)
+        palette: 0                                  # 0 to 70 (Palette ID - [https://kno.wled.ge/features/palettes/](https://kno.wled.ge/features/palettes/))
         only_at_night: False                        # Runs only at night hours
- ```
 
- ### **Display Lyrics**
- When lyrics are displayed above the image, the image will appear 50% darker if both `text_background` and `lyrics` are set to `True`. Note that this feature is not supported for radio stations.
- Recommend `lyrics_font` values: 2, 4, 32, 52, 58, 62, 48, 80, 158, 186, 190, 590. More values can be found at https://app.divoom-gz.com/Device/GetTimeDialFontList (you need ID value)
- ```yaml
+```
+
+### **Display Lyrics**
+
+When lyrics are displayed above the image, the image will appear 50% darker if both `text_background` and `lyrics` are set to `True`. Note that this feature is not supported for radio stations.
+Recommend `lyrics_font` values: 2, 4, 32, 52, 58, 62, 48, 80, 158, 186, 190, 590. More values can be found at https://app.divoom-gz.com/Device/GetTimeDialFontList (you need ID value)
+
+```yaml
 pixoo64_media_album_art:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
@@ -465,19 +508,25 @@ pixoo64_media_album_art:
         lyrics_font: 2
         show_text:
             text_background: True
- ```
- ### **Spotify Slider**
- The Spotify slider enhances the PIXOO64 by showing related album art for the current track. To enable this mode, add your Spotify API keys (client ID and client secret) to `apps.yaml` and set `spotify_slide` to `True`.
- ```yaml
+
+```
+
+### **Spotify Slider**
+
+The Spotify slider enhances the PIXOO64 by showing related album art for the current track. To enable this mode, add your Spotify API keys (client ID and client secret) to `apps.yaml` and set `spotify_slide` to `True`.
+
+```yaml
 pixoo64_media_album_art:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
-        spotify_client_id: # Your Spotify API client ID (needed for Spotify features). Obtain from https://developers.spotify.com.
+        spotify_client_id: # Your Spotify API client ID (needed for Spotify features). Obtain from [https://developer.spotify.com/dashboard/](https://developer.spotify.com/dashboard/)
         spotify_client_secret: # Your Spotify API client secret (needed for Spotify features).
     pixoo:
         spotify_slide: True
- ```
+
+```
+
 </details>
 
 ---
@@ -486,63 +535,64 @@ pixoo64_media_album_art:
 
 When the script cannot directly obtain the album art for the currently playing track, it activates a **sophisticated fallback system** to ensure your PIXOO64 still displays relevant visual information. Below is a summary of the fallback process:
 
-1. **Original Album Art**  
-   - The script first tries to use the album art URL provided by the media player.  
-   - This is the primary method and works for most local media and some streaming services.
+1. **Original Album Art** - The script first tries to use the album art URL provided by the media player.
 
-2. **API Services (Spotify, Discogs, Last.fm, TIDAL)**  
-   - If the original album art is unavailable, the script queries these services in the following order:  
-     1. Spotify  
-     2. Discogs  
-     3. Last.fm  
-     4. TIDAL  
-   - The script uses the first image URL it successfully retrieves.
+* This is the primary method and works for most local media and some streaming services.
 
-3. **MusicBrainz**  
-   - If API services fail, the script queries the **MusicBrainz database**, an open-source music encyclopedia.  
-   - MusicBrainz contains many rare artworks but relies on slower server connections, so retrieval may take time.
+2. **API Services (Spotify, Discogs, Last.fm, TIDAL)** - If the original album art is unavailable, the script queries these services in the following order:
+3. Spotify
+4. Discogs
+5. Last.fm
+6. TIDAL
 
-4. **AI Image Generation**  
-   - If all previous methods fail, the script generates an image using **artificial intelligence** via [pollinations.ai](https://pollinations.ai).  
-   - You can choose between two AI models:  
-     - `turbo`: Produces vibrant images.  
-     - `flux`: Creates artistic and colorful styles.  
-   - Note: As this is a free service, it may occasionally be laggy or unavailable.
+* The script uses the first image URL it successfully retrieves.
 
-5. **Black Screen with Text**  
-   - As a last resort, the script displays a black screen with the artist and title information of the current track.
+3. **MusicBrainz** - If API services fail, the script queries the **MusicBrainz database**, an open-source music encyclopedia.
+
+* MusicBrainz contains many rare artworks but relies on slower server connections, so retrieval may take time.
+
+4. **AI Image Generation** - If all previous methods fail, the script generates an image using **artificial intelligence** via [pollinations.ai](https://pollinations.ai).
+
+* You can choose between two AI models:
+* `turbo`: Produces vibrant images.
+* `flux`: Creates artistic and colorful styles.
+* Note: As this is a free service, it may occasionally be laggy or unavailable.
+
+5. **Black Screen with Text** - As a last resort, the script displays a black screen with the artist and title information of the current track.
 
 This **multi-layered approach** ensures that your PIXOO64 always displays some form of visual content, prioritizing accurate APIs and databases before resorting to AI or text representation.
 
-
 ## 🔑 **API Keys**
+
 To enable advanced features like fetching album art from external services, you’ll need API keys for one or more of the following services. These servers are fast and reliable, making them the most recommended option.
 Below are step-by-step guides to help you obtain these keys.
 
-- Use **Spotify**, **Discogs**, **Last.fm**, or **TIDAL** APIs for fast and reliable album art retrieval.  
-- If API services fail, the script falls back to **MusicBrainz** or **AI-generated images**.  
-- Always store your API keys securely in the `apps.yaml` file.
+* Use **Spotify**, **Discogs**, **Last.fm**, or **TIDAL** APIs for fast and reliable album art retrieval.
+* If API services fail, the script falls back to **MusicBrainz** or **AI-generated images**.
+* Always store your API keys securely in the `apps.yaml` file.
 
 <details>
 <summary><strong> Spotify API Keys</strong></summary>
 Obtain your Spotify Client ID and Client Secret from the Spotify Developer Dashboard.
 
 #### **Steps**
-1. **Log in to Spotify Developer Dashboard**:  
-   Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/login) and log in with your Spotify account.
 
-2. **Create an App**:  
-   - Click on the "Create an App" button.  
-   - Provide a name and brief description for your app (these fields are mainly for display purposes).
+1. **Log in to Spotify Developer Dashboard**:
+Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/) and log in with your Spotify account.
+2. **Create an App**:
 
-3. **Choose `Web API`**:  
-   - From the `Which API/SDKs are you planning to use` section, select `Web API` and press `SAVE`.  
-   ![Spotify Web API Selection](https://github.com/user-attachments/assets/d653366f-ac76-4204-a17f-c27b1dc6a051)
+* Click on the "Create an App" button.
+* Provide a name and brief description for your app (these fields are mainly for display purposes).
 
-4. **Copy Client ID and Client Secret**:  
-   - Once your app is created, navigate to the app overview page.  
-   - Under the **Basic Information** section, find your Client ID and Client Secret.  
-   - Copy these values and store them in the `apps.yaml` file under `spotify_client_id` and `spotify_client_secret`.
+3. **Choose `Web API**`:
+
+* From the `Which API/SDKs are you planning to use` section, select `Web API` and press `SAVE`.
+
+4. **Copy Client ID and Client Secret**:
+
+* Once your app is created, navigate to the app overview page.
+* Under the **Basic Information** section, find your Client ID and Client Secret.
+* Copy these values and store them in the `apps.yaml` file under `spotify_client_id` and `spotify_client_secret`.
 
 </details>
 <details>
@@ -551,15 +601,17 @@ Obtain your Spotify Client ID and Client Secret from the Spotify Developer Dashb
 Generate a personal API key from the Discogs website.
 
 #### **Steps**
-1. **Log in to Discogs**:  
-   Go to the [Discogs website](https://www.discogs.com/) and log in with your account.
 
-2. **Create a Personal Key**:  
-   - Navigate to the [Discogs API documentation](https://www.discogs.com/developers/).  
-   - Follow the instructions to create a new personal key (no application creation required).
+1. **Log in to Discogs**:
+Go to the [Discogs website](https://www.discogs.com/) and log in with your account.
+2. **Create a Personal Key**:
 
-3. **Store the Key**:  
-   - Copy the generated key and store it in the `apps.yaml` file under `discogs`.
+* Navigate to the [Discogs API documentation](https://www.discogs.com/developers/).
+* Follow the instructions to create a new personal key (no application creation required).
+
+3. **Store the Key**:
+
+* Copy the generated key and store it in the `apps.yaml` file under `discogs`.
 
 </details>
 <details>
@@ -568,17 +620,19 @@ Generate a personal API key from the Discogs website.
 Obtain an API key by creating an application on the Last.fm developer site.
 
 #### **Steps**
-1. **Log in to Last.fm**:  
-   Go to the [Last.fm website](https://www.last.fm/) and log in with your account.
 
-2. **Create an Application**:  
-   - Navigate to the [Last.fm API documentation](https://www.last.fm/api).  
-   - Follow the instructions to create a new application.  
-   - Provide a name and brief description for your application.
+1. **Log in to Last.fm**:
+Go to the [Last.fm website](https://www.last.fm/) and log in with your account.
+2. **Create an Application**:
 
-3. **Obtain API Key**:  
-   - Once your application is created, you’ll receive an API key and secret.  
-   - Copy the API key and store it in the `apps.yaml` file under `last.fm`.
+* Navigate to the [Last.fm API documentation](https://www.last.fm/api).
+* Follow the instructions to create a new application.
+* Provide a name and brief description for your application.
+
+3. **Obtain API Key**:
+
+* Once your application is created, you’ll receive an API key and secret.
+* Copy the API key and store it in the `apps.yaml` file under `last.fm`.
 
 </details>
 <details>
@@ -587,12 +641,13 @@ Obtain an API key by creating an application on the Last.fm developer site.
 Generate a Client ID and Client Secret from the TIDAL developer dashboard.
 
 #### **Steps**
-1. **Create an Application**:  
-   Go to the [TIDAL Dashboard](https://developer.tidal.com/dashboard) and log in with your TIDAL account.
 
-2. **Obtain API Key**:  
-   - Once your application is created, you’ll be provided with a Client ID and Client Secret.  
-   - Copy these values and store them in the `apps.yaml` file under `tidal_client_id` and `tidal_client_secret`.
+1. **Create an Application**:
+Go to the [TIDAL Dashboard](https://developer.tidal.com/dashboard) and log in with your TIDAL account.
+2. **Obtain API Key**:
+
+* Once your application is created, you’ll be provided with a Client ID and Client Secret.
+* Copy these values and store them in the `apps.yaml` file under `tidal_client_id` and `tidal_client_secret`.
 
 </details>
 <details>
@@ -601,12 +656,13 @@ Generate a Client ID and Client Secret from the TIDAL developer dashboard.
 Obtain a free API key to ensure reliable AI image generation.
 
 #### **Steps**
-1. **Log in to Pollinations.ai**:
-   Go to [pollinations.ai](https://pollinations.ai/login) and log in (usually via GitHub).
 
+1. **Log in to Pollinations.ai**:
+Go to [pollinations.ai](https://pollinations.ai/login) and log in (usually via GitHub).
 2. **Copy API Key**:
-   - Once logged in, copy the API key displayed on the dashboard.
-   - Store it in the `apps.yaml` file under `pollinations`.
+
+* Once logged in, copy the API key displayed on the dashboard.
+* Store it in the `apps.yaml` file under `pollinations`.
 
 </details>
 
@@ -618,24 +674,26 @@ The sensor `sensor.pixoo64_media_data` is a virtual entity created in Home Assis
 
 Below is a detailed breakdown of all the attributes provided by the `sensor.pixoo64_media_data` sensor:
 
-| Attribute                  | Description                                                                                   | Example Value                                                                 |
-|----------------------------|-----------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------|
-| `artist`                   | The original name of the artist.                                                              | `"Katy Perry"`                                                                |
-| `media_title`              | The original title of the media (track or album).                                             | `"OK"`                                                                        |
-| `font_color`               | The color of the font displayed on the PIXOO64 screen.                                        | `"#7fff00"`                                                                   |
-| `background_color_brightness` | The brightness level of the background color.                                              | `128`                                                                         |
-| `background_color`         | The color of the lower part of the background (hexadecimal format).                           | `"#003cb2"`                                                                   |
-| `background_color_rgb`     | The RGB values of the background color (lower part).                                          | `[0, 60, 178]`                                                                |
-| `color_alternative`        | The most common color in the image (hexadecimal format).                                      | `"#4f7cb7"`                                                                   |
-| `color_alternative_rgb`    | The RGB values of the most common color in the image.                                         | `[120, 59, 11]`                                                               |
-| `images_in_cache`          | The current number of images stored in memory cache.                                          | `7`                                                                           |
-| `image_memory_cache`       | The total memory used by cached images (in KB or MB).                                         | `"114.71 KB"`                                                                 |
-| `process_duration`         | The time it takes to process and send the image to the PIXOO64 screen (in seconds).           | `2.49 seconds`                                                                |
-| `spotify_frames`           | The number of frames in the Spotify animation (if applicable).                                | `0`                                                                           |
-| `pixoo_channel`            | The channel number used by the PIXOO64 device.                                                | `0`                                                                           |
-| `image_source`             | The source of the image (e.g., "Original," "Spotify," "AI").                                  | `"Original"`                                                                  |
-| `image_url`                | The URL of the image used for the album art (if available).                                   | `"http://homeassistant.local:8123/api/media_player_proxy/..."`                |
-| `lyrics`                | Lyrics (if available).                                   | `[]`                |
+| Attribute | Description | Example Value |
+| --- | --- | --- |
+| `artist` | The original name of the artist. | `"Katy Perry"` |
+| `media_title` | The original title of the media (track or album). | `"OK"` |
+| `font_color` | The color of the font displayed on the PIXOO64 screen. | `"#7fff00"` |
+| `background_color_brightness` | The brightness level of the background color. | `128` |
+| `background_color` | The color of the lower part of the background (hexadecimal format). | `"#003cb2"` |
+| `background_color_rgb` | The RGB values of the background color (lower part). | `[0, 60, 178]` |
+| `color_alternative` | The most common color in the image (hexadecimal format). | `"#4f7cb7"` |
+| `color_alternative_rgb` | The RGB values of the most common color in the image. | `[120, 59, 11]` |
+| `images_in_cache` | The current number of images stored in memory cache. | `7` |
+| `image_memory_cache` | The total memory used by cached images (in KB or MB). | `"114.71 KB"` |
+| `process_duration` | The time it takes to process and send the image to the PIXOO64 screen (in seconds). | `2.49 seconds` |
+| `spotify_frames` | The number of frames in the Spotify animation (if applicable). | `0` |
+| `pixoo_channel` | The channel number used by the PIXOO64 device. | `0` |
+| `image_source` | The source of the image (e.g., "Original," "Spotify," "AI"). | `"Original"` |
+| `image_url` | The URL of the image used for the album art (if available). | `"http://homeassistant.local:8123/api/media_player_proxy/..."` |
+| `lyrics` | Lyrics (if available). | `[]` |
+| `progress_bar_active` | Returns True if the progress bar is currently visible. | `True` |
+| `progress_bar_color` | Returns the active color of the progress bar. | `"#FFA000"` |
 
 ### **Example Sensor Output**
 
@@ -662,9 +720,10 @@ process_duration: 3.49 seconds
 spotify_frames: 0
 pixoo_channel: 0
 image_source: Last.FM
-image_url: >-
-  https://lastfm.freetls.fastly.net/i/u/300x300/1903a3660115ea8295053103419e573c.png
+image_url: "[https://lastfm.freetls.fastly.net/i/u/300x300/1903a3660115ea8295053103419e573c.png](https://lastfm.freetls.fastly.net/i/u/300x300/1903a3660115ea8295053103419e573c.png)"
 lyrics: []
+progress_bar_active: True
+progress_bar_color: "#ff00ff"
 
 ```
 
@@ -707,8 +766,8 @@ Wait for the PIXOO64 to finish initializing. The script is designed to recover, 
 2. **Verify Media Player Entity ID:** - Double-check the `media_player` entity ID in your `apps.yaml` file. It must match the entity ID of your media player in Home Assistant exactly.
 3. **Check Network Connectivity:** - Ensure the PIXOO64 device is connected to the same Wi-Fi network as your Home Assistant instance.
 4. **Check AppDaemon Logs:**
-* Go to the AppDaemon add-on logs. The log often contains the exact reason why the script failed (e.g., connection timeout, missing configuration).
 
+* Go to the AppDaemon add-on logs. The log often contains the exact reason why the script failed (e.g., connection timeout, missing configuration).
 
 5. **Restart AppDaemon:** - Restart the AppDaemon add-on in Home Assistant to ensure the script is running correctly.
 
@@ -729,12 +788,12 @@ Wait for the PIXOO64 to finish initializing. The script is designed to recover, 
 1. **Check Metadata Support:** - Verify that your media player provides album art metadata. Some players (e.g., generic radio streams) may not include album art.
 2. **Verify API Keys:** - Ensure that all required API keys for the services you choose (Spotify, Discogs, Last.fm, TIDAL) are correctly entered in the `apps.yaml` file. Refer to the [API Keys](https://www.google.com/search?q=%23api-keys) section for instructions on obtaining these keys.
 3. **Enable Fallback Options:** - If album art is unavailable, ensure that fallback options like MusicBrainz or AI image generation are enabled in the configuration:
+
 ```yaml
 musicbrainz: True
 ai_fallback: "turbo"
 
 ```
-
 
 4. **Test with Different Tracks:** - Try playing tracks from different sources (e.g., Spotify, local files, Radio stations) to see if the issue persists.
 
@@ -752,24 +811,23 @@ ai_fallback: "turbo"
 #### **Solutions:**
 
 1. **Add Pollinations Key:**
+
 * Obtain a key from [enter.pollinations.ai](https://enter.pollinations.ai/).
 * Add `pollinations: "your_key"` to your `apps.yaml` under the `home_assistant:` section.
 
-
 2. **Verify Configuration:** - Ensure that the `ai_fallback` parameter is set to either `"flux"` or `"turbo"` in your `apps.yaml` file:
+
 ```yaml
 ai_fallback: "turbo"
 
 ```
 
-
 3. **Enable Force AI (Optional):** - If you want to test AI-generated images exclusively to verify the service works, set `force_ai` to `True`:
+
 ```yaml
 force_ai: True
 
 ```
-
-
 
 </details>
 
@@ -784,11 +842,11 @@ force_ai: True
 #### **Solutions:**
 
 1. **Verify Light Entity ID:** - Double-check the `light` parameter in your `apps.yaml` file. It should match the entity ID of your RGB light in Home Assistant:
+
 ```yaml
 light: "light.living_room"
 
 ```
-
 
 2. **Test with Different Images:** - Play tracks with colorful album art to ensure the RGB light sync works as expected (black/white images may result in subtle or no color changes).
 
@@ -805,11 +863,11 @@ light: "light.living_room"
 #### **Solutions:**
 
 1. **Reduce Image Cache Size:** - Lower the `images_cache` value in your `apps.yaml` file to reduce memory usage:
+
 ```yaml
 images_cache: 10
 
 ```
-
 
 2. **Optimize Power Supply:** - Use a USB charger with an output of **3A** for optimal performance. Limit screen brightness to no more than **90%** if using a lower-voltage charger.
 3. **Reboot Wi-Fi Router:** - If the PIXOO64 responds slowly, reboot your Wi-Fi router to improve network performance.
@@ -847,17 +905,18 @@ images_cache: 10
 
 1. **Verify Media Player Support:** - Ensure that your media player supports synchronized lyrics. The media player entity must contain these attributes: `media_duration`, `media_artist`, and `media_title`.
 2. **Enable Lyrics in Configuration:** - Set the `lyrics` parameter to `True` in your `apps.yaml` file:
+
 ```yaml
 lyrics: True
 
 ```
-
 
 3. **Check Font Settings:** - Ensure that the `lyrics_font` parameter is set to a valid font ID (e.g., 2, 32, 52).
 
 </details>
 
 ---
+
 ### **⚠️ Disclaimer**
 
 *This software is **not** an official product from Divoom. As a result, Divoom bears **no responsibility** for any damages or issues arising from the use of this script. Additionally, Divoom does **not** offer end-user support for this script. Please utilize it at your own risk.*
