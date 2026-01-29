@@ -28,65 +28,77 @@ pixoo64_media_album_art:
 # Full Configuration
 # ------------------
 pixoo64_media_album_art:
-    module: pixoo64_media_album_art
-    class: Pixoo64_Media_Album_Art
-    home_assistant:
-        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
-        media_player: "media_player.era300"         # The entity ID of your media player.
-        toggle: "input_boolean.pixoo64_album_art"   # An input boolean to enable or disable the script's execution.
-        pixoo_sensor: "sensor.pixoo64_media_data"   # A sensor to store extracted media data.
-        lyrics_sync_entity: "input_number.pixoo64_album_art_lyrics_sync"    # Lyics sync
-        mode_select: "input_select.pixoo64_album_art_display_mode"          # A sensor to store display modes
-        crop_select: "input_select.pixoo64_album_art_crop_mode"             # A sensor to store the crop display modes
-        temperature_sensor: "sensor.temperature"    # HomeAssistant Temperature sensor name instead of the Divoom weather.
-        light: "light.living_room"                  # The entity ID of an RGB light to synchronize with the album art colors.
-        ai_fallback: "turbo"                        # The AI model to use for generating alternative album art when needed (supports 'flux' or 'turbo').
-        force_ai: False                             # If True, only AI-generated images will be displayed all the time.
-        musicbrainz: True                           # If True, attempts to find a fallback image on MusicBrainz if other sources fail.
-        spotify_client_id: False                    # Your Spotify API client ID (needed for Spotify features). Obtain from https://developers.spotify.com
-        spotify_client_secret: False                # Your Spotify API client secret (needed for Spotify features).
-        tidal_client_id: False                      # Your TIDAL API client ID. Obrain from https://developer.tidal.com/dashboard
-        tidal_client_secret: False                  # Your TIDAL client secret.
-        last.fm: False                              # Your Last.fm API key. Obtain from https://www.last.fm/api/account/create
-        discogs: False                              # Your Discogs API key. Obtain from https://www.discogs.com/settings/developers
-        pollinations: False                         # Your pollinations API key. Obtain from https://pollinations.ai/
-    pixoo:
-        url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
-        full_control: True                          # If True, the script will control the Pixoo64's on/off state in sync with the media player's play/pause.
-        contrast: True                              # If True, applies a 50% contrast filter to the images displayed on the Pixoo.
-        sharpness: False                            # If True, add sharpness effect.
-        colors: False                               # If True, enhanced colors.
-        kernel: False                               # If True, add embos/edge effect.
-        special_mode: False                         # Show day, time and temperature above in upper bar.
-        info: False                                 # Show information while fallback.
-        temperature: True                           # Show temeprature
-        clock: True                                 # If True, a clock is displayed in the top corner of the screen.
-        clock_align: "Right"                        # Clock alignment: "Left" or "Right".
-        tv_icon: True                               # If True, displays a TV icon when audio is playing from a TV source.
-        lyrics: False                               # If True, attempts to display lyrics on the Pixoo64 (show_text and clock will be disabled).
-        lyrics_font: 2                              # Recommend values: 2, 4, 32, 52, 58, 62, 48, 80, 158, 186, 190, 590. More values can be found at https://app.divoom-gz.com/Device/GetTimeDialFontList (you need ID value)
-        limit_colors: False                         # Reduces the number of colors in the picture from 4 to 256, or set it to False for original colors.
-        spotify_slide: False                        # If True, forces an album art slide (requires a Spotify client ID and secret). Note: clock and title will be disabled in this mode.
-        images_cache: 25                            # The number of processed images to keep in the memory cache. Use wisely to avoid memory issues (each image is approximately 17KB).
-        show_text:
-            enabled: False                          # If True, displays the artist and title of the current track.
-            clean_title: True                       # If True, removes "Remastered," track numbers, and file extensions from the title.
-            text_background: True                   # If True, adjusts the background color behind the text for improved visibility.
-            special_mode_spotify_slider: False      # Create animation album art slider
-            force_font_color: False                 # Or HEX value, example: "#000000" for black or "#FFFFFF" for white.
-            top_text: True                          # If True, show text (Artist/Title) at the top bar
-        crop_borders:
-            enabled: True                           # If True, attempts to crop any borders from the album art.
-            extra: True                             # If True, applies an enhanced border cropping algorithm.
-    wled:
-        wled_ip: "192.168.86.55"                    # Your WLED IP Adress
-        brightness: 255                             # 0 to 255
-        effect: 38                                  # 0 to 186 (Effect ID - https://kno.wled.ge/features/effects/)
-        effect_speed: 50                            # 0 to 255
-        effect_intensity: 128                       # 0 to 255
-        palette: 0                                  # 0 to 70 (palette ID - https://kno.wled.ge/features/palettes/)
-        sound_effect: 0                             # Setting of the sound simulation type for audio enhanced effects (0: 'BeatSin', 1: 'WeWillRockYou', 2: '10_3', 3: '14_3')
-        only_at_night: False                        # Runs only at night hours
+  module: pixoo64_media_album_art
+  class: Pixoo64_Media_Album_Art
+  
+  # --- Home Assistant Configuration ---
+  home_assistant:
+    ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL
+    media_player: "media_player.era300"         # Your media player entity ID
+    toggle: "input_boolean.pixoo64_album_art"   # Main On/Off switch
+    pixoo_sensor: "sensor.pixoo64_media_data"   # Sensor to expose data back to HA
+    
+    # Optional Helpers (Create in HA first)
+    lyrics_sync_entity: "input_number.pixoo64_album_art_lyrics_sync"
+    mode_select: "input_select.pixoo64_album_art_display_mode"
+    crop_select: "input_select.pixoo64_album_art_crop_mode"
+    
+    # External Sensors & Lights
+    temperature_sensor: "sensor.temperature"    # For displaying temperature
+    light: "light.living_room"                  # RGB light to sync with album colors
+
+    # --- API Keys (Optional) ---
+    # spotify_client_id: "YOUR_ID"
+    # spotify_client_secret: "YOUR_SECRET"
+    # tidal_client_id: "YOUR_ID"
+    # tidal_client_secret: "YOUR_SECRET"
+    # last.fm: "YOUR_API_KEY"
+    # discogs: "YOUR_TOKEN"
+    # pollinations: "YOUR_API_KEY" # Optional for AI art
+
+  # --- Pixoo Device Configuration ---
+  pixoo:
+    url: "192.168.86.21"                        # IP Address of your Pixoo64
+    full_control: True                          # Turn screen on/off with media
+    
+    # Image Filters
+    contrast: True
+    sharpness: False
+    colors: False
+    
+    # Display Features
+    clock: True
+    clock_align: "Right"                        # "Left" or "Right"
+    temperature: True
+    lyrics: False                               # Show lyrics by default?
+    lyrics_font: 2                              # Font ID for lyrics
+    
+    # --- Text Overlay Settings ---
+    show_text:
+      enabled: False                            # Show Artist/Title by default
+      clean_title: True                         # Remove "Remastered", etc.
+      text_background: True                     # Add dark background behind text
+      top_text: True                            # Show text at top instead of bottom
+      
+    # --- Crop Settings ---
+    crop_borders:
+      enabled: True                             # Crop black borders
+      extra: True                               # Aggressive cropping (Face focus)
+
+  # --- WLED Integration (Optional) ---
+  wled:
+    wled_ip: "192.168.86.55"
+    brightness: 255
+    effect: 38
+    only_at_night: False
+
+  # --- Progress Bar Configuration ---
+  progress_bar:
+    enabled: True                               # Master switch for the feature
+    entity: "input_boolean.pixoo64_progress_bar" # Helper to toggle via dashboard
+    color: "match"                              # "match" (auto-contrast) or hex "#FF0000"
+    y_offset: 64                                # Vertical position (7-64)
+
 """
 
 import aiohttp
@@ -266,19 +278,34 @@ class Config:
             'palette': 0,
             'sound_effect': 0,
         },
+        'progress_bar': {
+            'progress_bar_enabled': ('enabled', True),
+            'progress_bar_entity': ('entity', 'input_boolean.pixoo64_progress_bar'),
+            'progress_bar_character': ('character', '-'),
+            'progress_bar_font': ('font', 190),
+            'progress_bar_resolution': ('resolution', 21),
+            'progress_bar_color': ('color', 'match'),
+            'progress_bar_y_offset': ('y_offset', 64),
+            'progress_bar_exclude_modes': ('exclude_modes', [])
+        },
     }
 
     NESTED_YAML_STRUCTURE_MAP: Dict[str, str] = {
         'show_text': 'pixoo',
         'crop_borders': 'pixoo',
+        'progress_bar': 'pixoo64_media_album_art' # Fallback mapping
     }
 
     def __init__(self, app_args: Dict[str, Any]):
         for section_key_in_defaults, defaults_for_section in self.SECTION_DEFAULTS.items():
             user_data_for_this_section = {}
+            # Try to find config in nested structure or root
             parent_yaml_key = self.NESTED_YAML_STRUCTURE_MAP.get(section_key_in_defaults)
-
-            if parent_yaml_key:
+            
+            # Special handling for progress_bar to allow it at root or inside pixoo
+            if section_key_in_defaults == 'progress_bar':
+                user_data_for_this_section = app_args.get('progress_bar', {})
+            elif parent_yaml_key:
                 parent_config_from_yaml = app_args.get(parent_yaml_key, {})
                 user_data_for_this_section = parent_config_from_yaml.get(section_key_in_defaults, {})
             else:
@@ -298,6 +325,7 @@ class Config:
         self._fix_config_args(getattr(self, 'url', None))
         self._validate_config()
 
+        # Store originals
         self.original_crop_borders = self.crop_borders
         self.original_crop_extra = self.crop_extra
         self.original_show_lyrics = self.show_lyrics
@@ -403,6 +431,7 @@ class ImageProcessor:
     def __init__(self, config: "Config", session: aiohttp.ClientSession): 
         self.config = config
         self.session = session
+        self.hass = hass
         self.image_cache: OrderedDict[str, dict] = OrderedDict() 
         self.cache_size: int = config.images_cache 
         
@@ -654,56 +683,39 @@ class ImageProcessor:
             return None
 
     def text_clock_img(self, img: Image.Image, brightness_lower_part: float, media_data: "MediaData") -> Image.Image: 
-        if media_data.playing_tv or self.config.special_mode or self.config.spotify_slide:
-            return img
+        if media_data.playing_tv or self.config.special_mode or self.config.spotify_slide: return img
 
         if media_data.lyrics and self.config.show_lyrics and self.config.text_bg and brightness_lower_part != None and not media_data.playing_radio:
             enhancer_lp = ImageEnhance.Brightness(img)
-            img = enhancer_lp.enhance(0.55)  
+            img = enhancer_lp.enhance(0.55)
             enhancer = ImageEnhance.Contrast(img)
             img = enhancer.enhance(0.5)
             return img
 
-        # 1. Clock Background
         if bool(self.config.show_clock and self.config.text_bg) and not self.config.show_lyrics:
-            if self.config.top_text:
-                # Text is Top, so Clock is Bottom (y=55 to y=62)
-                lpc = (43, 55, 62, 62) if self.config.clock_align == "Right" else (2, 55, 21, 62)
-            else:
-                # Default: Clock is Top (y=2 to y=9)
-                lpc = (43, 2, 62, 9) if self.config.clock_align == "Right" else (2, 2, 21, 9)
+            if self.config.top_text: lpc = (43, 55, 62, 62) if self.config.clock_align == "Right" else (2, 55, 21, 62)
+            else: lpc = (43, 2, 62, 9) if self.config.clock_align == "Right" else (2, 2, 21, 9)
+            lower_part_img = img.crop(lpc); enhancer_lp = ImageEnhance.Brightness(lower_part_img); lower_part_img = enhancer_lp.enhance(0.3); img.paste(lower_part_img, lpc)
+
+        if bool(self.config.temperature and self.config.text_bg) and not self.config.show_lyrics:
+            if self.config.top_text: lpc = (2, 55, 18, 62) if self.config.clock_align == "Right" else (47, 55, 63, 62)
+            else: lpc = (2, 2, 18, 9) if self.config.clock_align == "Right" else (47, 2, 63, 9)
+            lower_part_img = img.crop(lpc); enhancer_lp = ImageEnhance.Brightness(lower_part_img); lower_part_img = enhancer_lp.enhance(0.3); img.paste(lower_part_img, lpc)
+
+        if self.config.text_bg and self.config.show_text and not self.config.show_lyrics and not media_data.playing_tv:
+            if self.config.top_text: lpc = (0, 0, 64, 16)
+            else: lpc = (0, 48, 64, 64)
+            lower_part_img = img.crop(lpc); enhancer_lp = ImageEnhance.Brightness(lower_part_img); lower_part_img = enhancer_lp.enhance(brightness_lower_part); img.paste(lower_part_img, lpc)
+
+        # --- DARK BACKGROUND FOR PROGRESS BAR (Dynamic Check) ---
+        if getattr(media_data, 'show_progress_bar', False):# and self.config.text_bg:
+            y_start = self.config.progress_bar_y_offset - 1
+            lpc = (0, y_start, 64, y_start+1)
             
             lower_part_img = img.crop(lpc)
             enhancer_lp = ImageEnhance.Brightness(lower_part_img)
-            lower_part_img = enhancer_lp.enhance(0.3)
-            img.paste(lower_part_img, lpc)
-
-        # 2. Temperature Background
-        if bool(self.config.temperature and self.config.text_bg) and not self.config.show_lyrics:
-            if self.config.top_text:
-                # Text is Top, so Temp is Bottom (y=55 to y=62)
-                lpc = (2, 55, 18, 62) if self.config.clock_align == "Right" else (47, 55, 63, 62)
-            else:
-                # Default: Temp is Top (y=2 to y=9)
-                lpc = (2, 2, 18, 9) if self.config.clock_align == "Right" else (47, 2, 63, 9)
-                
-            lower_part_img = img.crop(lpc)
-            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
-            lower_part_img = enhancer_lp.enhance(0.3)
-            img.paste(lower_part_img, lpc)
-
-        # 3. Text (Artist/Title) Background
-        if self.config.text_bg and self.config.show_text and not self.config.show_lyrics and not media_data.playing_tv:
-            if self.config.top_text:
-                # Text is Top (y=0 to y=16)
-                lpc = (0, 0, 64, 16)
-            else:
-                # Default: Text is Bottom (y=48 to y=64)
-                lpc = (0, 48, 64, 64)
-                
-            lower_part_img = img.crop(lpc)
-            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
-            lower_part_img = enhancer_lp.enhance(brightness_lower_part)
+            lower_part_img = enhancer_lp.enhance(0.4) 
+            
             img.paste(lower_part_img, lpc)
             
         return img
@@ -1348,7 +1360,7 @@ class ImageProcessor:
         return img_copy.convert("RGB")
 
 class LyricsProvider:
-    """Provides lyrics with 6-Line Limit, Filler Removal, and Stateless Seek Handling."""
+    """Provides lyrics with Smart Scheduling logic (Event Based)."""
 
     def __init__(self, config: "Config", session: aiohttp.ClientSession):
         self.config = config
@@ -1364,10 +1376,6 @@ class LyricsProvider:
         
         # --- TRACKING STATE ---
         self.current_frame_index: int = -1  
-        self.last_sent_hash: int = 0        
-        self.is_in_gap_state: bool = True
-        self.update_lock = asyncio.Lock()
-
         self.filler_regex = re.compile(r"(?:[\s\W]+(?:oh+|ooh+|yeah|yea|woah|la+|na+)+[\W]*)+$", re.IGNORECASE)
 
     async def get_lyrics(self, artist: Optional[str], title: str, album: Optional[str] = None, duration: int = 0) -> list[dict]:
@@ -1433,8 +1441,6 @@ class LyricsProvider:
         self.visual_timeline = []
         self.current_song_key = None
         self.current_frame_index = -1
-        self.last_sent_hash = 0
-        self.is_in_gap_state = True
 
     def _parse_lrc(self, lrc_text: str) -> list[dict]:
         if not lrc_text: return []
@@ -1513,8 +1519,6 @@ class LyricsProvider:
     def _build_visual_timeline(self, raw_lyrics: list[dict]):
         self.visual_timeline = []
         self.current_frame_index = -1
-        self.is_in_gap_state = True
-        self.last_sent_hash = 0
         
         if not raw_lyrics: return
         
@@ -1585,13 +1589,11 @@ class LyricsProvider:
         if len(final_render_lines) >= 6:
             font_height = 10
             block_gap = 0
-            current_y = 1 # Start at the very top (Y=1) to ensure Line 6 fits
+            current_y = 1 
         else:
             font_height = 12
             block_gap = 2
-            num_gaps = sum(1 for _, is_new in final_render_lines if is_new)
-            total_h = (len(final_render_lines) * font_height) + (num_gaps * block_gap)
-            current_y = (64 - total_h) // 2
+            current_y = (64 - ((len(final_render_lines) * font_height) + (sum(1 for _, is_new in final_render_lines if is_new) * block_gap))) // 2
         
         items = []
         for i, (line_text, is_new_block) in enumerate(final_render_lines):
@@ -1609,97 +1611,65 @@ class LyricsProvider:
             
         return items
 
-    async def calculate_position(self, media_data: "MediaData", hass_app: "hass.Hass") -> None:
-        if not media_data.lyrics or not self.visual_timeline or not self.config.show_lyrics:
-            return
+    def get_refresh_plan(self, current_pos: float) -> tuple[Optional[list], float]:
+        """
+        Calculates the current lyric state and the time until the next event.
+        Returns: (layout_items or None, delay_in_seconds)
+        """
+        if not self.visual_timeline:
+            return None, None
 
-        if self.update_lock.locked():
-            return
+        active_index = -1
         
-        async with self.update_lock:
-            try:
-                offset = float(self.config.lyrics_sync)
-            except:
-                offset = 0.0
-
-            if not media_data.media_position_updated_at:
-                return
-
-            now = datetime.now(timezone.utc)
-            elapsed = (now - media_data.media_position_updated_at).total_seconds()
-            current_pos = media_data.media_position + elapsed - offset
-            found_index = -1
-            
-            if self.current_frame_index != -1 and self.current_frame_index < len(self.visual_timeline):
-                frame = self.visual_timeline[self.current_frame_index]
+        # 1. Find if we are INSIDE a lyric line
+        # Optimization: Check current frame first
+        if self.current_frame_index != -1 and self.current_frame_index < len(self.visual_timeline):
+            frame = self.visual_timeline[self.current_frame_index]
+            if frame['start'] <= current_pos < frame['end']:
+                active_index = self.current_frame_index
+        
+        # If not found, search all
+        if active_index == -1:
+            for i, frame in enumerate(self.visual_timeline):
                 if frame['start'] <= current_pos < frame['end']:
-                    found_index = self.current_frame_index
+                    active_index = i
+                    break
+                if frame['start'] > current_pos:
+                    break
+        
+        # 2. Case A: We are displaying a lyric
+        if active_index != -1:
+            self.current_frame_index = active_index
+            frame = self.visual_timeline[active_index]
             
-            if found_index == -1:
-                for i, frame in enumerate(self.visual_timeline):
-                    if frame['start'] <= current_pos < frame['end']:
-                        found_index = i
-                        break
+            # Calculate when this line ENDS
+            next_event_time = frame['end']
+            
+            # Optimization: If next line starts almost immediately, extend time to avoid flicker
+            if active_index + 1 < len(self.visual_timeline):
+                next_start = self.visual_timeline[active_index + 1]['start']
+                if next_start - next_event_time < 0.2:
+                    next_event_time = next_start
 
-                    if frame['start'] > current_pos:
-                        break
+            delay = max(0.1, next_event_time - current_pos)
+            return frame['layout'], delay
 
-            if found_index != -1:
-                self.is_in_gap_state = False
-                
-                new_hash = hash((found_index, media_data.lyrics_font_color))
-                
-                if found_index != self.current_frame_index or self.last_sent_hash != new_hash:
-                    self.current_frame_index = found_index
-                    frame = self.visual_timeline[found_index]
-                    await self._send_payload(frame['layout'], media_data.lyrics_font_color, hass_app, found_index)
-                    self.last_sent_hash = new_hash
-            else:
-                if not self.is_in_gap_state:
-                    await self._send_payload([], media_data.lyrics_font_color, hass_app, -999)
-                    self.is_in_gap_state = True
-                    self.current_frame_index = -1
-                    self.last_sent_hash = 0
+        # 3. Case B: We are in a Gap (Silence)
+        self.current_frame_index = -1
+        
+        # Find when the NEXT line starts
+        next_event_time = -1
+        for frame in self.visual_timeline:
+            if frame['start'] > current_pos:
+                next_event_time = frame['start']
+                break
+        
+        if next_event_time != -1:
+            delay = max(0.1, next_event_time - current_pos)
+            return [], delay # Return empty list = Clear screen
 
-    async def _send_payload(self, layout_items: list, color: str, hass_app, target_index: int):
-        if target_index != -999 and target_index != self.current_frame_index:
-            return
-
-        pixoo_items = []
-        for i in range(6):
-            if i < len(layout_items):
-                item = layout_items[i]
-                text_string = item['text']
-                y_pos = item['y']
-                direction = item['dir']
-            else:
-                text_string = ""
-                y_pos = 0
-                direction = 0
-
-            pixoo_items.append({
-                "TextId": i + 1,
-                "type": 22,
-                "x": 0,
-                "y": y_pos,
-                "dir": direction,
-                "font": self.config.lyrics_font, 
-                "TextWidth": 64,
-                "Textheight": 16,
-                "speed": 100,
-                "align": 2,
-                "TextString": text_string,
-                "color": color
-            })
-
-        payload = {
-            "Command": "Draw/SendHttpItemList", 
-            "ItemList": pixoo_items
-        }
-        try:
-            await hass_app.pixoo_device.send_command(payload)
-        except Exception:
-            pass
+        # 4. Case C: Song is over (no more lines)
+        return [], None
 
 class MediaData:
     """Data class to hold and update media information.""" 
@@ -1738,6 +1708,9 @@ class MediaData:
         self.picture = None 
         self.select_index_original = None 
         self.lyrics_font_color = "#FFA000"
+        self.background_color = "#000000" 
+        self.progress_bar_color = "#FFFFFF" 
+        self.show_progress_bar = False 
         self.color1 = "00FFAA"
         self.color2 = "AA00FF"
         self.color3 = "FFAA00"
@@ -1752,12 +1725,9 @@ class MediaData:
             media_player = self.config.media_player
             media_state_obj = await hass.get_state(media_player, attribute="all")
             
-            if not media_state_obj:
-                return None
-                
+            if not media_state_obj: return None
             state = media_state_obj.get('state')
-            if state not in ["playing", "on"]:
-                return None
+            if state not in ["playing", "on"]: return None
 
             attributes = media_state_obj.get('attributes', {})
             raw_title = attributes.get('media_title')
@@ -1765,10 +1735,8 @@ class MediaData:
             app_name = attributes.get('app_name')
 
             if raw_title is None or str(raw_title).strip() == "":
-                if app_name and str(app_name).strip() != "":
-                    raw_title = app_name
-                else:
-                    return None
+                if app_name and str(app_name).strip() != "": raw_title = app_name
+                else: return None
 
             # 3. Fallback for Artist
             if (raw_artist is None or str(raw_artist).strip() == "") and app_name:
@@ -1779,35 +1747,36 @@ class MediaData:
             a_check = str(app_name).strip().lower() if app_name else ""
             art_check = str(raw_artist).strip().lower() if raw_artist else ""
 
-            if a_check and t_check == a_check:
-                _LOGGER.debug(f"Ignoring spoofed media (Title == App): {raw_title}")
-                return None
-
-            if art_check and t_check == art_check:
-                _LOGGER.debug(f"Ignoring spoofed media (Title == Artist): {raw_title}")
-                return None
-
-            # --- END VALIDATION ---
+            if a_check and t_check == a_check: return None
+            if art_check and t_check == art_check: return None
 
             self.title_original = raw_title
             self.artist = raw_artist if raw_artist else ""
+            
+            try:
+                self.media_position = float(attributes.get('media_position', 0))
+                self.media_duration = float(attributes.get('media_duration', 0))
+            except (ValueError, TypeError):
+                self.media_position = 0
+                self.media_duration = 0
 
-            self.media_position = attributes.get('media_position', 0)
-            self.media_duration = attributes.get('media_duration', 0)
-            
-            # --- IMAGE PATH FIX ---
+            if self.config.progress_bar_enabled:
+                pb_state = await hass.get_state(self.config.progress_bar_entity)
+                is_toggled_on = (str(pb_state).lower() == 'on') or (pb_state is True)
+                
+                if is_toggled_on and self.media_duration > 0:
+                    self.show_progress_bar = True
+                else:
+                    self.show_progress_bar = False
+            else:
+                self.show_progress_bar = False
+
             original_picture = attributes.get('entity_picture')
-            
-            # Detect local Windows paths (e.g. C:\Users...) or file:// URIs that AppDaemon cannot access
-            # This prevents URL errors and forces the script to use Online Fallback immediately.
             if original_picture:
-                # Check for Windows Drive letters (e.g. C:\) or file:// protocol
                 if re.match(r'^[a-zA-Z]:\\', original_picture) or original_picture.startswith("file://"):
                     _LOGGER.info(f"Local image path detected ({original_picture}). Using fallback sources.")
                     original_picture = None
-            
             self.picture = original_picture
-            # ----------------------
 
             media_content_id = attributes.get('media_content_id')
             media_channel = attributes.get('media_channel')
@@ -1823,17 +1792,15 @@ class MediaData:
             
             # Handle TV
             if self.title_original == "TV":
-                self.artist = "TV"
-                self.title = "TV"
-                self.playing_tv = True
+                self.artist = "TV"; self.title = "TV"; self.playing_tv = True
                 self.picture = "TV_IS_ON_ICON" if self.config.tv_icon_pic else "TV_IS_ON"
                 self.lyrics = []
+                # show_progress_bar is already False because duration is likely 0
                 return self 
 
             self.playing_tv = False
             self.title = self.title_clean
             self.album = album
-            # self.picture already set above
 
             # Radio Logic
             if media_channel and (media_content_id and (media_content_id.startswith("x-rincon") or media_content_id.startswith("aac://http") or media_content_id.startswith("rtsp://"))): 
@@ -1854,7 +1821,6 @@ class MediaData:
 
             if self.config.show_lyrics and not self.config.special_mode and not self.playing_tv and not self.playing_radio:
                 self.lyrics = await self._get_lyrics(self.artist, self.title_original, self.album, self.media_duration)
-                
                 if len(self.lyrics) != self.last_lyrics_len:
                     self.last_group_start_index = -1
                     self.last_group_end_index = -1
@@ -1869,10 +1835,8 @@ class MediaData:
                         val = float(temp_state['state'])
                         unit = temp_state['attributes'].get('unit_of_measurement', '')
                         self.temperature = f"{int(val)}{unit.lower()}"
-                    else:
-                        self.temperature = None
-                except Exception:
-                    self.temperature = None
+                    else: self.temperature = None
+                except Exception: self.temperature = None
 
             return self
 
@@ -1881,18 +1845,11 @@ class MediaData:
             return None
 
     async def _get_lyrics(self, artist: Optional[str], title: str, album: Optional[str], duration: int) -> list[dict]: 
-        """Uses the persistent lyrics provider to fetch lyrics."""
         return await self.lyrics_provider.get_lyrics(artist, title, album, duration)
 
-
     def format_ai_image_prompt(self, artist: Optional[str], title: str) -> str: 
-        """Format prompt for the Pollinations AI image generation API."""
-        if not self.config.pollinations:
-            self.log("Missing Pollinations AI image generation API. Create API: key https://enter.pollinations.ai/")
-            return # Return None explicitly if no key, handled by caller
-        
+        if not self.config.pollinations: return 
         artist_name = artist if artist else 'Pixoo64' 
-
         prompts = [
             f"Album cover art for '{title}' by {artist_name}, highly detailed, digital art style",
             f"Vibrant album cover for '{title}' by {artist_name}, reflecting the mood of the music",
@@ -1905,24 +1862,13 @@ class MediaData:
             f"Dark and moody artwork for '{title}' by {artist_name}, shadows and deep colors",
             f"Futuristic album cover for '{title}' by {artist_name}, sci-fi elements"
         ]
-
-        selected_prompt = random.choice(prompts)
-        # URL encode the prompt for safety
-        encoded_prompt = urllib.parse.quote(selected_prompt)
-        
-        model = self.config.ai_fallback if self.config.ai_fallback else "flux"
-        seed = random.randint(0, 100000)
-        
+        selected_prompt = random.choice(prompts); encoded_prompt = urllib.parse.quote(selected_prompt)
+        model = self.config.ai_fallback if self.config.ai_fallback else "flux"; seed = random.randint(0, 100000)
         url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model={model}&width=1024&height=1024&nologo=true&seed={seed}&key={self.config.pollinations}"
-        
         return url
 
-
     def clean_title(self, title: str) -> str: 
-        """Clean up the title by removing common patterns."""
-        if not title:
-            return title
-
+        if not title: return title
         patterns = [
             r'[\(\[][^)\]]*remaster(?:ed)?[^)\]]*[\)\]]',
             r'[\(\[][^)\]]*remix(?:ed)?[^)\]]*[\)\]]',
@@ -1939,14 +1885,10 @@ class MediaData:
             r'[\(\[][^)\]]*\d{4}[^)\]]*[\)\]]',
             r'^\d+\s*[\.-]\s*',
             r'\.(mp3|m4a|wav|flac)$',]
-
         cleaned_title = title
-        for pattern in patterns:
-            cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
-
+        for pattern in patterns: cleaned_title = re.sub(pattern, '', cleaned_title, flags=re.IGNORECASE)
         cleaned_title = ' '.join(cleaned_title.split())
         return cleaned_title
-
 
 class FallbackService:
     """Handles fallback logic to retrieve album art from various sources if the original picture is not available.""" 
@@ -2806,6 +2748,90 @@ class SpotifyService:
             media_data.spotify_frames = 0
             return
 
+class ProgressBarManager:
+    """Manages the calculation, state, and creation of the progress bar entity."""
+
+    def __init__(self, config: "Config", hass: "hass.Hass"):
+        self.config = config
+        self.hass = hass
+        self.current_bar_str = ""
+        self.ensure_entity_exists()
+
+    def ensure_entity_exists(self):
+        """Checks if the control input_boolean exists. Creates or updates it."""
+        entity_id = self.config.progress_bar_entity
+        
+        attributes = {
+            "friendly_name": "Pixoo64 Progress Bar",
+            "icon": "mdi:progress-clock",
+            "conf_character": self.config.progress_bar_character,
+            "conf_resolution": self.config.progress_bar_resolution,
+            "conf_font": self.config.progress_bar_font,
+            "conf_color": self.config.progress_bar_color,
+            "conf_y_position": self.config.progress_bar_y_offset,
+            "conf_excluded_modes": self.config.progress_bar_exclude_modes
+        }
+
+        default_state = "on" if self.config.progress_bar_enabled else "off"
+
+        if not self.hass.entity_exists(entity_id):
+            self.hass.set_state(entity_id, state=default_state, attributes=attributes)
+        else:
+            current_state = self.hass.get_state(entity_id)
+            
+            if str(current_state).lower() not in ['on', 'off']:
+                current_state = default_state
+
+            self.hass.set_state(entity_id, state=current_state, attributes=attributes)
+
+    def calculate(self, position: float, duration: float) -> tuple[str, float]:
+        """Returns: (string_to_display, delay_in_seconds)"""
+        if duration <= 0: return "", None
+
+        max_chars = self.config.progress_bar_resolution
+        ratio = position / duration
+        if ratio > 1: ratio = 1
+        
+        chars_needed = int(ratio * max_chars)
+        self.current_bar_str = self.config.progress_bar_character * chars_needed
+
+        next_char_index = chars_needed + 1
+        if next_char_index > max_chars: return self.current_bar_str, None
+
+        target_time = (next_char_index / max_chars) * duration
+        delay = target_time - position
+        if delay < 0.2: delay = 0.2 
+        
+        return self.current_bar_str, delay
+
+    async def get_payload_item(self, media_data: "MediaData") -> Optional[dict]:
+        """Returns the Pixoo JSON item for the text layer."""
+        if not self.config.progress_bar_enabled: return None
+        
+        state = await self.hass.get_state(self.config.progress_bar_entity)
+        is_on = (str(state).lower() == 'on') or (state is True)
+        
+        text_to_send = ""
+        
+        if is_on and not media_data.playing_tv and not media_data.playing_radio and self.current_bar_str:
+            text_to_send = self.current_bar_str
+
+        color = self.config.progress_bar_color
+        if color == 'match':
+            color = media_data.lyrics_font_color 
+        
+        return {
+            "TextId": 20,
+            "type": 22,
+            "x": 1,
+            "y": self.config.progress_bar_y_offset-7,
+            "dir": 0,
+            "font": self.config.progress_bar_font, 
+            "TextWidth": 64, "Textheight": 10,
+            "speed": 100, "align": 1,
+            "TextString": text_to_send,
+            "color": color
+        }
 
 class Pixoo64_Media_Album_Art(hass.Hass):
     """AppDaemon app to display album art on Divoom Pixoo64 and control related features."""
@@ -2822,7 +2848,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         
         # Scheduler variables
         self.lyrics_active_mode = False 
-        self.scheduler_generation_id = 0 # Unique ID to invalidate old timers
+        self.scheduler_generation_id = 0 
+        
+        # Progress Bar variables
+        self.progress_manager = None
+        self.progress_timer_gen_id = 0
 
     async def initialize(self):
         _LOGGER.info("Initializing Pixoo64 Album Art Display AppDaemon app…")
@@ -2875,6 +2905,16 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if self.entity_exists(self.config.lyrics_sync_entity):
             self.config.lyrics_sync = (await self.get_state(self.config.lyrics_sync_entity)) or self.config.lyrics_sync
             self.listen_state(self._lyrics_sync_changed, self.config.lyrics_sync_entity, attribute="state")
+
+        # --- Progress Bar Init ---
+        self.progress_manager = ProgressBarManager(self.config, self)
+        self.listen_state(self._progress_bar_toggle_changed, self.config.progress_bar_entity)
+
+        # *** KICKSTART LOOP IF PLAYING ***
+        current_state = await self.get_state(self.config.media_player)
+        if current_state in ["playing", "on"]:
+            self.progress_timer_gen_id += 1
+            await self._update_progress_bar_loop()
 
         _LOGGER.info("Initialization complete.")
 
@@ -2972,15 +3012,15 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if mode:
                 m = mode.lower()
                 if not m == "default" and not m == "clean":
-                    self.config.show_lyrics     = ("lyrics" in m) if m else False
-                    self.config.spotify_slide   = ("slider" in m) if m else False
-                    self.config.special_mode    = ("special" in m) if m else False
-                    self.config.show_clock      = ("clock" in m) if m else False
-                    self.config.temperature     = ("temperature" in m) if m else False
-                    self.config.show_text       = ("text" in m) if m else False
-                    self.config.text_bg         = ("background" in m) if m else False
-                    self.config.force_ai        = ("ai" in m) if m else False
-                    self.config.burned          = ("burned" in m) if m else False
+                    self.config.show_lyrics      = ("lyrics" in m) if m else False
+                    self.config.spotify_slide    = ("slider" in m) if m else False
+                    self.config.special_mode     = ("special" in m) if m else False
+                    self.config.show_clock       = ("clock" in m) if m else False
+                    self.config.temperature      = ("temperature" in m) if m else False
+                    self.config.show_text        = ("text" in m) if m else False
+                    self.config.text_bg          = ("background" in m) if m else False
+                    self.config.force_ai         = ("ai" in m) if m else False
+                    self.config.burned           = ("burned" in m) if m else False
 
                     if self.config.force_ai:
                         if "turbo" in m: self.config.ai_fallback = "turbo"
@@ -3032,12 +3072,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     # =========================================================================
 
     def _stop_lyrics_scheduler(self):
-        """
-        Disables the scheduler.
-        Crucially, this logic NEVER calls cancel_timer.
-        It simply changes the Generation ID. When the pending timer fires,
-        it will check the ID, see it's old, and self-terminate silently.
-        """
+        """Disables the lyrics scheduler."""
         self.lyrics_active_mode = False
         self.scheduler_generation_id += 1 # Invalidate any pending timers
 
@@ -3065,36 +3100,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             self._stop_lyrics_scheduler()
 
     async def _timer_callback_wrapper(self, kwargs):
-        """
-        Wrapper executed when timer fires.
-        Checks if the generation ID matches the current one.
-        """
         gen_id = kwargs.get('gen_id')
         if gen_id != self.scheduler_generation_id:
-            # This timer is from an old session/song/seek. Ignore it.
             return
-
         await self._calculate_and_schedule_next()
 
     async def _calculate_and_schedule_next(self):
-        """
-        Calculates the state (Show vs Clear) and schedules the NEXT event.
-        Also performs the immediate update to Pixoo.
-        """
         # Gatekeeper
         if not self.lyrics_active_mode:
             return
 
-        # Increment ID to invalidate any previous schedules that might still be pending
-        # (Though we shouldn't have overlapping ones, this is safe)
         self.scheduler_generation_id += 1
         current_gen_id = self.scheduler_generation_id
 
-        timeline = self.media_data.lyrics_provider.visual_timeline
-        if not timeline:
-            return
-
-        # 1. Calculate Time
+        # 1. Calculate precise position
         if not self.media_data.media_position_updated_at:
             current_track_pos = self.media_data.media_position 
         else:
@@ -3103,56 +3122,141 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             sync_offset = float(self.config.lyrics_sync) if self.config.lyrics_sync else 0.0
             current_track_pos = self.media_data.media_position + elapsed - sync_offset
 
-        # 2. Determine State
-        active_index = -1
-        next_event_time = -1
+        # 2. Get Plan from Provider (Smart Calculation)
+        layout_items, delay = self.media_data.lyrics_provider.get_refresh_plan(current_track_pos)
 
-        for i, frame in enumerate(timeline):
-            if frame['start'] <= current_track_pos < frame['end']:
-                active_index = i
-                break
-
-        if active_index != -1:
-            # --- SHOW LYRIC ---
-            self.media_data.lyrics_provider.current_frame_index = active_index
-            await self.media_data.lyrics_provider._send_payload(
-                timeline[active_index]['layout'], 
-                self.media_data.lyrics_font_color, 
-                self, 
-                active_index
-            )
-
-            next_event_time = timeline[active_index]['end']
+        # 3. Execute Plan (Send to Pixoo)
+        # We only send if layout_items is not None (None means no change/error)
+        if layout_items is not None:
+            # Build the command locally
+            pixoo_items = []
+            font_color = self.media_data.lyrics_font_color
             
-            # Optimization: Skip 'Clear' if next line is immediate
-            if active_index + 1 < len(timeline):
-                next_start = timeline[active_index + 1]['start']
-                if next_start - next_event_time < 0.15:
-                    next_event_time = next_start # Extend directly to next start
-
-        else:
-            # --- CLEAR SCREEN (GAP) ---
-            await self.media_data.lyrics_provider._send_payload(
-                [], 
-                self.media_data.lyrics_font_color, 
-                self, 
-                -999
-            )
-
-            # Find next start
-            for frame in timeline:
-                if frame['start'] > current_track_pos:
-                    next_event_time = frame['start']
-                    break
-        
-        # 3. Schedule Next
-        if next_event_time != -1:
-            delay = next_event_time - current_track_pos
-            delay = max(0, delay)
+            for i in range(6):
+                if i < len(layout_items):
+                    item = layout_items[i]
+                    pixoo_items.append({
+                        "TextId": i + 1, "type": 22, "x": 0, "y": item['y'],
+                        "dir": item['dir'], "font": self.config.lyrics_font, 
+                        "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2,
+                        "TextString": item['text'], "color": font_color
+                    })
+                else:
+                    # Clear unused lines
+                    pixoo_items.append({
+                        "TextId": i + 1, "type": 22, "x": 0, "y": 0, "dir": 0,
+                        "font": self.config.lyrics_font, "TextWidth": 64, "Textheight": 16,
+                        "speed": 100, "align": 2, "TextString": "", "color": font_color
+                    })
             
-            # Schedule the WRAPPER with the current Generation ID
+            # Send only if hash changed to save bandwidth
+            current_hash = hash(str(pixoo_items))
+            if current_hash != self.last_text_payload_hash:
+                await self.pixoo_device.send_command({
+                    "Command": "Draw/SendHttpItemList", 
+                    "ItemList": pixoo_items
+                })
+                self.last_text_payload_hash = current_hash
+
+        # 4. Schedule Next Run
+        if delay is not None:
             self.run_in(self._timer_callback_wrapper, delay, gen_id=current_gen_id)
+        else:
+            # End of song or no lyrics -> Check again in 5 seconds just in case
+            self.run_in(self._timer_callback_wrapper, 5, gen_id=current_gen_id)
+    # ==========================
+    # PROGRESS BAR LOGIC
+    # ==========================
 
+    async def _progress_bar_toggle_changed(self, entity, attribute, old, new, kwargs):
+        """Handle manual toggle of progress bar."""
+        # 1. Update the loop (start or stop timers)
+        await self._update_progress_bar_loop()
+        
+        # 2. Check if media is currently playing
+        state = await self.get_state(self.config.media_player)
+        
+        if state in ["playing", "on"]:
+            # 3. Force Full Refresh
+            # Send old=None to bypass the "if new == old" check and force a refresh
+            await self.state_change_callback(self.config.media_player, "state", None, state, {})
+
+    async def _update_progress_bar_loop(self):
+        # 1. Validate Media State
+        state = await self.get_state(self.config.media_player)
+        if state not in ["playing", "on"]: return
+
+        # 2. Validate Toggle State (Guard Clause)
+        if self.config.progress_bar_enabled:
+            pb_state = await self.get_state(self.config.progress_bar_entity)
+            if str(pb_state).lower() != 'on':
+                return 
+
+        current_mode = await self.get_state(self.config.mode_entity)
+        if current_mode in self.config.progress_bar_exclude_modes: return
+
+        # 3. Calculate Position
+        if not self.media_data.media_position_updated_at:
+            current_pos = self.media_data.media_position
+        else:
+            now = datetime.now(timezone.utc)
+            elapsed = (now - self.media_data.media_position_updated_at).total_seconds()
+            current_pos = self.media_data.media_position + elapsed
+
+        # 4. Get Bar String
+        bar_str, delay = self.progress_manager.calculate(current_pos, self.media_data.media_duration)
+
+        # 5. Refresh Text Layer (Calls the function that was missing!)
+        if self.is_art_visible:
+            await self._rebuild_and_send_text_layer()
+
+        # 6. Schedule Next
+        if delay:
+            self.progress_timer_gen_id += 1
+            self.run_in(self._progress_bar_timer_callback, delay, gen_id=self.progress_timer_gen_id)
+
+    async def _progress_bar_timer_callback(self, kwargs):
+        if kwargs.get('gen_id') != self.progress_timer_gen_id: return
+        await self._update_progress_bar_loop()
+
+    async def _update_progress_bar_loop(self):
+        state = await self.get_state(self.config.media_player)
+        if state not in ["playing", "on"]: return
+
+        if self.config.progress_bar_enabled:
+            pb_state = await self.get_state(self.config.progress_bar_entity)
+            if str(pb_state).lower() != 'on':
+                return 
+
+        current_mode = await self.get_state(self.config.mode_entity)
+        if current_mode in self.config.progress_bar_exclude_modes: return
+
+        if not self.media_data.media_position_updated_at:
+            current_pos = self.media_data.media_position
+        else:
+            now = datetime.now(timezone.utc)
+            elapsed = (now - self.media_data.media_position_updated_at).total_seconds()
+            current_pos = self.media_data.media_position + elapsed
+
+        bar_str, delay = self.progress_manager.calculate(current_pos, self.media_data.media_duration)
+
+        if self.is_art_visible:
+            await self._rebuild_and_send_text_layer()
+
+        if delay:
+            self.progress_timer_gen_id += 1
+            self.run_in(self._progress_bar_timer_callback, delay, gen_id=self.progress_timer_gen_id)
+
+    async def _rebuild_and_send_text_layer(self):
+        """Re-sends the text list including the progress bar without reprocessing image."""
+        font_color = self.media_data.lyrics_font_color
+        bg_color = getattr(self.media_data, 'background_color', '#000000') 
+
+        items = await self._build_text_items_list(self.media_data, font_color, bg_color)
+        
+        if items:
+            await self.pixoo_device.send_command({ "Command": "Draw/SendHttpItemList", "ItemList": items })
+        
     # =========================================================================
     # STATE CALLBACKS & DEBOUNCING
     # =========================================================================
@@ -3179,6 +3283,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
         try:
+            # Progress Bar: Trigger recalculation immediately on Seek
+            if attribute == "media_position":
+                self.progress_timer_gen_id += 1 # Invalidate old timer
+                await self._update_progress_bar_loop()
+
             if new == old or (await self.get_state(self.config.toggle)) != "on":
                 return 
 
@@ -3246,6 +3355,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             
             # Re-evaluate scheduling (handles new track, seek, etc)
             await self._start_or_stop_lyrics_scheduler()
+
+            # *** KICKSTART PROGRESS BAR LOOP (THIS WAS MISSING) ***
+            self.progress_timer_gen_id += 1
+            await self._update_progress_bar_loop()
             
             if not media_data:
                 return
@@ -3285,18 +3398,92 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         finally:
             await asyncio.sleep(0.10)
 
+    async def _build_text_items_list(self, media_data: "MediaData", font_color: str, bg_color: str) -> list:
+        """Helper function that constructs the list of text elements."""
+        text_items_for_display_list = []
+        current_text_id = 0
+        
+        # 1. Special Mode Logic
+        if self.config.special_mode:
+            current_text_id += 1
+            day_item = { "TextId": current_text_id, "type": 14, "x": 3, "y": 1, "dir": 0, "font": 18, "TextWidth": 33, "Textheight": 6, "speed": 100, "align": 1, "color": font_color}
+            text_items_for_display_list.append(day_item)
+
+            current_text_id += 1
+            clock_item_special = { "TextId": current_text_id, "type": 5, "x": 0, "y": 1, "dir": 0, "font": 18, "TextWidth": 64, "Textheight": 6, "speed": 100, "align": 2, "color": bg_color}
+            text_items_for_display_list.append(clock_item_special)
+
+            current_text_id += 1
+            if media_data.temperature:
+                temp_item_special = {"TextId": current_text_id, "type": 22, "x": 44, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color, "TextString": media_data.temperature}
+            else:
+                temp_item_special = {"TextId": current_text_id, "type": 17, "x": 44, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 3, "color": font_color}
+            text_items_for_display_list.append(temp_item_special)
+
+            if (self.config.show_text and not media_data.playing_tv) or (media_data.spotify_slide_pass and self.config.spotify_slide):
+                dir_rtl_artist = 1 if has_bidi(media_data.artist) else 0
+                text_artist_bidi = get_bidi(media_data.artist) if dir_rtl_artist == 1 else media_data.artist
+                current_text_id += 1
+                artist_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 42, "dir": dir_rtl_artist, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_artist_bidi, "color": font_color}
+                text_items_for_display_list.append(artist_item)
+
+                dir_rtl_title = 1 if has_bidi(media_data.title) else 0
+                text_title_bidi = get_bidi(media_data.title) if dir_rtl_title == 1 else media_data.title
+                current_text_id += 1
+                title_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 52, "dir": dir_rtl_title, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_title_bidi, "color": bg_color}
+                text_items_for_display_list.append(title_item)
+        
+        # 2. Standard Mode Logic
+        elif (self.config.show_text or self.config.show_clock or self.config.temperature) and not (self.config.show_lyrics or self.config.spotify_slide):
+            if self.config.top_text:
+                y_text = 0
+                y_info = 56
+            else:
+                y_text = 48
+                y_info = 3
+
+            text_track = (media_data.artist + " - " + media_data.title)
+            if len(text_track) > 14: text_track = text_track + "        "
+            text_string_bidi = get_bidi(text_track) if media_data.artist else get_bidi(media_data.title)
+            dir_rtl = 1 if has_bidi(text_string_bidi) else 0
+
+            if text_string_bidi and self.config.show_text and not media_data.radio_logo and not media_data.playing_tv:
+                current_text_id += 1
+                text_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": y_text, "dir": dir_rtl, "font": 2, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_string_bidi, "color": font_color}
+                text_items_for_display_list.append(text_item)
+
+            if self.config.show_clock:
+                current_text_id += 1
+                x_clock = 44 if self.config.clock_align == "Right" else 3
+                clock_item_normal = { "TextId": current_text_id, "type": 5, "x": x_clock, "y": y_info, "dir": 0, "font": 18, "TextWidth": 32, "Textheight": 16, "speed": 100, "align": 1, "color": font_color}
+                text_items_for_display_list.append(clock_item_normal)
+
+            if self.config.temperature:
+                current_text_id += 1
+                x_temp = 3 if self.config.clock_align == "Right" else 40
+                if media_data.temperature:
+                    temp_item_normal = {"TextId": current_text_id, "type": 22, "x": x_temp, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color, "TextString": media_data.temperature}
+                else:
+                    temp_item_normal = {"TextId": current_text_id, "type": 17, "x": x_temp, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color}
+                text_items_for_display_list.append(temp_item_normal)
+
+        # 3. Progress Bar Integration (async awaited)
+        progress_item = await self.progress_manager.get_payload_item(media_data)
+        if progress_item:
+            text_items_for_display_list.append(progress_item)
+
+        return text_items_for_display_list
+
     async def _process_and_display_image(self, media_data: "MediaData") -> None:
         if media_data.picture == "TV_IS_ON":
             payload = {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
             await self.pixoo_device.send_command(payload)
                 
-            # Turn off ambient lights
             if self.config.light: await self.control_light('off')
             if self.config.wled: await self.control_wled_light('off')
                 
             self.last_text_payload_hash = None
-            self.is_art_visible = False  # Mark state as cleared
-        
+            self.is_art_visible = False
             return 
 
         try:
@@ -3328,6 +3515,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if self.config.light: await self.control_light('off')
                 if self.config.wled: await self.control_wled_light('off')
 
+            final_bar_color = self.config.progress_bar_color
+            if final_bar_color == 'match':
+                final_bar_color = getattr(media_data, 'lyrics_font_color', font_color_from_image_processing)
+            # ----------------------------
+
             sensor_state = f"{media_data.artist} / {media_data.title}"
             new_attributes = {
                 "artist": media_data.artist,
@@ -3345,7 +3537,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "pixoo64_channel": self.select_index if self.select_index != 0 else "0",
                 "image_source": media_data.pic_source,
                 "image_url": media_data.pic_url,
-                "lyrics": media_data.lyrics
+                "lyrics": media_data.lyrics,
+                "progress_bar_active": getattr(media_data, 'show_progress_bar', False),
+                "progress_bar_color": final_bar_color if getattr(media_data, 'show_progress_bar', False) else "inactive"
+                # ------------------------
             }
             
             image_payload = {
@@ -3373,7 +3568,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
                     if media_data.spotify_slide_pass:
                         spotify_animation_took_over_display = True
-                        self.is_art_visible = True # Mark art as visible
+                        self.is_art_visible = True
                         spotify_anim_end_time = time.perf_counter()
                         duration = spotify_anim_end_time - spotify_anim_start_time
                         media_data.process_duration = f"{duration:.2f} seconds (Spotify)"
@@ -3382,81 +3577,26 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     else:
                         await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4})
 
-            text_items_for_display_list = []
-            current_text_id = 0
-            
+            # --- TEXT LAYER CONSTRUCTION ---
             if self.config.force_font_color:
                 text_overlay_font_color = self.config.force_font_color
             elif font_color_from_image_processing:
                 text_overlay_font_color = font_color_from_image_processing
             else:
-                text_overlay_font_color = '#ffff00' # Fallback to Yellow
+                text_overlay_font_color = '#ffff00'
+
+            media_data.background_color = background_color_str
+            media_data.lyrics_font_color = text_overlay_font_color 
             
-            if self.config.special_mode:
-                current_text_id += 1
-                day_item = { "TextId": current_text_id, "type": 14, "x": 3, "y": 1, "dir": 0, "font": 18, "TextWidth": 33, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color}
-                text_items_for_display_list.append(day_item)
-
-                current_text_id += 1
-                clock_item_special = { "TextId": current_text_id, "type": 5, "x": 0, "y": 1, "dir": 0, "font": 18, "TextWidth": 64, "Textheight": 6, "speed": 100, "align": 2, "color": background_color_str}
-                text_items_for_display_list.append(clock_item_special)
-
-                current_text_id += 1
-                if media_data.temperature:
-                    temp_item_special = {"TextId": current_text_id, "type": 22, "x": 44, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color, "TextString": media_data.temperature}
-                else:
-                    temp_item_special = {"TextId": current_text_id, "type": 17, "x": 44, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 3, "color": text_overlay_font_color}
-                text_items_for_display_list.append(temp_item_special)
-
-                if (self.config.show_text and not media_data.playing_tv) or (media_data.spotify_slide_pass and self.config.spotify_slide):
-                    dir_rtl_artist = 1 if has_bidi(media_data.artist) else 0
-                    text_artist_bidi = get_bidi(media_data.artist) if dir_rtl_artist == 1 else media_data.artist
-                    current_text_id += 1
-                    artist_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 42, "dir": dir_rtl_artist, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_artist_bidi, "color": text_overlay_font_color}
-                    text_items_for_display_list.append(artist_item)
-
-                    dir_rtl_title = 1 if has_bidi(media_data.title) else 0
-                    text_title_bidi = get_bidi(media_data.title) if dir_rtl_title == 1 else media_data.title
-                    current_text_id += 1
-                    title_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 52, "dir": dir_rtl_title, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_title_bidi, "color": background_color_str}
-                    text_items_for_display_list.append(title_item)
-        
-            elif (self.config.show_text or self.config.show_clock or self.config.temperature) and not (self.config.show_lyrics or self.config.spotify_slide):
-                if self.config.top_text:
-                    y_text = 0
-                    y_info = 56
-                else:
-                    y_text = 48
-                    y_info = 3
-
-                text_track = (media_data.artist + " - " + media_data.title)
-                if len(text_track) > 14: text_track = text_track + "        "
-                text_string_bidi = get_bidi(text_track) if media_data.artist else get_bidi(media_data.title)
-                dir_rtl = 1 if has_bidi(text_string_bidi) else 0
-
-                if text_string_bidi and self.config.show_text and not media_data.radio_logo and not media_data.playing_tv:
-                    current_text_id += 1
-                    text_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": y_text, "dir": dir_rtl, "font": 2, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_string_bidi, "color": text_overlay_font_color}
-                    text_items_for_display_list.append(text_item)
-
-                if self.config.show_clock:
-                    current_text_id += 1
-                    x_clock = 44 if self.config.clock_align == "Right" else 3
-                    clock_item_normal = { "TextId": current_text_id, "type": 5, "x": x_clock, "y": y_info, "dir": 0, "font": 18, "TextWidth": 32, "Textheight": 16, "speed": 100, "align": 1, "color": text_overlay_font_color}
-                    text_items_for_display_list.append(clock_item_normal)
-
-                if self.config.temperature:
-                    current_text_id += 1
-                    x_temp = 3 if self.config.clock_align == "Right" else 40
-                    if media_data.temperature:
-                        temp_item_normal = {"TextId": current_text_id, "type": 22, "x": x_temp, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color, "TextString": media_data.temperature}
-                    else:
-                        temp_item_normal = {"TextId": current_text_id, "type": 17, "x": x_temp, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": text_overlay_font_color}
-                    text_items_for_display_list.append(temp_item_normal)
-
+            text_items_for_display_list = await self._build_text_items_list(
+                media_data, 
+                text_overlay_font_color, 
+                background_color_str
+            )
+            
             if not spotify_animation_took_over_display:
                 await self.pixoo_device.send_command(image_payload)
-                self.is_art_visible = True # Mark art as visible
+                self.is_art_visible = True
                 self.last_text_payload_hash = None 
 
                 if text_items_for_display_list:
@@ -3477,6 +3617,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 media_data.process_duration = f"{duration:.2f} seconds"
             new_attributes["process_duration"] = media_data.process_duration
             new_attributes["spotify_frames"] = media_data.spotify_frames
+            
+            # Update Sensor
             await self.set_state(self.media_data_sensor, state=sensor_state, attributes=new_attributes)
 
             # Fallback Failure Logic
@@ -3499,7 +3641,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 })
                 payloads_text_fail = self.create_payloads(media_data.artist, media_data.title, 11)
                 await self.pixoo_device.send_command(payloads_text_fail)
-                self.is_art_visible = True # Mark as visible even for fallback
+                self.is_art_visible = True
                 return
 
         except asyncio.CancelledError:
@@ -3547,18 +3689,16 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             action, 
             tuple(clean_colors), 
             effect_id, 
-            self.config.brightness,
-            self.config.effect_speed,
-            self.config.effect_intensity,
-            self.config.palette,
+            self.config.brightness, 
+            self.config.effect_speed, 
+            self.config.effect_intensity, 
+            self.config.palette, 
             self.config.sound_effect
         )
 
-        # Check Cache
         if self._last_wled_payload == target_signature:
             return
 
-        # Prepare Payload
         if self.config.effect_speed: segment["sx"] = self.config.effect_speed
         if self.config.effect_intensity: segment["ix"] = self.config.effect_intensity
         if self.config.palette: segment["pal"] = self.config.palette
