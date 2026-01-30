@@ -1,3 +1,8 @@
+[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg?style=for-the-badge)](https://github.com/hacs/integration)
+![AppDaemon](https://img.shields.io/badge/AppDaemon-4.0+-blue.svg?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge)
+![logo](https://img.shields.io/badge/Built%20with-Pollinations-8a2be2?style=for-the-badge&logo=data:image/svg+xml,%3Csvg%20xmlns%3D%22http://www.w3.org/2000/svg%22%20viewBox%3D%220%200%20124%20124%22%3E%3Ccircle%20cx%3D%2262%22%20cy%3D%2262%22%20r%3D%2262%22%20fill%3D%22%23ffffff%22/%3E%3C/svg%3E&logoColor=white&labelColor=6a0dad)
+
 # 🎵 PIXOO64 Media Album Art Display
 
 This AppDaemon script for Home Assistant enhances your music experience by displaying rich visuals on your DIVOOM PIXOO64 screen. It automatically shows album art, lyrics, time, temperature, and more whenever music is playing. If album art isn’t available, it uses online APIs or AI image generation to create one on the fly. It can also sync colors with lights or WLED devices for immersive ambiance.
@@ -7,7 +12,7 @@ This AppDaemon script for Home Assistant enhances your music experience by displ
 ## 🎨 Features
 
 - **📀 Dynamic Album Art** — Displays 64x64 optimized artwork for the current track.
-- **📊 Progress Bar** — **(New)** Real-time playback progress bar overlaid on the display.
+- **📊 Progress Bar** — Real-time playback progress bar overlaid on the display.
 - **🧠 Intelligent Fallback** — Searches Spotify, Discogs, Last.fm, TIDAL, and MusicBrainz. If all fail, uses AI-generated art via pollinations.ai (`turbo` or `flux`).
 - **🎤 Synchronized Lyrics** — Shows lyrics with timing when supported by the media player (Supports RTL languages).
 - **🕒 Real-Time Overlay** — Displays track info, time, temperature, and more as overlays.
@@ -83,14 +88,46 @@ python_packages:
 <details>
 <summary>Click to expand toggle helper creation</summary>
 
-1. In Home Assistant, go to **Settings** > **Devices & Services**.
-2. Click on **Helpers**.
-3. Click the **Create Helper** button (lower right corner).
-4. Select **Toggle** and give it an appropriate name (e.g., `PIXOO64 Album Art`).
-5. **(New)** Create another Toggle for the Progress Bar named `PIXOO64 Progress Bar` (entity_id: `input_boolean.pixoo64_progress_bar`).
-6. Add this code to `configuration.yaml` if you want to control the display from Homeassistant UI (or add them as helpers):
+#### 🔧 Creating the First Helper (UI Example)
+
+You can create the first toggle directly in the Home Assistant UI:
+
+1. Go to **Settings → Devices & Services**  
+2. Click **Helpers**  
+3. Click **Create Helper**  
+4. Choose **Toggle**  
+5. Name it:  
+   **`PIXOO64 Album Art`**
+
+This creates the entity:  
+`input_boolean.pixoo64_album_art`
+
+---
+
+#### 📄 YAML Example (All Other Entities)
+
+You can create the rest in YAML **or** as Helpers — your choice.  
+Here is the YAML version, including all the toggles and all the configuration you may need.
 
 ```yaml
+# ============================
+# Pixoo64 – Toggles
+# ============================
+
+# This one is created via the UI (example):
+# input_boolean:
+#   pixoo64_album_art:
+#     name: PIXOO64 Album Art
+
+input_boolean:
+  pixoo64_progress_bar:
+    name: PIXOO64 Progress Bar
+    icon: mdi:progress-helper
+
+
+# ============================
+# Pixoo64 – Input Number
+# ============================
 input_number:
   pixoo64_album_art_lyrics_sync:
     name: Lyrics Sync
@@ -99,6 +136,10 @@ input_number:
     max: 10
     step: 1
 
+
+# ============================
+# Pixoo64 – Input Selects
+# ============================
 input_select:
   pixoo64_album_art_display_mode:
     name: Pixoo64 Display Mode
@@ -141,6 +182,7 @@ input_select:
       - "Crop Extra"
 
 ```
+
 
 </details>
 
@@ -190,7 +232,7 @@ appdaemon:
 
 ```
 
-*Note: Do not delete existing lines in that file. Just add the `app_dir` entry.* *Update the Latitude and Longitude values from `https://www.latlong.net*`
+*Note: Do not delete existing lines in that file. Just add the `app_dir` entry. Update the Latitude and Longitude values from `https://www.latlong.net`
 
 #### **5. Verify File Location**
 
@@ -227,7 +269,7 @@ pixoo64_media_album_art:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
-        ha_url: "[http://homeassistant.local:8123](http://homeassistant.local:8123)"   # Your Home Assistant URL.
+        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
         media_player: "media_player.living_room"    # The entity ID of your media player.
     pixoo:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
@@ -241,7 +283,7 @@ pixoo64_media_album_art_2:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
-        ha_url: "[http://homeassistant.local:8123](http://homeassistant.local:8123)"   # Your Home Assistant URL.
+        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
         media_player: "media_player.tv_room"        # The entity ID of your media player.
     pixoo:
         url: "192.168.86.22"                        # The IP address of your Pixoo64 device.
@@ -261,7 +303,7 @@ pixoo64_media_album_art:
   
   # --- Home Assistant Configuration ---
   home_assistant:
-    ha_url: "[http://homeassistant.local:8123](http://homeassistant.local:8123)"           # Your Home Assistant URL.
+    ha_url: http://homeassistant.local:8123)"          # Your Home Assistant URL.
     media_player: "media_player.era300"                 # The entity ID of your media player.
     toggle: "input_boolean.pixoo64_album_art"           # Input boolean to enable or disable the script.
     pixoo_sensor: "sensor.pixoo64_media_data"           # Sensor to store extracted media data.
@@ -486,10 +528,10 @@ pixoo64_media_album_art:
    wled:
         wled_ip: "192.168.86.55"                    # Your WLED IP Adress
         brightness: 255                             # 0 to 255
-        effect: 38                                  # 0 to 186 (Effect ID - [https://kno.wled.ge/features/effects/](https://kno.wled.ge/features/effects/))
+        effect: 38                                  # 0 to 186 https://kno.wled.ge/features/effects
         effect_speed: 50                            # 0 to 255
         effect_intensity: 128                       # 0 to 255
-        palette: 0                                  # 0 to 70 (Palette ID - [https://kno.wled.ge/features/palettes/](https://kno.wled.ge/features/palettes/))
+        palette: 0                                  # 0 to 70  https://kno.wled.ge/features/palettes 
         only_at_night: False                        # Runs only at night hours
 
 ```
@@ -520,7 +562,7 @@ pixoo64_media_album_art:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
-        spotify_client_id: # Your Spotify API client ID (needed for Spotify features). Obtain from [https://developer.spotify.com/dashboard/](https://developer.spotify.com/dashboard/)
+        spotify_client_id: # Your Spotify API client ID (needed for Spotify features). Obtain from https://developer.spotify.com/dashboard/ 
         spotify_client_secret: # Your Spotify API client secret (needed for Spotify features).
     pixoo:
         spotify_slide: True
@@ -540,10 +582,10 @@ When the script cannot directly obtain the album art for the currently playing t
 * This is the primary method and works for most local media and some streaming services.
 
 2. **API Services (Spotify, Discogs, Last.fm, TIDAL)** - If the original album art is unavailable, the script queries these services in the following order:
-3. Spotify
-4. Discogs
-5. Last.fm
-6. TIDAL
+  * Spotify
+  * Discogs
+  * Last.fm
+  * TIDAL
 
 * The script uses the first image URL it successfully retrieves.
 
@@ -720,7 +762,7 @@ process_duration: 3.49 seconds
 spotify_frames: 0
 pixoo_channel: 0
 image_source: Last.FM
-image_url: "[https://lastfm.freetls.fastly.net/i/u/300x300/1903a3660115ea8295053103419e573c.png](https://lastfm.freetls.fastly.net/i/u/300x300/1903a3660115ea8295053103419e573c.png)"
+image_url: "https://lastfm.freetls.fastly.net/i/u/300x300/1903a3660115ea8295053103419e573c.png"
 lyrics: []
 progress_bar_active: True
 progress_bar_color: "#ff00ff"
