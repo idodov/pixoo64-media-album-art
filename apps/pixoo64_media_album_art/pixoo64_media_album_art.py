@@ -97,7 +97,7 @@ pixoo64_media_album_art:
     enabled: True                               # Master switch for the feature
     entity: "input_boolean.pixoo64_progress_bar" # Helper to toggle via dashboard
     color: "match"                              # "match" (auto-contrast) or hex "#FF0000"
-    y_offset: 64                                # Vertical position (7-64)
+    y_offset: 64                                # Vertical position (1-64)
 
 """
 
@@ -382,6 +382,8 @@ class PixooDevice:
         }
 
     async def send_command(self, payload_command: dict) -> None: 
+        if self.session.closed:
+            return
         try:
             async with self.session.post(
                 self.config.pixoo_url,
@@ -528,53 +530,49 @@ class ImageProcessor:
         try:
             with Image.open(BytesIO(image_data)) as img:
                 img = ensure_rgb(img)
-                img = self.fixed_size(img)
-
+                
                 if (self.config.crop_borders or self.config.special_mode) and not media_data.radio_logo:
                     img = self.crop_image_borders(img, media_data.radio_logo)
 
+                img = self.fixed_size(img)
+
+                if img.width > 64 or img.height > 64:
+                    img = img.resize((64, 64), Image.Resampling.LANCZOS)
+
                 if self.config.contrast or self.config.sharpness or self.config.colors or self.config.kernel or self.config.limit_color:
                     img = self.filter_image(img)
-
+                
                 if self.config.burned and not media_data.radio_logo:
                     img = self._draw_burned_text(img, media_data.artist, media_data.title_clean)
 
-                img = self.special_mode(img) if self.config.special_mode else img.resize((64, 64), Image.Resampling.BILINEAR)
+                if self.config.special_mode:
+                    img = self.special_mode(img)
                 
                 vals = self.img_values(img)
-                font_color = vals['font_color']
-                brightness = vals['brightness']
-                brightness_lower_part = vals['brightness_lower_part']
-                background_color = vals['background_color']
-                background_color_rgb = vals['background_color_rgb']
-                most_common_color_alternative_rgb = vals['most_common_color_alternative_rgb']
-                most_common_color_alternative = vals['most_common_color_alternative']
-                color1 = vals['color1']
-                color2 = vals['color2']
-                color3 = vals['color3']
-
+                
                 media_data.lyrics_font_color = self.get_optimal_font_color(img) if self.config.show_lyrics or self.config.info else "#FFA000"
-                media_data.color1 = color1
-                media_data.color2 = color2
-                media_data.color3 = color3
+                media_data.color1 = vals['color1']
+                media_data.color2 = vals['color2']
+                media_data.color3 = vals['color3']
 
                 return {
                     'pil_image': img, 
-                    'font_color': font_color,
-                    'brightness': brightness,
-                    'brightness_lower_part': brightness_lower_part,
-                    'background_color': background_color,
-                    'background_color_rgb': background_color_rgb,
-                    'most_common_color_alternative_rgb': most_common_color_alternative_rgb,
-                    'most_common_color_alternative': most_common_color_alternative,
-                    'color1': color1,
-                    'color2': color2,
-                    'color3': color3
+                    'font_color': vals['font_color'],
+                    'brightness': vals['brightness'],
+                    'brightness_lower_part': vals['brightness_lower_part'],
+                    'background_color': vals['background_color'],
+                    'background_color_rgb': vals['background_color_rgb'],
+                    'most_common_color_alternative_rgb': vals['most_common_color_alternative_rgb'],
+                    'most_common_color_alternative': vals['most_common_color_alternative'],
+                    'color1': vals['color1'],
+                    'color2': vals['color2'],
+                    'color3': vals['color3']
                 }
 
         except Exception as e: 
             _LOGGER.error(f"Error processing image: {e}") 
             return None
+
 
     def fixed_size(self, img: Image.Image) -> Image.Image: 
         width, height = img.size
@@ -1359,6 +1357,7 @@ class ImageProcessor:
             y += line_height + (inter_px if i < len(tit_lines) - 1 else 0)
         return img_copy.convert("RGB")
 
+
 class LyricsProvider:
     """Provides lyrics with Smart Scheduling logic (Event Based)."""
 
@@ -1760,6 +1759,7 @@ class MediaData:
                 self.media_position = 0
                 self.media_duration = 0
 
+            # --- LOGIC: SHOW PROGRESS BAR? ---
             if self.config.progress_bar_enabled:
                 pb_state = await hass.get_state(self.config.progress_bar_entity)
                 is_toggled_on = (str(pb_state).lower() == 'on') or (pb_state is True)
@@ -1770,7 +1770,8 @@ class MediaData:
                     self.show_progress_bar = False
             else:
                 self.show_progress_bar = False
-
+            
+            # --- IMAGE PATH FIX ---
             original_picture = attributes.get('entity_picture')
             if original_picture:
                 if re.match(r'^[a-zA-Z]:\\', original_picture) or original_picture.startswith("file://"):
@@ -1795,7 +1796,7 @@ class MediaData:
                 self.artist = "TV"; self.title = "TV"; self.playing_tv = True
                 self.picture = "TV_IS_ON_ICON" if self.config.tv_icon_pic else "TV_IS_ON"
                 self.lyrics = []
-                # show_progress_bar is already False because duration is likely 0
+                # show_progress_bar is already False because duration is 0
                 return self 
 
             self.playing_tv = False
@@ -2778,10 +2779,8 @@ class ProgressBarManager:
             self.hass.set_state(entity_id, state=default_state, attributes=attributes)
         else:
             current_state = self.hass.get_state(entity_id)
-            
             if str(current_state).lower() not in ['on', 'off']:
                 current_state = default_state
-
             self.hass.set_state(entity_id, state=current_state, attributes=attributes)
 
     def calculate(self, position: float, duration: float) -> tuple[str, float]:
@@ -2806,15 +2805,18 @@ class ProgressBarManager:
 
     async def get_payload_item(self, media_data: "MediaData") -> Optional[dict]:
         """Returns the Pixoo JSON item for the text layer."""
-        if not self.config.progress_bar_enabled: return None
         
-        state = await self.hass.get_state(self.config.progress_bar_entity)
-        is_on = (str(state).lower() == 'on') or (state is True)
+        if not self.config.progress_bar_enabled: return None
         
         text_to_send = ""
         
-        if is_on and not media_data.playing_tv and not media_data.playing_radio and self.current_bar_str:
+        
+        should_show = getattr(media_data, 'show_progress_bar', False)
+        
+        if should_show and self.current_bar_str:
             text_to_send = self.current_bar_str
+        else:
+            text_to_send = ""
 
         color = self.config.progress_bar_color
         if color == 'match':
@@ -2919,9 +2921,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         _LOGGER.info("Initialization complete.")
 
     async def terminate(self):
+        """Clean up resources when the app is stopped or reloaded."""
+        # 1. Stop the lyrics loop
         self._stop_lyrics_scheduler()
         
-        if hasattr(self, 'websession') and self.websession:
+        # 2. Cancel the image processing task immediately
+        if self.current_image_task and not self.current_image_task.done():
+            self.current_image_task.cancel()
+            
+        # 3. Cancel debounce task
+        if self.debounce_task and not self.debounce_task.done():
+            self.debounce_task.cancel()
+
+        # 4. Close the session safely
+        if hasattr(self, 'websession') and self.websession and not self.websession.closed:
             await self.websession.close()
             _LOGGER.info("Closed Pixoo64 aiohttp session.")
 
