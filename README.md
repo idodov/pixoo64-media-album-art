@@ -771,99 +771,122 @@ progress_bar_color: "#ff00ff"
 ```
 ---
 
-## 🔔 Visual Notifications
+## 🔔 Visual & Audio Notifications
 
-The script includes a robust **Notification Manager** that allows you to send visual alerts to the Pixoo64 from Home Assistant. These notifications interrupt the current mode, display the alert, and intelligently restore the previous state.
+The script includes a robust **Notification Manager** that allows you to send visual alerts **and audio buzzers** to the Pixoo64 from Home Assistant. These notifications interrupt the current mode, display the alert, play a sound (optional), and intelligently restore the previous state.
 
-### Layout & Limits
-The text layout changes automatically based on the notification `type`:
-
-* **`type: text` (Default):**
-    * **Max Lines:** 6 lines.
-    * **Layout:** Text is vertically centered on the screen.
-    * **Use case:** Best for longer messages without an icon.
-* **Icon Types (e.g., `info`, `boiler`, `car`):**
-    * **Max Lines:** 4 lines.
-    * **Layout:** Icon is displayed at the top, text is pushed to the bottom.
-    * **Use case:** Visual alerts where the icon provides immediate context.
-
-### How to Use
+### ⚙️ Configuration & Parameters
 Trigger a notification by firing the event `pixoo_notify` in Home Assistant.
 
 | Parameter | Description | Default |
 | :--- | :--- | :--- |
 | `message` | The text to display. | **Required** |
-| `type` | The icon/theme to use (see list below). | `text` |
-| `duration` | How long to show the alert (in seconds). | `5` |
+| `type` | The icon/theme to use (e.g., `text`, `washer`, `door`). | `text` |
+| `duration` | How long to show the visual alert (in seconds). | `5` |
 | `color` | Custom HEX color (e.g., `#FF0000`). Overrides the theme color. | Based on Type |
+| `play_buzzer` | Set to `true` to enable the internal buzzer. | `false` |
+| `buzzer_active` | Duration of the "Beep" sound in milliseconds. | `500` |
+| `buzzer_off` | Duration of the silence between beeps in milliseconds. | `500` |
+| `buzzer_total` | Total duration of the sound sequence in milliseconds. | `3000` |
 
-### Examples
+---
 
-**1. Simple Text (Max 6 Lines)**
-Standard message. The border takes the color of the text.
+### 📚 Examples & Usage
 
+<details>
+<summary><b>📷 Visual Layouts & Icons</b></summary>
+
+The visual layout changes automatically based on the notification `type`:
+
+* **`type: text` (Default):** Max **6 lines**, vertically centered. Best for long messages.
+* **Icon Types:** Max **4 lines**, icon at top, text at bottom.
+
+**Supported Types:**
+* **General:** `text`, `info`, `success`, `warning`, `error`
+* **Appliances:** `boiler`, `shutter`, `washer`, `trash`
+* **Security:** `door`, `lock`, `fire`, `water`
+* **Lifestyle:** `mail`, `car`, `battery`, `wifi`, `sleep`
+
+**YAML Example (Icon):**
 ```yaml
 event: pixoo_notify
 event_data:
-  message: "Good Morning! Have a great day."
-  type: "text"
-  color: "#FFFFFF"
-  duration: 8
-
-```
-
-**2. Washing Machine (Max 4 Lines)**
-Blue theme with a washer icon.
-
-```yaml
-event: pixoo_notify
-event_data:
-  message: "Laundry finished"
+  message: "Laundry Finished"
   type: "washer"
+  duration: 10
 
 ```
 
-**3. Trash Pickup (Max 4 Lines)**
-Green theme with a trash bin icon.
+</details>
+
+<details>
+<summary><b>🔊 Buzzer & Audio Configuration</b></summary>
+
+You can configure the pattern of the buzzer using `buzzer_active` (sound) and `buzzer_off` (silence).
+
+**1. Continuous Tone (Long Beep)**
+Set `buzzer_off` to `0` or keep `active` equal to `total`.
 
 ```yaml
 event: pixoo_notify
 event_data:
-  message: "Take out the trash tonight"
-  type: "trash"
+  message: "Timer Finished"
+  type: "text"
+  play_buzzer: true
+  buzzer_active: 3000 # Continuous sound
+  buzzer_off: 0
+  buzzer_total: 3000
 
 ```
 
-**4. EV Charging (Max 4 Lines)**
-Cyan theme with a car icon.
+**2. Fast Alarm (Beep-Beep-Beep)**
+Short active time, short off time.
 
 ```yaml
 event: pixoo_notify
 event_data:
-  message: "Car battery at 80%"
-  type: "car"
+  message: "ALARM TRIGGERED"
+  type: "lock"
+  color: "#FF0000"
+  play_buzzer: true
+  buzzer_active: 100
+  buzzer_off: 100
+  buzzer_total: 5000
 
 ```
 
-**5. Shutters / Blinds (Max 4 Lines)**
-Silver theme with a window icon.
+</details>
+
+<details>
+<summary><b>🤖 Full Automation Example</b></summary>
+
+Here is a complete Home Assistant automation that triggers a notification with sound when a vacuum cleaner starts.
 
 ```yaml
-event: pixoo_notify
-event_data:
-  message: "Closing blinds"
-  type: "shutter"
+alias: "Pixoo Notification - Vacuum Start"
+description: "Notify on Pixoo when Vacuum starts cleaning"
+mode: single
+trigger:
+  - platform: device
+    device_id: df50173g087d58a8cb8cc462397f9154
+    domain: vacuum
+    entity_id: vacuum.robot_cleaner
+    type: cleaning
+condition: []
+action:
+  - event: pixoo_notify
+    event_data:
+      message: "Vacuum Cleaner Started Cleaning"
+      type: "info"
+      # Audio Configuration
+      play_buzzer: true
+      buzzer_active: 2000 # 2 seconds beep
+      buzzer_off: 0       # No break
+      buzzer_total: 3000  # Total sound duration
 
 ```
 
-### Supported Notification Types
-
-| Category | Types (Keywords) | Default Color |
-| --- | --- | --- |
-| **General** | `text` (No icon), `info`, `success`, `warning`, `error` | Various |
-| **Appliances** | `boiler`, `shutter`, `washer`, `trash` | Orange, Silver, Blue, Green |
-| **Security** | `door`, `lock`, `fire`, `water` | Gold, Red, Orange, Blue |
-| **Lifestyle** | `mail`, `car`, `battery`, `wifi`, `sleep` | Yellow, Cyan, Red, Red, Purple |
+</details>
 
 
 ---
