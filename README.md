@@ -20,6 +20,7 @@ This AppDaemon script for Home Assistant enhances your music experience by displ
 - **🎞️ Spotify Slider** — Scrolls through Spotify-recommended album covers.
 - **🌈 RGB/WLED Lighting** — Syncs nearby lights with the dominant color of the album cover.
 - **🛠️ Highly Configurable** — More behavior combinations via YAML or Home Assistant UI.
+- **🔔 Visual Notifications** — A robust **Notification Manager** that allows you to send visual alerts to the Pixoo64 from Home Assistant.
 
 ---
 
@@ -269,7 +270,6 @@ pixoo64_media_album_art:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
-        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
         media_player: "media_player.living_room"    # The entity ID of your media player.
     pixoo:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
@@ -283,7 +283,6 @@ pixoo64_media_album_art_2:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
-        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
         media_player: "media_player.tv_room"        # The entity ID of your media player.
     pixoo:
         url: "192.168.86.22"                        # The IP address of your Pixoo64 device.
@@ -315,6 +314,8 @@ pixoo64_media_album_art:
     ai_fallback: "turbo"                                # AI model to use for image fallback ("flux" or "turbo").
     force_ai: False                                     # If True, always use AI-generated images regardless of availability.
     musicbrainz: True                                   # If True, use MusicBrainz as a fallback if other sources fail.
+
+ # --- API Keys ---
     spotify_client_id: False                            # Spotify API client ID (required for Spotify features).
     spotify_client_secret: False                        # Spotify API client secret.
     tidal_client_id: False                              # TIDAL API client ID.
@@ -768,6 +769,102 @@ progress_bar_active: True
 progress_bar_color: "#ff00ff"
 
 ```
+---
+
+## 🔔 Visual Notifications
+
+The script includes a robust **Notification Manager** that allows you to send visual alerts to the Pixoo64 from Home Assistant. These notifications interrupt the current mode, display the alert, and intelligently restore the previous state.
+
+### Layout & Limits
+The text layout changes automatically based on the notification `type`:
+
+* **`type: text` (Default):**
+    * **Max Lines:** 6 lines.
+    * **Layout:** Text is vertically centered on the screen.
+    * **Use case:** Best for longer messages without an icon.
+* **Icon Types (e.g., `info`, `boiler`, `car`):**
+    * **Max Lines:** 4 lines.
+    * **Layout:** Icon is displayed at the top, text is pushed to the bottom.
+    * **Use case:** Visual alerts where the icon provides immediate context.
+
+### How to Use
+Trigger a notification by firing the event `pixoo_notify` in Home Assistant.
+
+| Parameter | Description | Default |
+| :--- | :--- | :--- |
+| `message` | The text to display. | **Required** |
+| `type` | The icon/theme to use (see list below). | `text` |
+| `duration` | How long to show the alert (in seconds). | `5` |
+| `color` | Custom HEX color (e.g., `#FF0000`). Overrides the theme color. | Based on Type |
+
+### Examples
+
+**1. Simple Text (Max 6 Lines)**
+Standard message. The border takes the color of the text.
+
+```yaml
+event: pixoo_notify
+event_data:
+  message: "Good Morning! Have a great day."
+  type: "text"
+  color: "#FFFFFF"
+  duration: 8
+
+```
+
+**2. Washing Machine (Max 4 Lines)**
+Blue theme with a washer icon.
+
+```yaml
+event: pixoo_notify
+event_data:
+  message: "Laundry finished"
+  type: "washer"
+
+```
+
+**3. Trash Pickup (Max 4 Lines)**
+Green theme with a trash bin icon.
+
+```yaml
+event: pixoo_notify
+event_data:
+  message: "Take out the trash tonight"
+  type: "trash"
+
+```
+
+**4. EV Charging (Max 4 Lines)**
+Cyan theme with a car icon.
+
+```yaml
+event: pixoo_notify
+event_data:
+  message: "Car battery at 80%"
+  type: "car"
+
+```
+
+**5. Shutters / Blinds (Max 4 Lines)**
+Silver theme with a window icon.
+
+```yaml
+event: pixoo_notify
+event_data:
+  message: "Closing blinds"
+  type: "shutter"
+
+```
+
+### Supported Notification Types
+
+| Category | Types (Keywords) | Default Color |
+| --- | --- | --- |
+| **General** | `text` (No icon), `info`, `success`, `warning`, `error` | Various |
+| **Appliances** | `boiler`, `shutter`, `washer`, `trash` | Orange, Silver, Blue, Green |
+| **Security** | `door`, `lock`, `fire`, `water` | Gold, Red, Orange, Blue |
+| **Lifestyle** | `mail`, `car`, `battery`, `wifi`, `sleep` | Yellow, Cyan, Red, Red, Purple |
+
 
 ---
 
