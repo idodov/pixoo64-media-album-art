@@ -282,7 +282,7 @@ class Config:
             'progress_bar_entity': ('entity', 'input_boolean.pixoo64_progress_bar'),
             'progress_bar_character': ('character', '-'),
             'progress_bar_font': ('font', 190),
-            'progress_bar_resolution': ('resolution', 21),
+            'progress_bar_resolution': ('resolution', 22),
             'progress_bar_color': ('color', 'match'),
             'progress_bar_y_offset': ('y_offset', 64),
             'progress_bar_exclude_modes': ('exclude_modes', [])
@@ -2807,13 +2807,12 @@ class ProgressBarManager:
         
         return self.current_bar_str, delay
 
-    async def get_payload_item(self, media_data: "MediaData") -> Optional[dict]:
-        """Returns the Pixoo JSON item for the text layer."""
+    async def get_payload_item(self, media_data: "MediaData") -> list:
+        """Returns a LIST of Pixoo JSON items (Double Layer for bold effect)."""
         
-        if not self.config.progress_bar_enabled: return None
+        if not self.config.progress_bar_enabled: return []
         
         text_to_send = ""
-        
         should_show = getattr(media_data, 'show_progress_bar', False)
         
         if should_show and self.current_bar_str:
@@ -2822,17 +2821,31 @@ class ProgressBarManager:
             text_to_send = ""
 
         if text_to_send == self.last_sent_text:
-            return None
+            return []
             
         self.last_sent_text = text_to_send
-        # --------------------------------------
 
         color = self.config.progress_bar_color
         if color == 'match':
             color = media_data.lyrics_font_color 
         
-        return {
+        items = []
+
+        items.append({
             "TextId": 20,
+            "type": 22,
+            "x": 0,
+            "y": self.config.progress_bar_y_offset-7,
+            "dir": 0,
+            "font": self.config.progress_bar_font, 
+            "TextWidth": 64, "Textheight": 10,
+            "speed": 100, "align": 1,
+            "TextString": text_to_send,
+            "color": color
+        })
+
+        items.append({
+            "TextId": 21,
             "type": 22,
             "x": 1,
             "y": self.config.progress_bar_y_offset-7,
@@ -2842,32 +2855,38 @@ class ProgressBarManager:
             "speed": 100, "align": 1,
             "TextString": text_to_send,
             "color": color
-        }
+        })
+
+        return items
 
 class NotificationManager:
-    """Manages visual notifications via HA Events with dynamic layout and rich icon set."""
+    """Manages visual and audio notifications via HA Events with dynamic layout."""
     
     THEMES = {
-        "info":    {"color": (0, 191, 255), "hex": "#00BFFF"}, 
-        "success": {"color": (50, 205, 50), "hex": "#32CD32"},   
-        "warning": {"color": (255, 165, 0), "hex": "#FFA500"},  
-        "error":   {"color": (255, 69, 0),  "hex": "#FF4500"},  
-        "text":    {"color": (255, 255, 255), "hex": "#FFFFFF"},
-        "boiler":  {"color": (255, 69, 0),  "hex": "#FF4500"},  
-        "shutter": {"color": (192, 192, 192), "hex": "#C0C0C0"},
-        "car":     {"color": (0, 255, 255), "hex": "#00FFFF"},  
-        "washer":  {"color": (0, 191, 255), "hex": "#00BFFF"},  
-        "trash":   {"color": (50, 205, 50), "hex": "#32CD32"},  
-        "door":    {"color": (255, 215, 0), "hex": "#FFD700"},  
-        "lock":    {"color": (255, 0, 0),   "hex": "#FF0000"},  
-        "mail":    {"color": (255, 255, 224), "hex": "#FFFFE0"}, 
-        "fire":    {"color": (255, 140, 0), "hex": "#FF8C00"},   
-        "water":   {"color": (30, 144, 255), "hex": "#1E90FF"}, 
-        "battery": {"color": (220, 20, 60), "hex": "#DC143C"},  
-        "wifi":    {"color": (255, 0, 0),   "hex": "#FF0000"},   
-        "sleep":   {"color": (147, 112, 219), "hex": "#9370DB"}, 
+        # --- Basic Types ---
+        "info":    {"color": (0, 191, 255), "hex": "#00BFFF"},   # Deep Sky Blue
+        "success": {"color": (50, 205, 50), "hex": "#32CD32"},   # Lime Green
+        "warning": {"color": (255, 165, 0), "hex": "#FFA500"},   # Orange
+        "error":   {"color": (255, 69, 0),  "hex": "#FF4500"},   # Orange Red
+        "text":    {"color": (255, 255, 255), "hex": "#FFFFFF"}, # White
+        
+        # --- Smart Home & Appliances ---
+        "boiler":  {"color": (255, 69, 0),  "hex": "#FF4500"},   # Orange Red
+        "shutter": {"color": (192, 192, 192), "hex": "#C0C0C0"}, # Silver
+        "car":     {"color": (0, 255, 255), "hex": "#00FFFF"},   # Cyan
+        "washer":  {"color": (0, 191, 255), "hex": "#00BFFF"},   # Deep Sky Blue
+        "trash":   {"color": (50, 205, 50), "hex": "#32CD32"},   # Lime Green
+        "door":    {"color": (255, 215, 0), "hex": "#FFD700"},   # Gold
+        "lock":    {"color": (255, 0, 0),   "hex": "#FF0000"},   # Red
+        "mail":    {"color": (255, 255, 224), "hex": "#FFFFE0"}, # Light Yellow
+        "fire":    {"color": (255, 140, 0), "hex": "#FF8C00"},   # Dark Orange
+        "water":   {"color": (30, 144, 255), "hex": "#1E90FF"},  # Dodger Blue
+        "battery": {"color": (220, 20, 60), "hex": "#DC143C"},   # Crimson
+        "wifi":    {"color": (255, 0, 0),   "hex": "#FF0000"},   # Red
+        "sleep":   {"color": (147, 112, 219), "hex": "#9370DB"}, # Medium Purple
     }
 
+    # Layout configurations based on line count (Icon mode only)
     LAYOUTS = {
         1: {"icon_cy": 25, "text_start_y": 48}, 
         2: {"icon_cy": 20, "text_start_y": 40}, 
@@ -2882,6 +2901,7 @@ class NotificationManager:
         self.is_active = False
 
     async def display(self, event_data: dict):
+        """Main entry point for displaying a notification."""
         try:
             self.is_active = True
             
@@ -2892,8 +2912,13 @@ class NotificationManager:
 
             if not message: return
 
+            # --- Audio Trigger ---
+            await self._trigger_buzzer(event_data)
+
+            # 1. Text Processing
             processed_text = get_bidi(message) if has_bidi(message) else message
             
+            # Determine limits based on type
             if notif_type == "text":
                 max_lines = 6 
             else:
@@ -2905,26 +2930,34 @@ class NotificationManager:
             
             line_count = len(lines)
             
+            # 2. Layout Calculation
             if notif_type == "text":
+                # Vertically center text for text-only mode
                 total_text_height = line_count * 10
                 text_start_y = (64 - total_text_height) // 2
                 icon_cy = 0 
             else:
+                # Use predefined layout for icon mode
                 layout = self.LAYOUTS.get(line_count, self.LAYOUTS[2])
                 icon_cy = layout["icon_cy"]
                 text_start_y = layout["text_start_y"]
 
+            # 3. Color Determination
             theme = self.THEMES.get(notif_type, self.THEMES["info"])
             hex_color = custom_color if custom_color else theme["hex"]
             
             if notif_type == "text":
+                # For text mode, border matches text color
                 rgb_color = self._hex_to_rgb(hex_color)
             else:
+                # For icon mode, border matches theme color
                 rgb_color = theme["color"]
 
+            # 4. Prepare Background Image
             bg_image = self._draw_background(notif_type, rgb_color, icon_cy)
             b64_bg = self.proc.gbase64(bg_image)
 
+            # 5. Send Reset and Background Commands
             await self.pixoo.send_command({
                 "Command": "Draw/CommandList",
                 "CommandList": [
@@ -2939,6 +2972,7 @@ class NotificationManager:
 
             await asyncio.sleep(0.2)
 
+            # 6. Send Text Items
             text_items = self._create_text_items(lines, hex_color, text_start_y)
             if text_items:
                 await self.pixoo.send_command({
@@ -2953,19 +2987,39 @@ class NotificationManager:
         finally:
             self.is_active = False
 
+    async def _trigger_buzzer(self, data: dict):
+        """Handles the buzzer logic if requested."""
+        if not data.get("play_buzzer", False):
+            return
+
+        active_time = int(data.get("buzzer_active", 500))
+        off_time = int(data.get("buzzer_off", 500))
+        total_time = int(data.get("buzzer_total", 3000))
+
+        try:
+            await self.pixoo.send_command({
+                "Command": "Device/PlayBuzzer",
+                "ActiveTimeInCycle": active_time,
+                "OffTimeInCycle": off_time,
+                "PlayTotalTime": total_time
+            })
+        except Exception as e:
+            _LOGGER.warning(f"Failed to play buzzer: {e}")
+
     def _draw_background(self, n_type: str, color: tuple, cy: int) -> Image.Image:
-        """Draws icon based on type."""
+        """Draws the border and icon based on notification type."""
         img = Image.new("RGB", (64, 64), (0, 0, 0))
         draw = ImageDraw.Draw(img)
 
+        # Draw Border
         draw.rectangle([0, 0, 63, 63], outline=color, width=1)
         
         if n_type == "text": 
             return img
 
-        cx = 32 
+        cx = 32 # Center X
 
-        # --- Basic Types ---
+        # --- Standard Icons ---
         if n_type == "info":
             draw.ellipse([cx-9, cy-9, cx+9, cy+9], outline=color, width=1)
             draw.rectangle([cx-1, cy-2, cx+1, cy+5], fill=color) 
@@ -2986,7 +3040,7 @@ class NotificationManager:
             draw.line([(cx-s, cy-s), (cx+s, cy+s)], fill=color, width=2)
             draw.line([(cx+s, cy-s), (cx-s, cy+s)], fill=color, width=2)
 
-        # --- House & Appliances ---
+        # --- Smart Home Icons ---
         elif n_type == "boiler": 
             draw.rectangle([cx-5, cy-8, cx+5, cy+8], outline=color, width=1)
             draw.line([(cx+1, cy-4), (cx-2, cy), (cx+2, cy), (cx-1, cy+5)], fill=color, width=1)
@@ -3052,8 +3106,9 @@ class NotificationManager:
 
     def _create_text_items(self, lines: list, color: str, start_y: int) -> list:
         items = []
-
-        ids_to_clear = [1, 2, 3, 4, 5, 6, 10, 11, 20, 22, 25, 26, 27,28,29,30] 
+        
+        # Aggressive cleaning of existing IDs, including the new ID 21 (double layer bar)
+        ids_to_clear = [1, 2, 3, 4, 5, 6, 10, 11, 20, 21, 22, 25] 
         
         for tid in ids_to_clear:
             items.append({
@@ -3092,6 +3147,7 @@ class NotificationManager:
             return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
         except ValueError:
             return (255, 255, 255)
+
 
 class Pixoo64_Media_Album_Art(hass.Hass):
     """AppDaemon app to display album art on Divoom Pixoo64 and control related features."""
@@ -3399,9 +3455,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         layout_items, delay = self.media_data.lyrics_provider.get_refresh_plan(current_track_pos)
 
         # 3. Execute Plan (Send to Pixoo)
-        # We only send if layout_items is not None (None means no change/error)
         if layout_items is not None:
-            # Build the command locally
             pixoo_items = []
             font_color = self.media_data.lyrics_font_color
             
@@ -3691,9 +3745,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
             current_text_id += 1
             if media_data.temperature:
-                temp_item_special = {"TextId": current_text_id, "type": 22, "x": 44, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color, "TextString": media_data.temperature}
+                temp_item_special = {"TextId": current_text_id, "type": 22, "x": 42, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color, "TextString": media_data.temperature}
             else:
-                temp_item_special = {"TextId": current_text_id, "type": 17, "x": 44, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 3, "color": font_color}
+                temp_item_special = {"TextId": current_text_id, "type": 17, "x": 42, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 3, "color": font_color}
             text_items_for_display_list.append(temp_item_special)
 
             if (self.config.show_text and not media_data.playing_tv) or (media_data.spotify_slide_pass and self.config.spotify_slide):
@@ -3743,10 +3797,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     temp_item_normal = {"TextId": current_text_id, "type": 17, "x": x_temp, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color}
                 text_items_for_display_list.append(temp_item_normal)
 
-        # 3. Progress Bar Integration
-        progress_item = await self.progress_manager.get_payload_item(media_data)
-        if progress_item:
-            text_items_for_display_list.append(progress_item)
+        progress_items_list = await self.progress_manager.get_payload_item(media_data)
+        if progress_items_list:
+            text_items_for_display_list.extend(progress_items_list)
 
         return text_items_for_display_list
 
