@@ -19,7 +19,6 @@ pixoo64_media_album_art:
     module: pixoo64_media_album_art
     class: Pixoo64_Media_Album_Art
     home_assistant:
-        ha_url: "http://homeassistant.local:8123"   # Your Home Assistant URL.
         media_player: "media_player.living_room"    # The entity ID of your media player.
     pixoo:
         url: "192.168.86.21"                        # The IP address of your Pixoo64 device.
@@ -279,7 +278,7 @@ class Config:
             'sound_effect': 0,
         },
         'progress_bar': {
-            'progress_bar_enabled': ('enabled', True),
+            'progress_bar_enabled': ('enabled', False),
             'progress_bar_entity': ('entity', 'input_boolean.pixoo64_progress_bar'),
             'progress_bar_character': ('character', '-'),
             'progress_bar_font': ('font', 190),
@@ -368,7 +367,7 @@ class Config:
                     self.force_font_color = None
 
 class PixooDevice:
-    """Handles communication with the Divoom Pixoo device.""" 
+    """Handles communication with the Divoom Pixoo device with retry logic.""" 
 
     def __init__(self, config: "Config", session: aiohttp.ClientSession): 
         self.config = config
@@ -381,32 +380,41 @@ class PixooDevice:
             "User-Agent": "PixooClient/1.0"
         }
 
-    async def send_command(self, payload_command: dict) -> None: 
+    async def send_command(self, payload_command: dict, retries: int = 3) -> None: 
+        """Sends a command with automatic retries on failure."""
         if self.session.closed:
             return
-        try:
-            async with self.session.post(
-                self.config.pixoo_url,
-                headers=self.headers,
-                json=payload_command,
-                timeout=aiohttp.ClientTimeout(total=10)
-            ) as response:
-                if response.status != 200:
-                    response_text = await response.text() 
-                    _LOGGER.error(f"Failed to send command to Pixoo. Status: {response.status}, Response: {response_text}") 
+
+        for attempt in range(1, retries + 1):
+            try:
+                async with self.session.post(
+                    self.config.pixoo_url,
+                    headers=self.headers,
+                    json=payload_command,
+                    timeout=aiohttp.ClientTimeout(total=5)
+                ) as response:
+                    if response.status == 200:
+                        await asyncio.sleep(0.1)
+                        return
+                    else:
+                        response_text = await response.text() 
+                        _LOGGER.warning(f"Pixoo command failed (Attempt {attempt}/{retries}). Status: {response.status}") 
+            
+            except (aiohttp.ClientError, asyncio.TimeoutError) as e: 
+                if attempt == retries:
+                    _LOGGER.error(f"Failed to send command to Pixoo after {retries} attempts: {e}")
                 else:
-                    await asyncio.sleep(0.15) 
-        except aiohttp.ClientError as e: 
-            _LOGGER.error(f"Error sending command to Pixoo: {e}") 
-        except asyncio.TimeoutError: 
-            _LOGGER.error(f"Timeout sending command to Pixoo after 10 seconds.") 
-        except Exception as e: 
-            _LOGGER.exception(f"Unexpected error sending command to Pixoo: {e}") 
+                    await asyncio.sleep(0.2 * attempt)
+            
+            except Exception as e:
+                if "Session is closed" not in str(e):
+                    _LOGGER.exception(f"Unexpected error sending to Pixoo: {e}")
+                return
 
     async def get_current_channel_index(self) -> int: 
-        channel_command = {
-            "Command": "Channel/GetIndex"
-        }
+        if self.session.closed: return 0
+        
+        channel_command = { "Command": "Channel/GetIndex" }
         try:
             async with self.session.post(
                 self.config.pixoo_url,
@@ -418,15 +426,8 @@ class PixooDevice:
                 response_text = await response.text()
                 response_data = json.loads(response_text)
                 return response_data.get('SelectIndex', 0)
-        except aiohttp.ClientError as e: 
-            _LOGGER.error(f"Failed to get channel index from Pixoo: {e}") 
-        except json.JSONDecodeError as e: 
-            _LOGGER.error(f"Failed to decode JSON response when getting channel index: {e}") 
-        except asyncio.TimeoutError: 
-            _LOGGER.error(f"Timeout getting channel index from Pixoo after 5 seconds.") 
-        except Exception as e: 
-            _LOGGER.exception(f"Unexpected error getting channel index from Pixoo: {e}") 
-        return 1  # Default fallback value
+        except Exception: 
+            return 0
 
 class ImageProcessor:
     """Processes images for display on the Pixoo64 device, including caching and filtering.""" 
@@ -1832,12 +1833,14 @@ class MediaData:
             if self.config.temperature_sensor and (self.config.temperature or self.config.special_mode):
                 try:
                     temp_state = await hass.get_state(self.config.temperature_sensor, attribute="all")
-                    if temp_state:
+                    if temp_state and str(temp_state['state']).replace('.', '', 1).isdigit():
                         val = float(temp_state['state'])
                         unit = temp_state['attributes'].get('unit_of_measurement', '')
                         self.temperature = f"{int(val)}{unit.lower()}"
-                    else: self.temperature = None
-                except Exception: self.temperature = None
+                    else:
+                        self.temperature = None
+                except Exception: 
+                    self.temperature = None
 
             return self
 
@@ -2756,6 +2759,7 @@ class ProgressBarManager:
         self.config = config
         self.hass = hass
         self.current_bar_str = ""
+        self.last_sent_text = None 
         self.ensure_entity_exists()
 
     def ensure_entity_exists(self):
@@ -2810,13 +2814,18 @@ class ProgressBarManager:
         
         text_to_send = ""
         
-        
         should_show = getattr(media_data, 'show_progress_bar', False)
         
         if should_show and self.current_bar_str:
             text_to_send = self.current_bar_str
         else:
             text_to_send = ""
+
+        if text_to_send == self.last_sent_text:
+            return None
+            
+        self.last_sent_text = text_to_send
+        # --------------------------------------
 
         color = self.config.progress_bar_color
         if color == 'match':
@@ -2834,6 +2843,255 @@ class ProgressBarManager:
             "TextString": text_to_send,
             "color": color
         }
+
+class NotificationManager:
+    """Manages visual notifications via HA Events with dynamic layout and rich icon set."""
+    
+    THEMES = {
+        "info":    {"color": (0, 191, 255), "hex": "#00BFFF"}, 
+        "success": {"color": (50, 205, 50), "hex": "#32CD32"},   
+        "warning": {"color": (255, 165, 0), "hex": "#FFA500"},  
+        "error":   {"color": (255, 69, 0),  "hex": "#FF4500"},  
+        "text":    {"color": (255, 255, 255), "hex": "#FFFFFF"},
+        "boiler":  {"color": (255, 69, 0),  "hex": "#FF4500"},  
+        "shutter": {"color": (192, 192, 192), "hex": "#C0C0C0"},
+        "car":     {"color": (0, 255, 255), "hex": "#00FFFF"},  
+        "washer":  {"color": (0, 191, 255), "hex": "#00BFFF"},  
+        "trash":   {"color": (50, 205, 50), "hex": "#32CD32"},  
+        "door":    {"color": (255, 215, 0), "hex": "#FFD700"},  
+        "lock":    {"color": (255, 0, 0),   "hex": "#FF0000"},  
+        "mail":    {"color": (255, 255, 224), "hex": "#FFFFE0"}, 
+        "fire":    {"color": (255, 140, 0), "hex": "#FF8C00"},   
+        "water":   {"color": (30, 144, 255), "hex": "#1E90FF"}, 
+        "battery": {"color": (220, 20, 60), "hex": "#DC143C"},  
+        "wifi":    {"color": (255, 0, 0),   "hex": "#FF0000"},   
+        "sleep":   {"color": (147, 112, 219), "hex": "#9370DB"}, 
+    }
+
+    LAYOUTS = {
+        1: {"icon_cy": 25, "text_start_y": 48}, 
+        2: {"icon_cy": 20, "text_start_y": 40}, 
+        3: {"icon_cy": 15, "text_start_y": 30}, 
+        4: {"icon_cy": 11, "text_start_y": 22}  
+    }
+
+    def __init__(self, config: "Config", pixoo: "PixooDevice", image_processor: "ImageProcessor"):
+        self.config = config
+        self.pixoo = pixoo
+        self.proc = image_processor
+        self.is_active = False
+
+    async def display(self, event_data: dict):
+        try:
+            self.is_active = True
+            
+            message = event_data.get("message", "")
+            notif_type = event_data.get("type", "text").lower()
+            duration = int(event_data.get("duration", 5))
+            custom_color = event_data.get("color", None)
+
+            if not message: return
+
+            processed_text = get_bidi(message) if has_bidi(message) else message
+            
+            if notif_type == "text":
+                max_lines = 6 
+            else:
+                max_lines = 4
+
+            lines = textwrap.wrap(processed_text, width=12)
+            if len(lines) > max_lines: lines = lines[:max_lines]
+            if not lines: lines = [""]
+            
+            line_count = len(lines)
+            
+            if notif_type == "text":
+                total_text_height = line_count * 10
+                text_start_y = (64 - total_text_height) // 2
+                icon_cy = 0 
+            else:
+                layout = self.LAYOUTS.get(line_count, self.LAYOUTS[2])
+                icon_cy = layout["icon_cy"]
+                text_start_y = layout["text_start_y"]
+
+            theme = self.THEMES.get(notif_type, self.THEMES["info"])
+            hex_color = custom_color if custom_color else theme["hex"]
+            
+            if notif_type == "text":
+                rgb_color = self._hex_to_rgb(hex_color)
+            else:
+                rgb_color = theme["color"]
+
+            bg_image = self._draw_background(notif_type, rgb_color, icon_cy)
+            b64_bg = self.proc.gbase64(bg_image)
+
+            await self.pixoo.send_command({
+                "Command": "Draw/CommandList",
+                "CommandList": [
+                    {"Command": "Channel/OnOffScreen", "OnOff": 1},
+                    {"Command": "Draw/ClearHttpText"},
+                    {"Command": "Draw/ResetHttpGifId"},
+                    {"Command": "Draw/SendHttpGif",
+                    "PicNum": 1, "PicWidth": 64, "PicOffset": 0,
+                    "PicID": 0, "PicSpeed": 1000, "PicData": b64_bg}
+                ]
+            })
+
+            await asyncio.sleep(0.2)
+
+            text_items = self._create_text_items(lines, hex_color, text_start_y)
+            if text_items:
+                await self.pixoo.send_command({
+                    "Command": "Draw/SendHttpItemList",
+                    "ItemList": text_items
+                })
+
+            await asyncio.sleep(duration)
+
+        except Exception as e:
+            _LOGGER.error(f"Notification error: {e}")
+        finally:
+            self.is_active = False
+
+    def _draw_background(self, n_type: str, color: tuple, cy: int) -> Image.Image:
+        """Draws icon based on type."""
+        img = Image.new("RGB", (64, 64), (0, 0, 0))
+        draw = ImageDraw.Draw(img)
+
+        draw.rectangle([0, 0, 63, 63], outline=color, width=1)
+        
+        if n_type == "text": 
+            return img
+
+        cx = 32 
+
+        # --- Basic Types ---
+        if n_type == "info":
+            draw.ellipse([cx-9, cy-9, cx+9, cy+9], outline=color, width=1)
+            draw.rectangle([cx-1, cy-2, cx+1, cy+5], fill=color) 
+            draw.rectangle([cx-1, cy-5, cx+1, cy-4], fill=color)
+
+        elif n_type == "success":
+            points = [(cx-6, cy), (cx-2, cy+6), (cx+7, cy-5)]
+            draw.line(points, fill=color, width=2)
+
+        elif n_type == "warning":
+            points = [(cx, cy-9), (cx-10, cy+8), (cx+10, cy+8)]
+            draw.polygon(points, outline=color, fill=None)
+            draw.line([(cx, cy-3), (cx, cy+3)], fill=color, width=1)
+            draw.point((cx, cy+5), fill=color)
+
+        elif n_type == "error":
+            s = 5
+            draw.line([(cx-s, cy-s), (cx+s, cy+s)], fill=color, width=2)
+            draw.line([(cx+s, cy-s), (cx-s, cy+s)], fill=color, width=2)
+
+        # --- House & Appliances ---
+        elif n_type == "boiler": 
+            draw.rectangle([cx-5, cy-8, cx+5, cy+8], outline=color, width=1)
+            draw.line([(cx+1, cy-4), (cx-2, cy), (cx+2, cy), (cx-1, cy+5)], fill=color, width=1)
+            draw.point((cx, cy+6), fill=color)
+
+        elif n_type == "shutter": 
+            draw.rectangle([cx-8, cy-8, cx+8, cy+8], outline=color, width=1)
+            for y_line in range(cy-5, cy+7, 3):
+                draw.line([(cx-6, y_line), (cx+6, y_line)], fill=color, width=1)
+
+        elif n_type == "car": 
+            draw.rectangle([cx-9, cy, cx+9, cy+6], outline=color, width=1)
+            draw.line([(cx-9, cy), (cx-5, cy-5), (cx+5, cy-5), (cx+9, cy)], fill=color, width=1)
+            draw.ellipse([cx-7, cy+5, cx-4, cy+8], fill=color)
+            draw.ellipse([cx+4, cy+5, cx+7, cy+8], fill=color)
+
+        elif n_type == "washer": 
+            draw.rectangle([cx-8, cy-8, cx+8, cy+8], outline=color, width=1)
+            draw.ellipse([cx-5, cy-5, cx+5, cy+5], outline=color, width=1)
+            draw.point((cx+6, cy-6), fill=color) 
+
+        elif n_type == "trash": 
+            draw.line([(cx-5, cy+8), (cx+5, cy+8), (cx+7, cy-4), (cx-7, cy-4), (cx-5, cy+8)], fill=color, width=1)
+            draw.line([(cx-8, cy-4), (cx+8, cy-4)], fill=color, width=1)
+            draw.rectangle([cx-2, cy-6, cx+2, cy-4], fill=color)
+
+        elif n_type == "door": 
+            draw.rectangle([cx-6, cy-9, cx+6, cy+9], outline=color, width=1)
+            draw.line([(cx-6, cy-9), (cx+2, cy-6)], fill=color, width=1)
+            draw.line([(cx+2, cy-6), (cx+2, cy+9)], fill=color, width=1)
+            draw.line([(cx+2, cy+9), (cx-6, cy+9)], fill=color, width=1)
+
+        elif n_type == "lock": 
+            draw.rectangle([cx-6, cy-2, cx+6, cy+7], fill=color)
+            draw.arc([cx-5, cy-8, cx+5, cy-1], 180, 0, fill=color, width=1)
+
+        elif n_type == "mail": 
+            draw.rectangle([cx-9, cy-6, cx+9, cy+6], outline=color, width=1)
+            draw.line([(cx-9, cy-6), (cx, cy+2), (cx+9, cy-6)], fill=color, width=1)
+
+        elif n_type == "battery": 
+            draw.rectangle([cx-8, cy-4, cx+6, cy+4], outline=color, width=1)
+            draw.rectangle([cx-7, cy-3, cx-2, cy+3], fill=color) 
+            draw.rectangle([cx+6, cy-2, cx+8, cy+2], fill=color) 
+
+        elif n_type == "fire": 
+            draw.polygon([(cx, cy-8), (cx+5, cy+2), (cx+3, cy+8), (cx-3, cy+8), (cx-5, cy+2)], outline=color, fill=None)
+            draw.point((cx, cy+5), fill=color)
+
+        elif n_type == "water": 
+            draw.polygon([(cx, cy-8), (cx+5, cy+2), (cx, cy+8), (cx-5, cy+2)], outline=color, fill=color)
+        
+        elif n_type == "wifi": 
+            draw.point((cx, cy+6), fill=color)
+            draw.arc([cx-4, cy, cx+4, cy+8], 225, 315, fill=color, width=1)
+            draw.arc([cx-8, cy-4, cx+8, cy+4], 225, 315, fill=color, width=1)
+
+        elif n_type == "sleep": 
+            draw.arc([cx-6, cy-6, cx+6, cy+6], 90, 270, fill=color, width=2)
+            draw.line([(cx, cy-6), (cx, cy+6)], fill=color, width=1)
+
+        return img
+
+    def _create_text_items(self, lines: list, color: str, start_y: int) -> list:
+        items = []
+
+        ids_to_clear = [1, 2, 3, 4, 5, 6, 10, 11, 20, 22, 25, 26, 27,28,29,30] 
+        
+        for tid in ids_to_clear:
+            items.append({
+                "TextId": tid,
+                "type": 22, "x": 0, "y": 0, "dir": 0, "font": 190,
+                "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 1,
+                "TextString": "", "color": "#000000"
+            })
+
+        line_height = 10 
+        for i, line in enumerate(lines):
+            rtl = 1 if has_bidi(line) else 0
+            items.append({
+                "TextId": 25 + i, 
+                "type": 22,
+                "x": 0,
+                "y": start_y + (i * line_height),
+                "dir": rtl,
+                "font": 190, 
+                "TextWidth": 64,
+                "Textheight": 16,
+                "speed": 100,
+                "align": 2, 
+                "TextString": line,
+                "color": color
+            })
+        return items
+
+    def _hex_to_rgb(self, hex_str: str) -> tuple:
+        """Converts hex string (e.g., '#FF0000') to RGB tuple."""
+        hex_str = hex_str.lstrip('#')
+        if len(hex_str) == 3:
+            hex_str = ''.join([c*2 for c in hex_str])
+        
+        try:
+            return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
+        except ValueError:
+            return (255, 255, 255)
 
 class Pixoo64_Media_Album_Art(hass.Hass):
     """AppDaemon app to display album art on Divoom Pixoo64 and control related features."""
@@ -2868,14 +3126,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.spotify_service = SpotifyService(self.config, self.websession)
         self.media_data = MediaData(self.config, self.image_processor, self.websession)
         self.fallback_service = FallbackService(self.config, self.image_processor, self.websession, self.spotify_service)
+        self.notification_manager = NotificationManager(self.config, self.pixoo_device, self.image_processor)
 
         self.listen_state(self._mode_changed, self.config.mode_entity)
         self.listen_state(self._crop_mode_changed, self.config.crop_entity)
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_title")
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="state")
-        
-        # Listen for position changes (seeking/skipping) to re-sync scheduler
         self.listen_state(self.safe_state_change_callback, self.config.media_player, attribute="media_position")
+        self.listen_event(self.on_pixoo_notify, "pixoo_notify")
 
         try:
             initial_index = await self.pixoo_device.get_current_channel_index()
@@ -3120,6 +3378,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def _calculate_and_schedule_next(self):
         # Gatekeeper
+        if hasattr(self, 'notification_manager') and self.notification_manager.is_active:
+            return
         if not self.lyrics_active_mode:
             return
 
@@ -3195,11 +3455,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             await self.state_change_callback(self.config.media_player, "state", None, state, {})
 
     async def _update_progress_bar_loop(self):
-        # 1. Validate Media State
+        if hasattr(self, 'notification_manager') and self.notification_manager.is_active:
+            return 
+
         state = await self.get_state(self.config.media_player)
         if state not in ["playing", "on"]: return
 
-        # 2. Validate Toggle State (Guard Clause)
         if self.config.progress_bar_enabled:
             pb_state = await self.get_state(self.config.progress_bar_entity)
             if str(pb_state).lower() != 'on':
@@ -3208,7 +3469,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         current_mode = await self.get_state(self.config.mode_entity)
         if current_mode in self.config.progress_bar_exclude_modes: return
 
-        # 3. Calculate Position
         if not self.media_data.media_position_updated_at:
             current_pos = self.media_data.media_position
         else:
@@ -3216,14 +3476,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             elapsed = (now - self.media_data.media_position_updated_at).total_seconds()
             current_pos = self.media_data.media_position + elapsed
 
-        # 4. Get Bar String
         bar_str, delay = self.progress_manager.calculate(current_pos, self.media_data.media_duration)
 
-        # 5. Refresh Text Layer (Calls the function that was missing!)
         if self.is_art_visible:
             await self._rebuild_and_send_text_layer()
 
-        # 6. Schedule Next
         if delay:
             self.progress_timer_gen_id += 1
             self.run_in(self._progress_bar_timer_callback, delay, gen_id=self.progress_timer_gen_id)
@@ -3262,6 +3519,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def _rebuild_and_send_text_layer(self):
         """Re-sends the text list including the progress bar without reprocessing image."""
+        if hasattr(self, 'notification_manager') and self.notification_manager.is_active:
+            return
         font_color = self.media_data.lyrics_font_color
         bg_color = getattr(self.media_data, 'background_color', '#000000') 
 
@@ -3353,6 +3612,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             _LOGGER.error(f"Error in state_change_callback: {e}")
 
     async def update_attributes(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
+        if hasattr(self, 'notification_manager') and self.notification_manager.is_active:
+            return
         try:
             media_state_str = await self.get_state(self.config.media_player)
             media_state = media_state_str if media_state_str else "off"
@@ -3385,6 +3646,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     # =========================================================================
 
     async def pixoo_run(self, media_state: str, media_data: "MediaData") -> None:
+        if hasattr(self, 'notification_manager') and self.notification_manager.is_active:
+                return
         try:
             async with asyncio.timeout(self.callback_timeout):
                 # Ensure we are on the correct channel
@@ -3480,7 +3743,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     temp_item_normal = {"TextId": current_text_id, "type": 17, "x": x_temp, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color}
                 text_items_for_display_list.append(temp_item_normal)
 
-        # 3. Progress Bar Integration (async awaited)
+        # 3. Progress Bar Integration
         progress_item = await self.progress_manager.get_payload_item(media_data)
         if progress_item:
             text_items_for_display_list.append(progress_item)
@@ -3748,3 +4011,37 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "color": "#a0e5ff" if i < len(artist_lines) else "#f9ffa0",  
             })
         return { "Command": "Draw/SendHttpItemList", "ItemList": item_list }
+
+    async def on_pixoo_notify(self, event_name, data, kwargs):
+        """Callback for HA Event 'pixoo_notify' with Smart Restore."""
+
+        previous_channel = 0 
+        try:
+            previous_channel = await self.pixoo_device.get_current_channel_index()
+        except Exception as e:
+            _LOGGER.warning(f"Could not get current channel, defaulting to 0: {e}")
+
+        if self.current_image_task and not self.current_image_task.done():
+            self.current_image_task.cancel()
+            self.current_image_task = None
+
+        await self.notification_manager.display(data)
+        
+        current_state = await self.get_state(self.config.media_player)
+        
+        if current_state in ["playing", "on"]:
+
+            await self.state_change_callback(self.config.media_player, "state", None, current_state, {})
+            await asyncio.sleep(0.5)
+            await self._rebuild_and_send_text_layer()
+        
+        else:
+            await self.pixoo_device.send_command({
+                "Command": "Draw/CommandList", 
+                "CommandList": [
+                    {"Command": "Draw/ClearHttpText"},  
+                    {"Command": "Draw/ResetHttpGifId"},
+                    {"Command": "Channel/SetIndex", "SelectIndex": previous_channel}
+                ]
+            })
+            
