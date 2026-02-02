@@ -556,23 +556,26 @@ class ImageProcessor:
             return None
 
         if self.config.burned:
-            cache_key = f"{media_data.artist} - {media_data.album} - {media_data.title}"
-        elif media_data.album and media_data.album not in ["None", "", None]:
-            cache_key = f"{media_data.artist} - {media_data.album}"
+            # If text is burned into the pixels, the title/artist must be part of the key.
+            cache_key = f"{picture}_{media_data.artist}_{media_data.title}"
         else:
+            # Otherwise, the URL is the perfect unique identifier.
             cache_key = picture
 
         use_cache = not spotify_slide and not media_data.playing_tv
         cached_data = None
 
         if use_cache and cache_key in self.image_cache:
+            # --- CACHE HIT ---
             self.image_cache.move_to_end(cache_key)
             cached_data = self.image_cache[cache_key]
             
+            # Ensure the sensor sees the total cache state
             media_data.image_cache_memory = format_memory_size(self._current_cache_memory)
             media_data.image_cache_count = self._cache_size
             
         else:
+            # --- CACHE MISS ---
             try:
                 url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
                 async with self.session.get(url, timeout=30) as response:
@@ -589,6 +592,7 @@ class ImageProcessor:
                         self.image_cache[cache_key] = cached_data
                         self._update_cache_memory_tracker(cached_data, add=True)
                         
+                        # Update sensor stats
                         media_data.image_cache_memory = format_memory_size(self._current_cache_memory)
                         media_data.image_cache_count = self._cache_size
             except Exception as e:
@@ -598,6 +602,7 @@ class ImageProcessor:
         if not cached_data:
             return None
 
+        # Even if the image is cached, we re-apply Clock/Temp overlays 
         final_img = cached_data['pil_image'].copy()
         final_img = self.text_clock_img(final_img, cached_data['brightness_lower_part'], media_data)
         
