@@ -93,9 +93,9 @@ pixoo64_media_album_art:
 
   # --- Progress Bar Configuration ---
   progress_bar:
-    enabled: True                               # Master switch for the feature
+    enabled: True                                # Master switch for the feature
     entity: "input_boolean.pixoo64_progress_bar" # Helper to toggle via dashboard
-    color: "match"                              # "match" (auto-contrast) or hex "#FF0000"
+    color: "match"                               # "match" (auto-contrast) or any hex "#FF0000"
 
 """
 
@@ -121,7 +121,7 @@ from typing import Any, Dict, Optional, Tuple
 from functools import lru_cache
 
 # Third-party library imports
-from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageFilter, ImageStat
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter, ImageStat, ImageChops, ImageOps
 
 try:
     from unidecode import unidecode
@@ -178,17 +178,6 @@ def split_string(text, length):
     lines.append(current_line)
     return lines
 
-def img_adptive(img, x):
-    colors = x
-    colors = False if colors > 256 else colors
-    colors = 4 if colors < 5 else colors
-    if colors:
-        try:
-            img = img.convert('P', palette=Image.ADAPTIVE, colors=colors).convert('RGB')
-        except Image.Error:
-            pass
-    return img
-
 def format_memory_size(size):
     return f"{size / 1024:.2f} KB"
 
@@ -219,67 +208,6 @@ def _resize_image_sync(image_data: bytes) -> Optional[Image.Image]:
         return img
     except Exception:
         return None
-
-def _generate_animation_frames_sync(images: list, total_frames: int, num_albums: int, processor: "ImageProcessor") -> list[str]:
-    """
-    Pre-calculates blurred/darkened images once per album 
-    instead of recalculating them for every single animation frame.
-    """
-    pixoo_frames = []
-    x_positions = [1, 16, 51]  # Left, Center, Right positions
-    
-    active_images = []
-    inactive_images = []
-
-    for img in images:
-        try:
-            # Prepare Active Image (Center): Just add a border
-            active = img.copy()
-            draw = ImageDraw.Draw(active)
-            draw.rectangle([0, 0, active.width - 1, active.height - 1], outline="black", width=1)
-            active_images.append(active)
-
-            # Prepare Inactive Image (Sides): Blur and Darken
-            inactive = img.copy()
-            inactive = inactive.filter(ImageFilter.GaussianBlur(2))
-            enhancer = ImageEnhance.Brightness(inactive)
-            inactive = enhancer.enhance(0.5)
-            inactive_images.append(inactive)
-        except Exception:
-            # Fallback if an image fails to process, use original
-            active_images.append(img)
-            inactive_images.append(img)
-
-    # Generate Frames
-    for index in range(total_frames):
-        try:
-            canvas = Image.new("RGB", (64, 64), (0, 0, 0))
-
-            # Calculate indices for the carousel
-            left_index = (index - 1) % num_albums
-            center_index = index % num_albums
-            right_index = (index + 1) % num_albums
-
-            # Paste Left (Inactive)
-            if left_index < len(inactive_images):
-                canvas.paste(inactive_images[left_index], (x_positions[0], 8))
-            
-            # Paste Center (Active)
-            if center_index < len(active_images):
-                canvas.paste(active_images[center_index], (x_positions[1], 8))
-
-            # Paste Right (Inactive)
-            if right_index < len(inactive_images):
-                canvas.paste(inactive_images[right_index], (x_positions[2], 8))
-
-            base64_image = processor.gbase64(canvas)
-            if base64_image:
-                pixoo_frames.append(base64_image)
-
-        except Exception as e:
-            continue
-            
-    return pixoo_frames
 
 class Config:
     SENSOR_NAME = 'pixoo64_album_art'
@@ -353,7 +281,7 @@ class Config:
             'progress_bar_entity': ('entity', 'input_boolean.pixoo64_progress_bar'),
             'progress_bar_character': ('character', '-'),
             'progress_bar_font': ('font', 190),
-            'progress_bar_resolution': ('resolution', 22),
+            'progress_bar_resolution': ('resolution', 21),
             'progress_bar_color': ('color', 'match'),
             'progress_bar_y_offset': ('y_offset', 64),
             'progress_bar_exclude_modes': ('exclude_modes', [])
@@ -502,7 +430,7 @@ class PixooDevice:
 
 class ImageProcessor:
     """Processes images for display on the Pixoo64 device, including caching and filtering."""
-    
+
     def __init__(self, config: "Config", session: aiohttp.ClientSession):
         self.config = config
         self.session = session
@@ -511,15 +439,9 @@ class ImageProcessor:
         
         self._current_cache_memory: int = 0
         
-        self._executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="PixooImageProc")
+        self._executor = ThreadPoolExecutor(max_workers=15, thread_name_prefix="PixooImageProc")
         
         self._default_font = ImageFont.load_default()
-        
-        dummy_draw = ImageDraw.Draw(Image.new("RGB", (1, 1)))
-        if hasattr(dummy_draw, "textbbox"):
-            self._measure_text_strategy = self._measure_text_bbox
-        else:
-            self._measure_text_strategy = self._measure_text_legacy
 
     def shutdown(self):
         """Clean up resources."""
@@ -541,9 +463,6 @@ class ImageProcessor:
                     size += 8
         return size
 
-    def _calculate_cache_memory_size(self) -> float:
-        return self._current_cache_memory
-
     def _update_cache_memory_tracker(self, item: dict, add: bool = True):
         size = self._calculate_item_size(item)
         if add:
@@ -556,26 +475,21 @@ class ImageProcessor:
             return None
 
         if self.config.burned:
-            # If text is burned into the pixels, the title/artist must be part of the key.
             cache_key = f"{picture}_{media_data.artist}_{media_data.title}"
         else:
-            # Otherwise, the URL is the perfect unique identifier.
             cache_key = picture
 
         use_cache = not spotify_slide and not media_data.playing_tv
         cached_data = None
 
         if use_cache and cache_key in self.image_cache:
-            # --- CACHE HIT ---
             self.image_cache.move_to_end(cache_key)
             cached_data = self.image_cache[cache_key]
             
-            # Ensure the sensor sees the total cache state
             media_data.image_cache_memory = format_memory_size(self._current_cache_memory)
             media_data.image_cache_count = self._cache_size
             
         else:
-            # --- CACHE MISS ---
             try:
                 url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
                 async with self.session.get(url, timeout=30) as response:
@@ -592,7 +506,6 @@ class ImageProcessor:
                         self.image_cache[cache_key] = cached_data
                         self._update_cache_memory_tracker(cached_data, add=True)
                         
-                        # Update sensor stats
                         media_data.image_cache_memory = format_memory_size(self._current_cache_memory)
                         media_data.image_cache_count = self._cache_size
             except Exception as e:
@@ -602,9 +515,10 @@ class ImageProcessor:
         if not cached_data:
             return None
 
-        # Even if the image is cached, we re-apply Clock/Temp overlays 
         final_img = cached_data['pil_image'].copy()
-        final_img = self.text_clock_img(final_img, cached_data['brightness_lower_part'], media_data)
+        
+        # Pass full cached_data for colorful bars
+        final_img = self.text_clock_img(final_img, cached_data, media_data)
         
         if self.config.info:
             lpc = (0, 10, 64, 30)
@@ -635,11 +549,11 @@ class ImageProcessor:
                 img.load() 
                 img = ensure_rgb(img)
                 
-                max_dimension = 1000
+                max_dimension = 640
                 if max(img.size) > max_dimension:
                     scale_factor = max_dimension / max(img.size)
                     new_size = (int(img.width * scale_factor), int(img.height * scale_factor))
-                    img = img.resize(new_size, Image.Resampling.LANCZOS)
+                    img = img.resize(new_size, Image.Resampling.BICUBIC)
 
                 if (self.config.crop_borders or self.config.special_mode) and not media_data.radio_logo:
                     img = self.crop_image_borders(img, media_data.radio_logo)
@@ -647,7 +561,7 @@ class ImageProcessor:
                 img = self.fixed_size(img)
 
                 if img.width > 64 or img.height > 64:
-                    img = img.resize((64, 64), Image.Resampling.LANCZOS)
+                    img = img.resize((64, 64), Image.Resampling.BICUBIC)
 
                 if self.config.contrast or self.config.sharpness or self.config.colors or self.config.kernel or self.config.limit_color:
                     img = self.filter_image(img)
@@ -660,7 +574,11 @@ class ImageProcessor:
                 
                 vals = self.img_values(img)
                 
-                media_data.lyrics_font_color = self.get_optimal_font_color(img) if self.config.show_lyrics or self.config.info else "#FFA000"
+                if self.config.show_lyrics or self.config.info:
+                    media_data.lyrics_font_color = self.get_optimal_font_color(img)
+                else:
+                    media_data.lyrics_font_color = vals['most_common_color_alternative']
+
                 media_data.color1 = vals['color1']
                 media_data.color2 = vals['color2']
                 media_data.color3 = vals['color3']
@@ -699,15 +617,8 @@ class ImageProcessor:
         try:
             with Image.open(BytesIO(image_data)) as img:
                 img = ensure_rgb(img)
-
-                if self.config.crop_borders:
-                    img = self.crop_image_borders(img, False)
-
                 img = self.fixed_size(img)
                 img = img.resize((64, 64), Image.Resampling.BICUBIC)
-
-                if self.config.limit_color or self.config.contrast or self.config.sharpness or self.config.colors or self.config.kernel:
-                    img = self.filter_image(img)
 
                 if self.config.special_mode:
                     img = self.special_mode(img)
@@ -758,7 +669,9 @@ class ImageProcessor:
                         0,  0,  1,  0,  2]
             img = img.filter(ImageFilter.Kernel((5, 5), kernel_5x5, 1, 0))
         
-        img = img.resize((64, 64), Image.Resampling.BILINEAR)
+        if img.size != (64, 64):
+            img = img.resize((64, 64), Image.Resampling.BILINEAR)
+
         target_colors = int(self.config.limit_color) if self.config.limit_color else 64
 
         if self.config.limit_color:
@@ -769,7 +682,8 @@ class ImageProcessor:
         if img is None: return None
         output_size = (64, 64)
         album_size = (34, 34) if self.config.show_text else (56, 56)
-        album_art = img.resize(album_size, Image.Resampling.BILINEAR)
+        
+        album_art = img.resize(album_size, Image.Resampling.BICUBIC)
 
         try:
             left_color = album_art.getpixel((0, album_size[1] // 2))
@@ -778,37 +692,22 @@ class ImageProcessor:
             left_color = (100, 100, 100)
             right_color = (150, 150, 150)
 
-        dark_background_color = (
-            min(left_color[0], right_color[0]) // 2,
-            min(left_color[1], right_color[1]) // 2,
-            min(left_color[2], right_color[2]) // 2
-        )
         if album_size == (34, 34):
-            dark_background_color = (0, 0, 0)
-        background = Image.new('RGB', output_size, dark_background_color)
+            # Gradient Optimization
+            gradient_source = Image.new("RGB", (2, 1))
+            gradient_source.putpixel((0, 0), left_color)
+            gradient_source.putpixel((1, 0), right_color)
+            background = gradient_source.resize(output_size, Image.Resampling.BICUBIC)
+        else:
+            dark_background_color = (
+                min(left_color[0], right_color[0]) // 2,
+                min(left_color[1], right_color[1]) // 2,
+                min(left_color[2], right_color[2]) // 2
+            )
+            background = Image.new('RGB', output_size, dark_background_color)
 
         x = (output_size[0] - album_size[0]) // 2
         y = 8 
-
-        if album_size == (34, 34):
-            for i in range(x):
-                gradient_color = (
-                    int(left_color[0] * (x - i) / x),
-                    int(left_color[1] * (x - i) / x),
-                    int(left_color[2] * (x - i) / x)
-                )
-                for j in range(y, y + album_size[1]):
-                    background.putpixel((i, j), gradient_color)
-
-            for i in range(x + album_size[0], output_size[0]):
-                gradient_color = (
-                    int(right_color[0] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
-                    int(right_color[1] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0]))),
-                    int(right_color[2] * (i - (x + album_size[0])) / (output_size[0] - (x + album_size[0])))
-                )
-                for j in range(y, y + album_size[1]):
-                    background.putpixel((i, j), gradient_color)
-
         background.paste(album_art, (x, y))
         return background
 
@@ -821,8 +720,10 @@ class ImageProcessor:
             _LOGGER.error(f"Error converting image to base64: {e}")
             return None
 
-    def text_clock_img(self, img: Image.Image, brightness_lower_part: float, media_data: "MediaData") -> Image.Image:
-        if media_data.playing_tv or self.config.special_mode or self.config.spotify_slide: return img
+    def text_clock_img(self, img: Image.Image, cached_data: dict, media_data: "MediaData") -> Image.Image:
+        if media_data.playing_tv: return img
+
+        brightness_lower_part = cached_data.get('brightness_lower_part', 0.5)
 
         if media_data.lyrics and self.config.show_lyrics and self.config.text_bg and brightness_lower_part != None and not media_data.playing_radio:
             enhancer_lp = ImageEnhance.Brightness(img)
@@ -848,11 +749,32 @@ class ImageProcessor:
 
         if getattr(media_data, 'show_progress_bar', False):
             y_start = self.config.progress_bar_y_offset - 1
-            lpc = (0, y_start-1, 64, y_start+1)
-            lower_part_img = img.crop(lpc)
-            enhancer_lp = ImageEnhance.Brightness(lower_part_img)
-            lower_part_img = enhancer_lp.enhance(0.7) 
-            img.paste(lower_part_img, lpc)
+            bar_color_rgb = cached_data.get('most_common_color_alternative_rgb')
+            if not bar_color_rgb or sum(bar_color_rgb) < 50:
+                bar_color_rgb = (255, 255, 255)
+
+            draw = ImageDraw.Draw(img)
+            draw.rectangle([(0, y_start), (63, y_start+1)], fill=(40, 40, 40))
+            
+            duration = float(getattr(media_data, 'media_duration', 0) or 0)
+            position = float(getattr(media_data, 'media_position', 0) or 0)
+            
+            bar_width = 0
+            if duration > 0:
+                remaining = duration - position
+                if remaining <= 10:
+                    bar_width = 64
+                else:
+                    pct = position / duration
+                    bar_width = int(64 * pct)
+                    if position > 0 and bar_width < 2:
+                        bar_width = 2
+            else:
+                bar_width = 64
+
+            if bar_width > 0:
+                bar_width = min(bar_width, 64)
+                draw.rectangle([(0, y_start), (bar_width - 1, y_start+1)], fill=bar_color_rgb)
             
         return img
 
@@ -860,7 +782,7 @@ class ImageProcessor:
         full_img = img
         lower_part = img.crop((3, 48, 61, 61))
         
-        colors_raw = lower_part.getcolors(maxcolors=4096)
+        colors_raw = lower_part.getcolors(maxcolors=1024)
         if colors_raw:
             most_common_colors_lower_part = sorted([(c[1], c[0]) for c in colors_raw], key=lambda x: x[1], reverse=True)
         else:
@@ -873,7 +795,7 @@ class ImageProcessor:
         
         font_color = self.get_optimal_font_color(img)
 
-        small_temp_img = full_img.resize((16, 16), Image.Resampling.BILINEAR)
+        small_temp_img = full_img.resize((16, 16), Image.Resampling.NEAREST)
         colors_raw_small = small_temp_img.getcolors(maxcolors=256)
         if colors_raw_small:
             most_common_colors = [(c[1], c[0]) for c in colors_raw_small]
@@ -890,7 +812,9 @@ class ImageProcessor:
         if self.config.wled:
             color1_hex, color2_hex, color3_hex = self.most_vibrant_colors_wled(small_temp_img)
         else:
-            color1_hex, color2_hex, color3_hex = ('#000000', '#000000', '#000000')
+            color1_hex = most_common_color_alternative
+            color2_hex = most_common_color_alternative
+            color3_hex = most_common_color_alternative
 
         return {
             'font_color': font_color,
@@ -906,14 +830,12 @@ class ImageProcessor:
         }
 
     def most_vibrant_color(self, most_common_colors: list) -> tuple:
+        """Optimized using colorsys to check saturation/value."""
         for color, count in most_common_colors:
             r, g, b = color
-            max_color = max(r, g, b)
-            min_color = min(r, g, b)
-            if max_color + min_color > 400 or max_color - min_color < 50:
-                continue
-            if max_color - min_color < 100:
-                continue
+            h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+            if s < 0.2 or v < 0.2: continue
+            if v > 0.9 and s < 0.3: continue
             return color
         return tuple(random.randint(100, 200) for _ in range(3))
 
@@ -927,7 +849,9 @@ class ImageProcessor:
         return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
 
     def is_vibrant_color(self, r: int, g: int, b: int) -> bool:
-        return (max(r, g, b) - min(r, g, b) > 50)
+        """Optimized using colorsys."""
+        h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+        return s > 0.2 and v > 0.2
 
     def generate_close_but_different_color(self, existing_colors: list) -> tuple:
         if not existing_colors:
@@ -954,11 +878,11 @@ class ImageProcessor:
         return (random.randint(50, 200), random.randint(50, 200), random.randint(50, 200))
 
     def color_score(self, color_count: tuple) -> float:
+        """Optimized using colorsys."""
         color, count = color_count
-        max_val = max(color)
-        min_val = min(color)
-        saturation = (max_val - min_val) / max_val if max_val > 0 else 0
-        return count * saturation
+        r, g, b = color
+        h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+        return count * s
 
     def most_vibrant_colors_wled(self, full_img: Image.Image) -> tuple:
         enhancer = ImageEnhance.Contrast(full_img)
@@ -1006,6 +930,7 @@ class ImageProcessor:
         return self.rgb_to_hex(selected_colors[0][0]), self.rgb_to_hex(selected_colors[1][0]), self.rgb_to_hex(selected_colors[2][0])
 
     def get_optimal_font_color(self, img: Image.Image) -> str:
+        """Optimized using colorsys."""
         if self.config.force_font_color:
             return self.config.force_font_color
         
@@ -1091,114 +1016,93 @@ class ImageProcessor:
             return '#ffffff' if white_contrast > 3.0 else '#000000'
 
     def get_dominant_border_color(self, img: Image.Image) -> tuple:
-        width, height = img.size
-        if width == 0 or height == 0:
-            return (0, 0, 0)
-        img_rgb = img if img.mode == "RGB" else img.convert("RGB")
-        
-        color_counter = Counter()
-        
-        def add_strip_to_counter(strip):
-            colors = strip.getcolors(maxcolors=strip.width * strip.height + 1)
-            if colors:
-                for count, color in colors:
-                    color_counter[color] += count
-            else:
-                for pixel in strip.getdata():
-                    color_counter[pixel] += 1
-
-        if height > 0 and width > 0:
-            add_strip_to_counter(img_rgb.crop((0, 0, width, 1))) # Top
-        if height > 1 and width > 0:
-            add_strip_to_counter(img_rgb.crop((0, height - 1, width, height))) # Bottom
-        start_y = 1 if height > 1 else 0
-        end_y = height - 1 if height > 1 else height
-        if width > 0 and end_y > start_y:
-            add_strip_to_counter(img_rgb.crop((0, start_y, 1, end_y))) # Left
-        if width > 1 and end_y > start_y:
-            add_strip_to_counter(img_rgb.crop((width - 1, start_y, width, end_y))) # Right
-
-        if not color_counter:
-            if width > 0 and height > 0:
-                try:
-                    return img_rgb.getpixel((0, 0)) 
-                except IndexError: 
-                    return (0, 0, 0)
+        """
+        Fast detection of the background color by sampling the image perimeter.
+        """
+        if img.width == 0 or img.height == 0:
             return (0, 0, 0)
             
-        return color_counter.most_common(1)[0][0]
+        # Ensure RGB
+        img_rgb = img if img.mode == "RGB" else img.convert("RGB")
+        
+        # Optimization: Resize to a small thumbnail to smooth out noise
+        thumb = img_rgb.resize((64, 64), Image.Resampling.NEAREST)
+        
+        # Get the 1px border around the thumbnail
+        # Top/Bottom
+        h_border = list(thumb.crop((0, 0, 64, 1)).getdata()) + \
+                   list(thumb.crop((0, 63, 64, 64)).getdata())
+        # Left/Right
+        v_border = list(thumb.crop((0, 0, 1, 64)).getdata()) + \
+                   list(thumb.crop((63, 0, 64, 64)).getdata())
+                   
+        # Find most common color in the border pixels
+        pixels = h_border + v_border
+        if not pixels: return (0,0,0)
+        
+        most_common = Counter(pixels).most_common(1)
+        return most_common[0][0]
 
     def _find_content_bounding_box(self, image_to_scan: Image.Image, border_color_to_detect: tuple, threshold: float) -> Optional[Tuple[int, int, int, int]]:
-        width, height = image_to_scan.size
-        if width == 0 or height == 0:
-            return None
         try:
-            pix = image_to_scan.load()
+            # Create a solid image of the border color
+            bg = Image.new("RGB", image_to_scan.size, border_color_to_detect)
+            
+            # Find the absolute difference
+            diff = ImageChops.difference(image_to_scan, bg)
+            
+            # Convert to grayscale to combine channels
+            diff = ImageOps.grayscale(diff)
+            
+            # We use a slightly looser threshold (30) to approximate the old Euclidean 50
+            diff = diff.point(lambda p: 255 if p > 30 else 0)
+            
+            # getbbox() calculates the box surrounding non-zero pixels in C
+            return diff.getbbox()
         except Exception:
             return None
-        min_x, min_y = width, height
-        max_x, max_y = -1, -1
-        content_found = False
-        
-        threshold_sq = threshold * threshold
-        
-        for y_coord in range(height):
-            for x_coord in range(width):
-                pixel_data = pix[x_coord, y_coord]
-                r, g, b = pixel_data[0], pixel_data[1], pixel_data[2]
-                
-                dist_sq = (r - border_color_to_detect[0])**2 + \
-                        (g - border_color_to_detect[1])**2 + \
-                        (b - border_color_to_detect[2])**2
-                        
-                if dist_sq > threshold_sq:
-                    min_x = min(min_x, x_coord)
-                    max_x = max(max_x, x_coord)
-                    min_y = min(min_y, y_coord)
-                    max_y = max(max_y, y_coord)
-                    content_found = True
-        if not content_found:
-            return None
-        return min_x, min_y, max_x, max_y
 
     def _balance_border(self, detect: Image.Image, orig: Image.Image, left: int, top: int, size: int, border_color: tuple, thresh: float) -> Image.Image:
+        """
+        Restored original logic but optimized the 'getpixel' calls.
+        """
         orig_width, orig_height = orig.size
         detect_width, detect_height = detect.size 
         eff_detect_left = max(0, left)
         eff_detect_top = max(0, top)
         eff_detect_right = min(left + size, detect_width)
         eff_detect_bottom = min(top + size, detect_height)
+        
+        # Fast exit
         if eff_detect_right <= eff_detect_left or eff_detect_bottom <= eff_detect_top:
             final_left_orig = max(0, min(left, orig_width - size))
             final_top_orig = max(0, min(top, orig_height - size))
             actual_crop_dim_orig = min(size, orig_width - final_left_orig, orig_height - final_top_orig)
             if actual_crop_dim_orig < 1: return orig 
             return orig.crop((final_left_orig, final_top_orig, final_left_orig + actual_crop_dim_orig, final_top_orig + actual_crop_dim_orig))
+        
         cropped_detect_window = detect.crop((eff_detect_left, eff_detect_top, eff_detect_right, eff_detect_bottom))
         local_size_w = cropped_detect_window.width
         local_size_h = cropped_detect_window.height
+        
         if local_size_w == 0 or local_size_h == 0:
             final_left_orig = max(0, min(left, orig_width - size))
             final_top_orig = max(0, min(top, orig_height - size))
             actual_crop_dim_orig = min(size, orig_width - final_left_orig, orig_height - final_top_orig)
             if actual_crop_dim_orig < 1: return orig
             return orig.crop((final_left_orig, final_top_orig, final_left_orig + actual_crop_dim_orig, final_top_orig + actual_crop_dim_orig))
-        try:
-            pix_detect = cropped_detect_window.load()
-        except Exception:
-            final_left_orig = max(0, min(left, orig_width - size))
-            final_top_orig = max(0, min(top, orig_height - size))
-            actual_crop_dim_orig = min(size, orig_width - final_left_orig, orig_height - final_top_orig)
-            if actual_crop_dim_orig < 1: return orig
-            return orig.crop((final_left_orig, final_top_orig, final_left_orig + actual_crop_dim_orig, final_top_orig + actual_crop_dim_orig))
+        
+        data = list(cropped_detect_window.getdata())
         
         thresh_sq = thresh * thresh
         
         top_border_rows = 0
+        # Scan top rows
         for y in range(local_size_h):
             is_border_row = True
+            row_start = y * local_size_w
             for x in range(local_size_w):
-                r, g, b = pix_detect[x,y][:3] 
+                r, g, b = data[row_start + x]
                 dist_sq = (r - border_color[0])**2 + (g - border_color[1])**2 + (b - border_color[2])**2
                 if dist_sq > thresh_sq:
                     is_border_row = False
@@ -1207,11 +1111,14 @@ class ImageProcessor:
                 top_border_rows += 1
             else:
                 break
+                
         bottom_border_rows = 0
+        # Scan bottom rows
         for y in range(local_size_h - 1, -1, -1):
             is_border_row = True
+            row_start = y * local_size_w
             for x in range(local_size_w):
-                r, g, b = pix_detect[x,y][:3]
+                r, g, b = data[row_start + x]
                 dist_sq = (r - border_color[0])**2 + (g - border_color[1])**2 + (b - border_color[2])**2
                 if dist_sq > thresh_sq:
                     is_border_row = False
@@ -1220,6 +1127,7 @@ class ImageProcessor:
                 bottom_border_rows += 1
             else:
                 break
+                
         target_crop_dim = size 
         new_top_orig = top 
         if top_border_rows > 0 and bottom_border_rows == 0:
@@ -1228,6 +1136,7 @@ class ImageProcessor:
         elif bottom_border_rows > 0 and top_border_rows == 0:
             shift = bottom_border_rows // 2
             new_top_orig = top - shift 
+            
         final_left = max(0, min(left, orig_width - target_crop_dim))
         final_top = max(0, min(new_top_orig, orig_height - target_crop_dim)) 
         actual_final_w = min(target_crop_dim, orig_width - final_left)
@@ -1266,40 +1175,95 @@ class ImageProcessor:
         return self._balance_border(detect_img, img_to_crop, left, top, actual_crop_size, border_color, threshold)
 
     def _perform_object_focus_crop(self, img_to_crop: Image.Image) -> Optional[Image.Image]:
+        # 1. Prepare Detection Image
         base_for_detect = img_to_crop.convert("RGB") if img_to_crop.mode != "RGB" else img_to_crop.copy()
         detect_img_processed = base_for_detect.filter(ImageFilter.BoxBlur(5))
         detect_img_processed = ImageEnhance.Brightness(detect_img_processed).enhance(1.95)
-        threshold_find_bbox_obj = 50
+        
+        # 2. Find Initial Content Bounding Box ("Find where object begins")
+        threshold_find_bbox_obj = 40
         border_color_for_detect = self.get_dominant_border_color(detect_img_processed) 
         bbox = self._find_content_bounding_box(detect_img_processed, border_color_for_detect, threshold_find_bbox_obj) 
         if bbox is None:
             return None 
-        min_x_orig_bbox, min_y_orig_bbox, max_x_orig_bbox, max_y_orig_bbox = bbox
-        expansion_pixels = -10 
-        min_x = max(0, min_x_orig_bbox - expansion_pixels)
-        min_y = max(0, min_y_orig_bbox - expansion_pixels)
-        max_x = min(detect_img_processed.width - 1, max_x_orig_bbox + expansion_pixels)
-        max_y = min(detect_img_processed.height - 1, max_y_orig_bbox + expansion_pixels)
+            
+        min_x, min_y, max_x, max_y = bbox
+        
+        # 3. Setup Constraints
+        img_w, img_h = detect_img_processed.size
+        # The crop can NEVER be larger than the smallest side of the image (prevents lines)
+        max_possible_crop = min(img_w, img_h)
+        
         content_w = max_x - min_x + 1
         content_h = max_y - min_y + 1
-        if content_w <= 0 or content_h <= 0:
-            return img_to_crop 
-        crop_dim = max(64, max(content_w, content_h))
-        center_x = min_x + content_w // 2
-        center_y = min_y + content_h // 2
-        half_crop_dim = crop_dim // 2
-        left = max(0, center_x - half_crop_dim)
-        top = max(0, center_y - half_crop_dim)
-        img_width, img_height = base_for_detect.size 
-        if left + crop_dim > img_width: left = img_width - crop_dim
-        if top + crop_dim > img_height: top = img_height - crop_dim
-        left = max(0, left)
+        
+        # Start with the object's smallest dimension
+        current_crop_size = min(content_w, content_h)
+        if current_crop_size < 64: current_crop_size = 64
+        
+        # Center X of the object
+        object_center_x = min_x + content_w // 2
+        
+        # 4. "Zoom Out" Loop
+        detect_pixels = detect_img_processed.load()
+        thresh_sq = threshold_find_bbox_obj * threshold_find_bbox_obj
+        zoom_step = 10
+        
+        while current_crop_size < max_possible_crop:
+            # --- TOP-WEIGHTED LOGIC ---
+            # Try to position Top at min_y (Object Start)
+            # Try to position Left centered on Object
+            
+            t = max(0, min_y) 
+            l = max(0, object_center_x - (current_crop_size // 2))
+            
+            # Constraint: Don't go off bottom or right
+            if t + current_crop_size > img_h: t = img_h - current_crop_size
+            if l + current_crop_size > img_w: l = img_w - current_crop_size
+            
+            # Re-clamp Top/Left to 0 just in case
+            t = max(0, t)
+            l = max(0, l)
+            
+            r = l + current_crop_size - 1
+            b = t + current_crop_size - 1
+            
+            corners = [(l, t), (r, t), (l, b), (r, b)]
+            
+            is_touching_object = False
+            for cx, cy in corners:
+                try:
+                    px = detect_pixels[cx, cy]
+                    dist_sq = sum((c1 - c2) ** 2 for c1, c2 in zip(px, border_color_for_detect))
+                    # If distance is high, it's Object (not border). We are cutting it.
+                    if dist_sq > thresh_sq:
+                        is_touching_object = True
+                        break
+                except Exception: pass
+            
+            if is_touching_object:
+                current_crop_size += zoom_step
+            else:
+                break
+
+        # 5. Manual Zoom Out Buffer (Adjust this value to zoom out more/less)
+        current_crop_size += 20 
+
+        # 6. Final Clamp & Coordinate Calculation
+        final_crop_size = min(current_crop_size, max_possible_crop)
+        
+        # Apply Top-Weighted Logic one last time for final crop
+        top = max(0, min_y)
+        left = max(0, object_center_x - (final_crop_size // 2))
+        
+        # Ensure we stay strictly inside image (No Lines Guarantee)
+        if top + final_crop_size > img_h: top = img_h - final_crop_size
+        if left + final_crop_size > img_w: left = img_w - final_crop_size
         top = max(0, top)
-        actual_crop_size = min(crop_dim, img_width - left, img_height - top)
-        if actual_crop_size < 1:
-            return img_to_crop
-        threshold_balance_obj = 60
-        return self._balance_border(detect_img_processed, img_to_crop, left, top, actual_crop_size, border_color_for_detect, threshold_balance_obj)
+        left = max(0, left)
+        
+        # 7. Execute Crop
+        return self._balance_border(detect_img_processed, img_to_crop, left, top, final_crop_size, border_color_for_detect, 60)
 
     def crop_image_borders(self, img: Image.Image, radio_logo: bool) -> Image.Image:
         if radio_logo or not self.config.crop_borders:
@@ -1314,15 +1278,6 @@ class ImageProcessor:
         if cropped_image is None: 
             return img
         return cropped_image
-
-    def _draw_text_with_outline(self, draw: ImageDraw.ImageDraw, xy: tuple, text: str, font: ImageFont.FreeTypeFont, text_color: tuple, outline_color: tuple, outline_width: int = 1):
-        x, y = xy
-        for i in range(-outline_width, outline_width + 1):
-            for j in range(-outline_width, outline_width + 1):
-                if i == 0 and j == 0:
-                    continue  
-                draw.text((x + i, y + j), text, font=font, fill=outline_color)
-        draw.text((x, y), text, font=font, fill=text_color)
 
     def _draw_text_with_shadow(self, draw: ImageDraw.ImageDraw, xy: tuple, text: str, font: ImageFont.FreeTypeFont, text_color: tuple, shadow_color: tuple):
         x, y = xy
@@ -1340,14 +1295,9 @@ class ImageProcessor:
             bbox = font.getbbox(text)
         return bbox[2] - bbox[0], bbox[3] - bbox[1]
 
-    def _measure_text_legacy(self, text: str, font: ImageFont.FreeTypeFont, draw: Optional[ImageDraw.ImageDraw]) -> tuple[int, int]:
-        if draw:
-            return draw.textsize(text, font=font)
-        return len(text) * (font.size // 2 if hasattr(font, 'size') else 5), (font.size if hasattr(font, 'size') else 10)
-
     def _get_text_dimensions(self, text: str, font: ImageFont.FreeTypeFont, draw: Optional[ImageDraw.ImageDraw] = None) -> tuple[int, int]:
         try:
-            return self._measure_text_strategy(text, font, draw)
+            return self._measure_text_bbox(text, font, draw)
         except Exception:
             return 0, 0
 
@@ -1509,16 +1459,13 @@ class ImageProcessor:
         img_copy = img.copy().convert("RGBA") 
         layer = ImageDraw.Draw(img_copy)
         base_font = self._default_font
-        if unidecode_support:
-            artist_b = unidecode(artist) if artist else ""
-            title_b = unidecode(title) if title else ""
-        else:
-            artist_b = get_bidi(artist) if artist and has_bidi(artist) else (artist or "")
-            title_b  = get_bidi(title)  if title  and has_bidi(title)  else (title or "")
+        artist_b = artist if artist else ""
+        title_b = title if title else ""
+        
         prelim_artist_lines = self._wrap_text(artist_b, base_font, max_w, layer) if artist_b else []
         prelim_title_lines  = self._wrap_text(title_b,  base_font, max_w, layer) if title_b  else []
-        prelim = prelim_artist_lines + prelim_title_lines
-        if not prelim: return img.convert("RGB")
+        if not prelim_artist_lines and not prelim_title_lines: return img.convert("RGB")
+
         eff_h = max_h - (spacer_px if prelim_artist_lines and prelim_title_lines else 0)
         font = self._default_font
         art_lines = self._wrap_text(artist_b, font, max_w, layer) if artist_b else []
@@ -1773,6 +1720,7 @@ class LyricsProvider:
                 is_new_block = (line_idx == 0 and block_idx > 0)
                 final_render_lines.append((line, is_new_block))
 
+        # Determine font height based on density
         if len(final_render_lines) >= 6:
             font_height = 10
             block_gap = 0
@@ -1780,7 +1728,9 @@ class LyricsProvider:
         else:
             font_height = 12
             block_gap = 2
-            current_y = (64 - ((len(final_render_lines) * font_height) + (sum(1 for _, is_new in final_render_lines if is_new) * block_gap))) // 2
+            # Center the block vertically based on line count
+            total_needed = (len(final_render_lines) * font_height) + (sum(1 for _, is_new in final_render_lines if is_new) * block_gap)
+            current_y = (64 - total_needed) // 2
         
         items = []
         for i, (line_text, is_new_block) in enumerate(final_render_lines):
@@ -1789,8 +1739,10 @@ class LyricsProvider:
             
             if is_new_block: current_y += block_gap
             
+            # We pass the calculated height (h) to the display function
             items.append({
                 "y": current_y,
+                "h": font_height,
                 "dir": 1 if has_bidi(line_text) else 0,
                 "text": line_text,
             })
@@ -1809,7 +1761,6 @@ class LyricsProvider:
         active_index = -1
         
         # 1. Find if we are INSIDE a lyric line
-        # Optimization: Check current frame first
         if self.current_frame_index != -1 and self.current_frame_index < len(self.visual_timeline):
             frame = self.visual_timeline[self.current_frame_index]
             if frame['start'] <= current_pos < frame['end']:
@@ -1832,7 +1783,6 @@ class LyricsProvider:
             # Calculate when this line ENDS
             next_event_time = frame['end']
             
-            # Optimization: If next line starts almost immediately, extend time to avoid flicker
             if active_index + 1 < len(self.visual_timeline):
                 next_start = self.visual_timeline[active_index + 1]['start']
                 if next_start - next_event_time < 0.2:
@@ -1978,7 +1928,6 @@ class MediaData:
             else:
                 self.show_progress_bar = False
             
-            # --- IMAGE PATH FIX ---
             original_picture = attributes.get('entity_picture')
             if original_picture:
                 if re.match(r'^[a-zA-Z]:\\', original_picture) or original_picture.startswith("file://"):
@@ -2673,7 +2622,7 @@ class SpotifyService:
                 x.get("album_type") == "compilation" 
             ), reverse=True)
 
-            sorted_albums = sorted_albums[:15]
+            sorted_albums = sorted_albums[:10]
 
             album_urls = []
             
@@ -2737,128 +2686,138 @@ class SpotifyService:
         }
         await pixoo_device.send_command(payload)
 
-    async def spotify_albums_slide(self, pixoo_device: "PixooDevice", media_data: "MediaData") -> None: 
-        """Fetches and processes images for Spotify album slide animation."""
+    async def spotify_albums_slide(self, pixoo_device: "PixooDevice", media_data: "MediaData", prev_channel: int) -> None: 
+        """Regular Slide Mode: Uses Parallel Processing and switches to Previous Channel to break animation lock."""
         media_data.spotify_slide_pass = True
         
-        album_urls_b64 = await self.get_album_list(media_data, returntype="b64") 
-        
-        if not album_urls_b64:
-            media_data.spotify_frames = 0
-            media_data.spotify_slide_pass = False
-            return
-
-        frames = len(album_urls_b64)
-        media_data.spotify_frames = frames
-        if frames < 2:
-            media_data.spotify_slide_pass = False
-            media_data.spotify_frames = 0
-            return
-
-        pic_offset = 0
-        await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList":
-            [{"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"}]})
-
-        for album_url_b64 in album_urls_b64:
-            try:
-                if album_url_b64:
-                    pic_speed = 5000  # 5 seconds
-                    await self.send_pixoo_animation_frame(
-                        pixoo_device=pixoo_device,
-                        command="Draw/SendHttpGif",
-                        pic_num=frames,
-                        pic_width=64,
-                        pic_offset=pic_offset,
-                        pic_id=0,
-                        pic_speed=pic_speed,
-                        pic_data=album_url_b64
-                    )
-
-                    pic_offset += 1
-                else:
-                    break 
-
-            except Exception:
-                break 
-
-    async def spotify_album_art_animation(self, pixoo_device: "PixooDevice", media_data: "MediaData", start_time=None) -> None: 
-        """Creates and sends a static slide show animation with 3 albums to the Pixoo device."""
-        if media_data.playing_tv:
-            return 
-
         try:
-            album_urls = await self.get_album_list(media_data, returntype="url")
-            if not album_urls or len(album_urls) < 3:
-                media_data.spotify_frames = 0
-                media_data.spotify_slide_pass = False
-                return
+            # --- STEP 1: PREVIEW (Immediate Artist Image) ---
+            artist_pic_url = await self.get_spotify_artist_image_url_by_name(media_data.artist)
+            if artist_pic_url:
+                preview_b64 = await self.get_slide_img(artist_pic_url, bool(media_data.lyrics), media_data.playing_radio)
+                if preview_b64:
+                    # WORKAROUND: Move to previous channel (e.g. Clock) to kill the old animation loop
+                    # Then reset and send the 1-frame preview
+                    await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": [
+                        {"Command": "Channel/SetIndex", "SelectIndex": prev_channel}, 
+                        {"Command": "Draw/ResetHttpGifId"},
+                        {"Command": "Draw/SendHttpGif", "PicNum": 1, "PicWidth": 64, "PicOffset": 0, "PicID": 0, "PicSpeed": 1000, "PicData": preview_b64}
+                    ]})
 
-            async def fetch_and_process_image(url):
-                async with self._semaphore: 
+            # --- STEP 2: PARALLEL PROCESSING ---
+            album_urls = await self.get_album_list(media_data, returntype="url")
+            if not album_urls: return
+
+            async def process_pipeline(url):
+                async with self._semaphore:
                     try:
                         async with self.session.get(url, timeout=10) as response:
-                            response.raise_for_status()
-                            data = await response.read()
-                            
-                            loop = asyncio.get_event_loop()
-                            return await loop.run_in_executor(
-                                self.image_processor._executor,
-                                _resize_image_sync,
-                                data
-                            )
-                    except Exception:
-                        return None
+                            raw_data = await response.read()
+                            return await self.image_processor.process_slide_image(raw_data, bool(media_data.lyrics), media_data.playing_radio)
+                    except: return None
 
-            download_tasks = [fetch_and_process_image(url) for url in album_urls]
-            images_raw = await asyncio.gather(*download_tasks)
-            images = [img for img in images_raw if img is not None]
-            
-            # Double check after download
-            if len(images) < 3:
-                 media_data.spotify_frames = 0
-                 media_data.spotify_slide_pass = False
-                 return
+            tasks = [process_pipeline(url) for url in album_urls[:10]]
+            album_urls_b64 = await asyncio.gather(*tasks)
+            album_urls_b64 = [res for res in album_urls_b64 if res]
 
-            # Limit total frames to avoid memory spikes if album count is huge
-            total_frames = min(len(images), 10)
-            media_data.spotify_frames = total_frames
+            frames = len(album_urls_b64)
+            if frames < 2: return
 
-            await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList":
-                [{"Command": "Channel/OnOffScreen", "OnOff": 1}, {"Command": "Draw/ResetHttpGifId"}]})
+            # --- STEP 3: SEND FINAL ANIMATION ---
+            # Reset again to previous channel before starting the multi-frame sequence
+            await pixoo_device.send_command({"Command": "Draw/CommandList", "Command": "Draw/ResetHttpGifId"})
+
+            for pic_offset, b64_frame in enumerate(album_urls_b64):
+                await self.send_pixoo_animation_frame(pixoo_device, "Draw/SendHttpGif", frames, 64, pic_offset, 0, 5000, b64_frame)
+
+        except Exception as e:
+            _LOGGER.error(f"Error in regular spotify slider: {e}")
+
+    async def spotify_album_art_animation(self, pixoo_device: "PixooDevice", media_data: "MediaData", prev_channel: int) -> None: 
+        """Special Gallery Mode: Parallel prep and switches to Previous Channel to break animation lock."""
+        if media_data.playing_tv: return 
+
+        try:
+            # --- STEP 1: PREVIEW (Artist Image) ---
+            artist_img = None
+            artist_pic_url = await self.get_spotify_artist_image_url_by_name(media_data.artist)
+            if artist_pic_url:
+                async with self.session.get(artist_pic_url, timeout=5) as response:
+                    raw_data = await response.read()
+                    loop = asyncio.get_event_loop()
+                    artist_img = await loop.run_in_executor(self.image_processor._executor, _resize_image_sync, raw_data)
+                    
+                    if artist_img:
+                        preview_canvas = Image.new("RGB", (64, 64), (0, 0, 0))
+                        preview_canvas.paste(artist_img, (16, 8)) 
+                        preview_b64 = self.image_processor.gbase64(preview_canvas)
+                        
+                        # WORKAROUND: Break loop by switching to prev_channel
+                        await pixoo_device.send_command({"Command": "Draw/CommandList", "CommandList": [
+                        #    {"Command": "Channel/SetIndex", "SelectIndex": prev_channel},
+                            {"Command": "Draw/ResetHttpGifId"},
+                            {"Command": "Draw/SendHttpGif", "PicNum": 1, "PicWidth": 64, "PicOffset": 0, "PicID": 0, "PicSpeed": 1000, "PicData": preview_b64}
+                        ]})
+                        
+
+            # --- STEP 2: PARALLEL PREPARATION ---
+            album_urls = await self.get_album_list(media_data, returntype="url")
+            if not album_urls: return
+
+            def prepare_album_variants(raw_data):
+                try:
+                    img = Image.open(BytesIO(raw_data))
+                    img.load()
+                    img = img.convert("RGB").resize((34, 34), Image.Resampling.BICUBIC)
+                    active = img.copy()
+                    draw = ImageDraw.Draw(active); draw.rectangle([0, 0, 33, 33], outline="black", width=1)
+                    inactive = img.filter(ImageFilter.GaussianBlur(2))
+                    inactive = ImageEnhance.Brightness(inactive).enhance(0.5)
+                    return {"active": active, "inactive": inactive}
+                except: return None
+
+            async def download(url):
+                try:
+                    async with self.session.get(url, timeout=10) as resp: return await resp.read()
+                except: return None
+
+            raw_datas = await asyncio.gather(*[download(u) for u in album_urls[:10]])
+            raw_datas = [d for d in raw_datas if d]
 
             loop = asyncio.get_event_loop()
-            
-            # Call the OPTIMIZED function
-            pixoo_frames = await loop.run_in_executor(
-                self.image_processor._executor,
-                _generate_animation_frames_sync,
-                images, total_frames, len(images), self.image_processor
-            )
+            tasks = [loop.run_in_executor(self.image_processor._executor, prepare_album_variants, d) for d in raw_datas]
+            prepared_albums = await asyncio.gather(*tasks)
+            prepared_albums = [a for a in prepared_albums if a]
 
-            if not pixoo_frames:
-                return
+            if artist_img:
+                a_img = artist_img.copy()
+                draw = ImageDraw.Draw(a_img); draw.rectangle([0,0,33,33], outline="black", width=1)
+                i_img = artist_img.filter(ImageFilter.GaussianBlur(2))
+                i_img = ImageEnhance.Brightness(i_img).enhance(0.5)
+                prepared_albums.insert(0, {"active": a_img, "inactive": i_img})
 
-            pic_offset = 0
-            pic_speed = 5000
-            for frame in pixoo_frames:
-                await self.send_pixoo_animation_frame(
-                    pixoo_device=pixoo_device,
-                    command="Draw/SendHttpGif",
-                    pic_num=total_frames,
-                    pic_width=64,
-                    pic_offset=pic_offset,
-                    pic_id=0,
-                    pic_speed=pic_speed,
-                    pic_data=frame
-                )
-                pic_offset += 1
+            if len(prepared_albums) < 3: return
+
+            # --- STEP 3: ASSEMBLY & SEND ---
+            total_frames = min(len(prepared_albums), 10)
+            pixoo_frames = []
+            x_pos = [1, 16, 51]
+
+            for i in range(total_frames):
+                canvas = Image.new("RGB", (64, 64), (0, 0, 0))
+                l, c, r = (i-1)%len(prepared_albums), i%len(prepared_albums), (i+1)%len(prepared_albums)
+                canvas.paste(prepared_albums[l]["inactive"], (x_pos[0], 8))
+                canvas.paste(prepared_albums[c]["active"], (x_pos[1], 8))
+                canvas.paste(prepared_albums[r]["inactive"], (x_pos[2], 8))
+                pixoo_frames.append(self.image_processor.gbase64(canvas))
+
+            for offset, frame in enumerate(pixoo_frames):
+                await self.send_pixoo_animation_frame(pixoo_device, "Draw/SendHttpGif", total_frames, 64, offset, 0, 5000, frame)
             
             media_data.spotify_slide_pass = True 
 
-        except Exception as e: 
-            _LOGGER.error(f"Error in spotify_album_art_animation: {e}")
-            media_data.spotify_frames = 0
-            return
+        except Exception as e:
+            _LOGGER.error(f"Spotify Animation Error: {e}")
 
 class ProgressBarManager:
     """Manages the calculation, state, and creation of the progress bar entity."""
@@ -2899,19 +2858,40 @@ class ProgressBarManager:
         if duration <= 0: return "", None
 
         max_chars = self.config.progress_bar_resolution
+        remaining = duration - position
+        
+        # --- LOGIC 1: Force Full Bar if within last 10 seconds ---
+        if remaining <= 10:
+            chars_needed = max_chars
+            self.current_bar_str = self.config.progress_bar_character * chars_needed
+            return self.current_bar_str, None # Stop updating, we stay full until end
+
+        # Standard calculation
         ratio = position / duration
         if ratio > 1: ratio = 1
-        
         chars_needed = int(ratio * max_chars)
+
+        # --- LOGIC 2: Force at least 1 char if track started ---
+        if position > 0 and chars_needed < 1:
+            chars_needed = 1
+
         self.current_bar_str = self.config.progress_bar_character * chars_needed
 
+        # Calculate standard delay for next character
         next_char_index = chars_needed + 1
-        if next_char_index > max_chars: return self.current_bar_str, None
-
-        target_time = (next_char_index / max_chars) * duration
-        delay = target_time - position
-        if delay < 0.2: delay = 0.2 
+        delay = None
         
+        if next_char_index <= max_chars:
+            target_time = (next_char_index / max_chars) * duration
+            delay = target_time - position
+            if delay < 0.2: delay = 0.2 
+
+        # --- LOGIC 3: Schedule update for the 10-second mark ---
+        time_until_ten_seconds_left = remaining - 10
+        if time_until_ten_seconds_left > 0:
+            if delay is None or delay > time_until_ten_seconds_left:
+                delay = time_until_ten_seconds_left
+
         return self.current_bar_str, delay
 
     async def get_payload_item(self, media_data: "MediaData") -> list:
@@ -2925,15 +2905,20 @@ class ProgressBarManager:
             return []
 
         text_to_send = self.current_bar_str
+        
+        # --- COLOR LOGIC ---
         color = self.config.progress_bar_color
         if color == 'match':
+            # This relies on ImageProcessor setting 'lyrics_font_color' to the vibrant color
             color = media_data.lyrics_font_color 
         
         items = []
 
         # Layer 1
         items.append({
-            "TextId": 20, "type": 22, "x": 0, "y": self.config.progress_bar_y_offset-7,
+            "TextId": 20, "type": 22, 
+            "x": 0,
+            "y": self.config.progress_bar_y_offset-7,
             "dir": 0, "font": self.config.progress_bar_font, 
             "TextWidth": 64, "Textheight": 10, "speed": 100, "align": 1,
             "TextString": text_to_send, "color": color
@@ -2941,7 +2926,9 @@ class ProgressBarManager:
 
         # Layer 2 (Pseudo-Bold)
         items.append({
-            "TextId": 21, "type": 22, "x": 1, "y": self.config.progress_bar_y_offset-7,
+            "TextId": 21, "type": 22, 
+            "x": 2, 
+            "y": self.config.progress_bar_y_offset-7,
             "dir": 0, "font": self.config.progress_bar_font, 
             "TextWidth": 64, "Textheight": 10, "speed": 100, "align": 1,
             "TextString": text_to_send, "color": color
@@ -2960,6 +2947,13 @@ class NotificationManager:
         "error":   {"color": (255, 69, 0),  "hex": "#FF4500"},   # Orange Red
         "text":    {"color": (255, 255, 255), "hex": "#FFFFFF"}, # White
         
+        # --- New Requested Types ---
+        "v":       {"color": (50, 205, 50), "hex": "#32CD32"},   # Lime Green
+        "x":       {"color": (255, 0, 0),   "hex": "#FF0000"},   # Red
+        "alert":   {"color": (255, 69, 0),  "hex": "#FF4500"},   # Red-Orange
+        "weather": {"color": (135, 206, 235), "hex": "#87CEEB"}, # Sky Blue
+        "attack":  {"color": (255, 0, 0),   "hex": "#FF0000"},   # Red
+        
         # --- Smart Home & Appliances ---
         "boiler":  {"color": (255, 69, 0),  "hex": "#FF4500"},   # Orange Red
         "shutter": {"color": (192, 192, 192), "hex": "#C0C0C0"}, # Silver
@@ -2973,7 +2967,31 @@ class NotificationManager:
         "water":   {"color": (30, 144, 255), "hex": "#1E90FF"},  # Dodger Blue
         "battery": {"color": (220, 20, 60), "hex": "#DC143C"},   # Crimson
         "wifi":    {"color": (255, 0, 0),   "hex": "#FF0000"},   # Red
-        "sleep":   {"color": (147, 112, 219), "hex": "#9370DB"}, # Medium Purple
+        
+        # --- Lifestyle & Utilities ---
+        "timer":   {"color": (255, 255, 255), "hex": "#FFFFFF"}, # White
+        "time":    {"color": (255, 255, 255), "hex": "#FFFFFF"}, # Alias
+        "phone":   {"color": (0, 255, 0),     "hex": "#00FF00"}, # Green
+        "calendar":{"color": (255, 255, 0),   "hex": "#FFFF00"}, # Yellow
+        "camera":  {"color": (192, 192, 192), "hex": "#C0C0C0"}, # Silver
+        "music":   {"color": (255, 105, 180), "hex": "#FF69B4"}, # Hot Pink
+        "sun":     {"color": (255, 215, 0),   "hex": "#FFD700"}, # Gold
+        "moon":    {"color": (147, 112, 219), "hex": "#9370DB"}, # Medium Purple
+        "sleep":   {"color": (147, 112, 219), "hex": "#9370DB"}, # Alias
+    }
+
+    # Configuration for animations: (Total Frames, Speed in ms)
+    ANIMATIONS = {
+        "alert":   (2, 200),  # Wiggle fast
+        "phone":   (2, 200),  # Wiggle fast
+        "attack":  (2, 500),  # Flash Red/Yellow
+        "error":   (2, 500),  # Flash Red/DarkRed
+        "warning": (2, 500),  # Flash Orange/Yellow
+        "weather": (2, 800),  # Bobbing cloud
+        "wifi":    (3, 300),  # Signal expanding
+        "timer":   (4, 150),  # Spinning hands
+        "time":    (4, 150),
+        "music":   (2, 400),  # Note bouncing
     }
 
     # Layout configurations based on line count (Icon mode only)
@@ -3005,14 +3023,22 @@ class NotificationManager:
             # --- Audio Trigger ---
             await self._trigger_buzzer(event_data)
 
-            processed_text = get_bidi(message) if has_bidi(message) else message
-            
             if notif_type == "text":
                 max_lines = 6 
             else:
                 max_lines = 4
 
-            lines = textwrap.wrap(processed_text, width=12)
+            # --- DYNAMIC WRAP LIMIT ---
+            wrap_limit = 11 if has_bidi(message) else 12
+
+            raw_lines = textwrap.wrap(message, width=wrap_limit)
+            lines = []
+            for line in raw_lines:
+                if has_bidi(line):
+                    lines.append(get_bidi(line))
+                else:
+                    lines.append(line)
+
             if len(lines) > max_lines: lines = lines[:max_lines]
             if not lines: lines = [""]
             
@@ -3035,20 +3061,38 @@ class NotificationManager:
             else:
                 rgb_color = theme["color"]
 
-            bg_image = self._draw_background(notif_type, rgb_color, icon_cy)
-            b64_bg = self.proc.gbase64(bg_image)
+            # --- ANIMATION GENERATION ---
+            anim_config = self.ANIMATIONS.get(notif_type, (1, 1000))
+            total_frames = anim_config[0]
+            anim_speed = anim_config[1]
+            
+            generated_frames_b64 = []
 
+            for i in range(total_frames):
+                bg_image = self._draw_background(notif_type, rgb_color, icon_cy, i)
+                generated_frames_b64.append(self.proc.gbase64(bg_image))
+
+            # Send Reset Command First
             await self.pixoo.send_command({
                 "Command": "Draw/CommandList",
                 "CommandList": [
                     {"Command": "Channel/OnOffScreen", "OnOff": 1},
                     {"Command": "Draw/ClearHttpText"},
                     {"Command": "Draw/ResetHttpGifId"},
-                    {"Command": "Draw/SendHttpGif",
-                    "PicNum": 1, "PicWidth": 64, "PicOffset": 0,
-                    "PicID": 0, "PicSpeed": 1000, "PicData": b64_bg}
                 ]
             })
+
+            # Send Frames
+            for i, b64_frame in enumerate(generated_frames_b64):
+                await self.pixoo.send_command({
+                    "Command": "Draw/SendHttpGif",
+                    "PicNum": total_frames,
+                    "PicWidth": 64,
+                    "PicOffset": i,
+                    "PicID": 0,
+                    "PicSpeed": anim_speed,
+                    "PicData": b64_frame
+                })
 
             await asyncio.sleep(0.2)
 
@@ -3085,9 +3129,9 @@ class NotificationManager:
         except Exception as e:
             _LOGGER.warning(f"Failed to play buzzer: {e}")
 
-    @lru_cache(maxsize=32)
-    def _draw_background(self, n_type: str, color: tuple, cy: int) -> Image.Image:
-        """Draws the border and icon based on notification type."""
+    @lru_cache(maxsize=64)
+    def _draw_background(self, n_type: str, color: tuple, cy: int, frame_num: int = 0) -> Image.Image:
+        """Draws the border and icon based on notification type and frame number."""
         img = Image.new("RGB", (64, 64), (0, 0, 0))
         draw = ImageDraw.Draw(img)
 
@@ -3099,101 +3143,215 @@ class NotificationManager:
 
         cx = 32 # Center X
 
-        # --- Standard Icons ---
-        if n_type == "info":
-            draw.ellipse([cx-9, cy-9, cx+9, cy+9], outline=color, width=1)
-            draw.rectangle([cx-1, cy-2, cx+1, cy+5], fill=color) 
-            draw.rectangle([cx-1, cy-5, cx+1, cy-4], fill=color)
+        # --- ANIMATION LOGIC: Calculate Shift/Color based on frame_num ---
+        shift_x = 0
+        shift_y = 0
+        
+        # Wiggle Logic (Alert, Phone)
+        if n_type in ["alert", "phone"]:
+            if frame_num == 0: shift_x = 0
+            elif frame_num == 1: shift_x = -1 if n_type == "alert" else 1
+        
+        # Flash Color Logic (Attack, Error)
+        active_color = color
+        if n_type == "attack" and frame_num == 1:
+            active_color = (255, 255, 0) # Flash Yellow
+        elif n_type in ["error", "warning"] and frame_num == 1:
+            # Dim the color significantly for a flashing effect
+            active_color = tuple(c // 2 for c in color)
+
+        # Bobbing Logic (Weather, Music)
+        if n_type in ["weather", "music"]:
+            if frame_num == 1: shift_y = -1
+
+        cx += shift_x
+        cy += shift_y
+
+        # --- DRAWING SHAPES ---
+
+        if n_type == "v":
+            points = [(cx-8, cy), (cx-2, cy+8), (cx+10, cy-8)]
+            draw.line(points, fill=active_color, width=3)
+
+        elif n_type == "x":
+            s = 7
+            draw.line([(cx-s, cy-s), (cx+s, cy+s)], fill=active_color, width=3)
+            draw.line([(cx+s, cy-s), (cx-s, cy+s)], fill=active_color, width=3)
+
+        elif n_type == "info":
+            draw.ellipse([cx-9, cy-9, cx+9, cy+9], outline=active_color, width=1)
+            draw.rectangle([cx-1, cy-2, cx+1, cy+5], fill=active_color) 
+            draw.rectangle([cx-1, cy-5, cx+1, cy-4], fill=active_color)
 
         elif n_type == "success":
             points = [(cx-6, cy), (cx-2, cy+6), (cx+7, cy-5)]
-            draw.line(points, fill=color, width=2)
+            draw.line(points, fill=active_color, width=2)
 
-        elif n_type == "warning":
-            points = [(cx, cy-9), (cx-10, cy+8), (cx+10, cy+8)]
-            draw.polygon(points, outline=color, fill=None)
-            draw.line([(cx, cy-3), (cx, cy+3)], fill=color, width=1)
-            draw.point((cx, cy+5), fill=color)
+        elif n_type in ["warning", "alert"]:
+            # Alert Bell / Warning Triangle
+            if n_type == "alert":
+                draw.arc([cx-6, cy-5, cx+6, cy+5], 180, 0, fill=active_color, width=1)
+                draw.line([(cx-6, cy), (cx-8, cy+6)], fill=active_color, width=1)
+                draw.line([(cx+6, cy), (cx+8, cy+6)], fill=active_color, width=1)
+                draw.line([(cx-8, cy+6), (cx+8, cy+6)], fill=active_color, width=1)
+                # Animate clapper
+                clapper_x = cx + (2 if frame_num == 1 else 0)
+                draw.line([(clapper_x-1, cy+6), (clapper_x+1, cy+6)], fill=active_color, width=1)
+                draw.point((clapper_x, cy+8), fill=active_color)
+            else:
+                points = [(cx, cy-9), (cx-10, cy+8), (cx+10, cy+8)]
+                draw.polygon(points, outline=active_color, fill=None)
+                draw.line([(cx, cy-3), (cx, cy+3)], fill=active_color, width=1)
+                draw.point((cx, cy+5), fill=active_color)
 
         elif n_type == "error":
             s = 5
-            draw.line([(cx-s, cy-s), (cx+s, cy+s)], fill=color, width=2)
-            draw.line([(cx+s, cy-s), (cx-s, cy+s)], fill=color, width=2)
+            draw.line([(cx-s, cy-s), (cx+s, cy+s)], fill=active_color, width=2)
+            draw.line([(cx+s, cy-s), (cx-s, cy+s)], fill=active_color, width=2)
 
-        # --- Smart Home Icons ---
+        elif n_type == "weather":
+            # Sun
+            draw.ellipse([cx+2, cy-8, cx+8, cy-2], outline=(255, 215, 0), width=1)
+            # Cloud
+            draw.arc([cx-8, cy-2, cx+2, cy+6], 90, 270, fill=active_color, width=1)
+            draw.arc([cx-2, cy-4, cx+8, cy+6], 180, 0, fill=active_color, width=1)
+            draw.line([(cx-8, cy+2), (cx+8, cy+2)], fill=active_color, width=1)
+
+        elif n_type == "attack":
+            # Rocket
+            draw.line([(cx, cy-9), (cx-3, cy-4)], fill=active_color, width=1)
+            draw.line([(cx, cy-9), (cx+3, cy-4)], fill=active_color, width=1)
+            draw.rectangle([cx-3, cy-4, cx+3, cy+4], outline=active_color, width=1)
+            draw.line([(cx-3, cy+4), (cx-6, cy+8)], fill=active_color, width=1)
+            draw.line([(cx+3, cy+4), (cx+6, cy+8)], fill=active_color, width=1)
+            # Animate Fire
+            fire_color = (255, 165, 0) if frame_num == 0 else (255, 255, 0)
+            draw.line([(cx-1, cy+4), (cx-1, cy+7)], fill=fire_color, width=1)
+            draw.line([(cx+1, cy+4), (cx+1, cy+7)], fill=fire_color, width=1)
+
+        elif n_type == "wifi":
+            draw.point((cx, cy+6), fill=active_color)
+            if frame_num >= 1:
+                draw.arc([cx-4, cy, cx+4, cy+8], 225, 315, fill=active_color, width=1)
+            if frame_num >= 2:
+                draw.arc([cx-8, cy-4, cx+8, cy+4], 225, 315, fill=active_color, width=1)
+
+        elif n_type in ["timer", "time"]:
+            draw.ellipse([cx-9, cy-9, cx+9, cy+9], outline=active_color, width=1)
+            # Spinning Hand
+            import math
+            angle = frame_num * 90 # 0, 90, 180, 270
+            rad = math.radians(angle - 90) # Correct PIL coord system
+            end_x = cx + 6 * math.cos(rad)
+            end_y = cy + 6 * math.sin(rad)
+            draw.line([(cx, cy), (end_x, end_y)], fill=active_color, width=1)
+        
         elif n_type == "boiler": 
-            draw.rectangle([cx-5, cy-8, cx+5, cy+8], outline=color, width=1)
-            draw.line([(cx+1, cy-4), (cx-2, cy), (cx+2, cy), (cx-1, cy+5)], fill=color, width=1)
-            draw.point((cx, cy+6), fill=color)
+            draw.rectangle([cx-5, cy-8, cx+5, cy+8], outline=active_color, width=1)
+            draw.line([(cx+1, cy-4), (cx-2, cy), (cx+2, cy), (cx-1, cy+5)], fill=active_color, width=1)
+            draw.point((cx, cy+6), fill=active_color)
 
         elif n_type == "shutter": 
-            draw.rectangle([cx-8, cy-8, cx+8, cy+8], outline=color, width=1)
+            draw.rectangle([cx-8, cy-8, cx+8, cy+8], outline=active_color, width=1)
             for y_line in range(cy-5, cy+7, 3):
-                draw.line([(cx-6, y_line), (cx+6, y_line)], fill=color, width=1)
+                draw.line([(cx-6, y_line), (cx+6, y_line)], fill=active_color, width=1)
 
         elif n_type == "car": 
-            draw.rectangle([cx-9, cy, cx+9, cy+6], outline=color, width=1)
-            draw.line([(cx-9, cy), (cx-5, cy-5), (cx+5, cy-5), (cx+9, cy)], fill=color, width=1)
-            draw.ellipse([cx-7, cy+5, cx-4, cy+8], fill=color)
-            draw.ellipse([cx+4, cy+5, cx+7, cy+8], fill=color)
+            draw.rectangle([cx-9, cy, cx+9, cy+6], outline=active_color, width=1)
+            draw.line([(cx-9, cy), (cx-5, cy-5), (cx+5, cy-5), (cx+9, cy)], fill=active_color, width=1)
+            draw.ellipse([cx-7, cy+5, cx-4, cy+8], fill=active_color)
+            draw.ellipse([cx+4, cy+5, cx+7, cy+8], fill=active_color)
 
         elif n_type == "washer": 
-            draw.rectangle([cx-8, cy-8, cx+8, cy+8], outline=color, width=1)
-            draw.ellipse([cx-5, cy-5, cx+5, cy+5], outline=color, width=1)
-            draw.point((cx+6, cy-6), fill=color) 
+            draw.rectangle([cx-8, cy-8, cx+8, cy+8], outline=active_color, width=1)
+            draw.ellipse([cx-5, cy-5, cx+5, cy+5], outline=active_color, width=1)
+            draw.point((cx+6, cy-6), fill=active_color) 
 
         elif n_type == "trash": 
-            draw.line([(cx-5, cy+8), (cx+5, cy+8), (cx+7, cy-4), (cx-7, cy-4), (cx-5, cy+8)], fill=color, width=1)
-            draw.line([(cx-8, cy-4), (cx+8, cy-4)], fill=color, width=1)
-            draw.rectangle([cx-2, cy-6, cx+2, cy-4], fill=color)
+            draw.line([(cx-5, cy+8), (cx+5, cy+8), (cx+7, cy-4), (cx-7, cy-4), (cx-5, cy+8)], fill=active_color, width=1)
+            draw.line([(cx-8, cy-4), (cx+8, cy-4)], fill=active_color, width=1)
+            draw.rectangle([cx-2, cy-6, cx+2, cy-4], fill=active_color)
 
         elif n_type == "door": 
-            draw.rectangle([cx-6, cy-9, cx+6, cy+9], outline=color, width=1)
-            draw.line([(cx-6, cy-9), (cx+2, cy-6)], fill=color, width=1)
-            draw.line([(cx+2, cy-6), (cx+2, cy+9)], fill=color, width=1)
-            draw.line([(cx+2, cy+9), (cx-6, cy+9)], fill=color, width=1)
+            draw.rectangle([cx-6, cy-9, cx+6, cy+9], outline=active_color, width=1)
+            draw.line([(cx-6, cy-9), (cx+2, cy-6)], fill=active_color, width=1)
+            draw.line([(cx+2, cy-6), (cx+2, cy+9)], fill=active_color, width=1)
+            draw.line([(cx+2, cy+9), (cx-6, cy+9)], fill=active_color, width=1)
 
         elif n_type == "lock": 
-            draw.rectangle([cx-6, cy-2, cx+6, cy+7], fill=color)
-            draw.arc([cx-5, cy-8, cx+5, cy-1], 180, 0, fill=color, width=1)
+            draw.rectangle([cx-6, cy-2, cx+6, cy+7], fill=active_color)
+            draw.arc([cx-5, cy-8, cx+5, cy-1], 180, 0, fill=active_color, width=1)
 
         elif n_type == "mail": 
-            draw.rectangle([cx-9, cy-6, cx+9, cy+6], outline=color, width=1)
-            draw.line([(cx-9, cy-6), (cx, cy+2), (cx+9, cy-6)], fill=color, width=1)
+            draw.rectangle([cx-9, cy-6, cx+9, cy+6], outline=active_color, width=1)
+            draw.line([(cx-9, cy-6), (cx, cy+2), (cx+9, cy-6)], fill=active_color, width=1)
 
         elif n_type == "battery": 
-            draw.rectangle([cx-8, cy-4, cx+6, cy+4], outline=color, width=1)
-            draw.rectangle([cx-7, cy-3, cx-2, cy+3], fill=color) 
-            draw.rectangle([cx+6, cy-2, cx+8, cy+2], fill=color) 
+            draw.rectangle([cx-8, cy-4, cx+6, cy+4], outline=active_color, width=1)
+            draw.rectangle([cx-7, cy-3, cx-2, cy+3], fill=active_color) 
+            draw.rectangle([cx+6, cy-2, cx+8, cy+2], fill=active_color) 
 
         elif n_type == "fire": 
-            draw.polygon([(cx, cy-8), (cx+5, cy+2), (cx+3, cy+8), (cx-3, cy+8), (cx-5, cy+2)], outline=color, fill=None)
-            draw.point((cx, cy+5), fill=color)
+            draw.polygon([(cx, cy-8), (cx+5, cy+2), (cx+3, cy+8), (cx-3, cy+8), (cx-5, cy+2)], outline=active_color, fill=None)
+            draw.point((cx, cy+5), fill=active_color)
 
         elif n_type == "water": 
-            draw.polygon([(cx, cy-8), (cx+5, cy+2), (cx, cy+8), (cx-5, cy+2)], outline=color, fill=color)
-        
-        elif n_type == "wifi": 
-            draw.point((cx, cy+6), fill=color)
-            draw.arc([cx-4, cy, cx+4, cy+8], 225, 315, fill=color, width=1)
-            draw.arc([cx-8, cy-4, cx+8, cy+4], 225, 315, fill=color, width=1)
+            draw.polygon([(cx, cy-8), (cx+5, cy+2), (cx, cy+8), (cx-5, cy+2)], outline=active_color, fill=active_color)
 
         elif n_type == "sleep": 
-            draw.arc([cx-6, cy-6, cx+6, cy+6], 90, 270, fill=color, width=2)
-            draw.line([(cx, cy-6), (cx, cy+6)], fill=color, width=1)
+            draw.arc([cx-6, cy-6, cx+6, cy+6], 90, 270, fill=active_color, width=2)
+            draw.line([(cx, cy-6), (cx, cy+6)], fill=active_color, width=1)
+            
+        elif n_type == "phone":
+            draw.arc([cx-8, cy-4, cx+8, cy+12], 0, 180, fill=active_color, width=2)
+            draw.rectangle([cx-9, cy-4, cx-6, cy], fill=active_color)
+            draw.rectangle([cx+6, cy-4, cx+9, cy], fill=active_color)
+
+        elif n_type == "calendar":
+            draw.rectangle([cx-8, cy-7, cx+8, cy+8], outline=active_color, width=1)
+            draw.line([(cx-8, cy-3), (cx+8, cy-3)], fill=active_color, width=1)
+            draw.point((cx-4, cy+1), fill=active_color)
+            draw.point((cx, cy+1), fill=active_color)
+            draw.point((cx+4, cy+1), fill=active_color)
+            draw.point((cx-4, cy+5), fill=active_color)
+            draw.point((cx, cy+5), fill=active_color)
+
+        elif n_type == "camera":
+            draw.rectangle([cx-8, cy-5, cx+8, cy+6], outline=active_color, width=1)
+            draw.rectangle([cx-2, cy-8, cx+2, cy-5], fill=active_color)
+            draw.ellipse([cx-3, cy-2, cx+3, cy+4], outline=active_color, width=1)
+
+        elif n_type == "music":
+            draw.ellipse([cx-7, cy+3, cx-3, cy+7], fill=active_color)
+            draw.ellipse([cx+3, cy+3, cx+7, cy+7], fill=active_color)
+            draw.line([(cx-3, cy+5), (cx-3, cy-6)], fill=active_color, width=1)
+            draw.line([(cx+7, cy+5), (cx+7, cy-6)], fill=active_color, width=1)
+            draw.line([(cx-3, cy-6), (cx+7, cy-6)], fill=active_color, width=2)
+
+        elif n_type == "sun":
+            draw.ellipse([cx-4, cy-4, cx+4, cy+4], fill=active_color)
+            s = 7
+            draw.line([(cx, cy-s), (cx, cy-s-2)], fill=active_color, width=1)
+            draw.line([(cx, cy+s), (cx, cy+s+2)], fill=active_color, width=1)
+            draw.line([(cx-s, cy), (cx-s-2, cy)], fill=active_color, width=1)
+            draw.line([(cx+s, cy), (cx+s+2, cy)], fill=active_color, width=1)
+            draw.point((cx-5, cy-5), fill=active_color)
+            draw.point((cx+5, cy-5), fill=active_color)
+            draw.point((cx-5, cy+5), fill=active_color)
+            draw.point((cx+5, cy+5), fill=active_color)
+
+        elif n_type == "moon":
+            draw.arc([cx-6, cy-6, cx+6, cy+6], 90, 270, fill=active_color, width=2)
+            draw.line([(cx, cy-6), (cx, cy+6)], fill=active_color, width=1)
 
         return img
 
     def _create_text_items(self, lines: list, color: str, start_y: int) -> list:
         items = []
-        
-        # Aggressive cleaning of existing IDs
         ids_to_clear = [1, 2, 3, 4, 5, 6, 10, 11, 20, 21, 22, 25, 26, 27, 28, 29, 30] 
-        
         for tid in ids_to_clear:
             items.append({
-                "TextId": tid,
-                "type": 22, "x": 0, "y": 0, "dir": 0, "font": 190,
+                "TextId": tid, "type": 22, "x": 0, "y": 0, "dir": 0, "font": 190,
                 "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 1,
                 "TextString": "", "color": "#000000"
             })
@@ -3202,27 +3360,15 @@ class NotificationManager:
         for i, line in enumerate(lines):
             rtl = 1 if has_bidi(line) else 0
             items.append({
-                "TextId": 25 + i, 
-                "type": 22,
-                "x": 0,
-                "y": start_y + (i * line_height),
-                "dir": rtl,
-                "font": 190, 
-                "TextWidth": 64,
-                "Textheight": 16,
-                "speed": 100,
-                "align": 2, 
-                "TextString": line,
-                "color": color
+                "TextId": 25 + i, "type": 22, "x": 0, "y": start_y + (i * line_height),
+                "dir": rtl, "font": 190, "TextWidth": 64, "Textheight": 16,
+                "speed": 100, "align": 2, "TextString": line, "color": color
             })
         return items
 
     def _hex_to_rgb(self, hex_str: str) -> tuple:
-        """Converts hex string (e.g., '#FF0000') to RGB tuple."""
         hex_str = hex_str.lstrip('#')
-        if len(hex_str) == 3:
-            hex_str = ''.join([c*2 for c in hex_str])
-        
+        if len(hex_str) == 3: hex_str = ''.join([c*2 for c in hex_str])
         try:
             return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
         except ValueError:
@@ -3316,22 +3462,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         _LOGGER.info("Initialization complete.")
 
     async def terminate(self):
-        """Clean up resources when the app is stopped or reloaded."""
-        # 1. Stop the lyrics loop
         self._stop_lyrics_scheduler()
-        
-        # 2. Cancel the image processing task immediately
+    
+        # Properly shutdown the thread pool executor
+        if hasattr(self, 'image_processor'):
+            self.image_processor.shutdown()
+
         if self.current_image_task and not self.current_image_task.done():
             self.current_image_task.cancel()
             
-        # 3. Cancel debounce task
         if self.debounce_task and not self.debounce_task.done():
             self.debounce_task.cancel()
 
-        # 4. Close the session safely
         if hasattr(self, 'websession') and self.websession and not self.websession.closed:
             await self.websession.close()
-            _LOGGER.info("Closed Pixoo64 aiohttp session.")
 
     # =========================================================================
     # SETTINGS & CONFIG HANDLERS
@@ -3354,6 +3498,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         default = options[0]
 
         try:
+            # 1. Handle Entity Creation/Options
             if not self.entity_exists(self.config.crop_entity):
                 await self.set_state(self.config.crop_entity, state=options[0], attributes={"options": options})
                 try:
@@ -3366,9 +3511,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 except Exception:
                     pass
 
+            # 2. Apply Logic
             mode = (await self.get_state(self.config.crop_entity)) or default
-
             m = mode.lower()
+            
             if m == "no crop":
                 self.config.crop_borders = False
                 self.config.crop_extra = False
@@ -3382,7 +3528,14 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 self.config.crop_borders = self.config.original_crop_borders
                 self.config.crop_extra = self.config.original_crop_extra
             
+            # 3. Clear Cache so the image is forced to re-process with new settings
             self.image_processor.image_cache.clear()
+            
+            # 4. FORCE REFRESH 
+            current_state = await self.get_state(self.config.media_player)
+            if current_state in ["playing", "on"]:
+                # Trigger the main callback manually to redraw the screen immediately
+                await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
             
         except Exception as e:
             _LOGGER.error(f"Failed to apply crop settings: {e}", exc_info=True)
@@ -3523,7 +3676,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         self.scheduler_generation_id += 1
         current_gen_id = self.scheduler_generation_id
 
-        # 1. Calculate precise position
+        # Calculate precise position
         if not self.media_data.media_position_updated_at:
             current_track_pos = self.media_data.media_position 
         else:
@@ -3532,10 +3685,10 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             sync_offset = float(self.config.lyrics_sync) if self.config.lyrics_sync else 0.0
             current_track_pos = self.media_data.media_position + elapsed - sync_offset
 
-        # 2. Get Plan from Provider (Smart Calculation)
+        # Get Plan from Provider
         layout_items, delay = self.media_data.lyrics_provider.get_refresh_plan(current_track_pos)
 
-        # 3. Execute Plan (Send to Pixoo)
+        # Execute Plan
         if layout_items is not None:
             pixoo_items = []
             font_color = self.media_data.lyrics_font_color
@@ -3543,38 +3696,63 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             for i in range(6):
                 if i < len(layout_items):
                     item = layout_items[i]
+                    
+                    # Boundary check
+                    calc_height = item['h']
+                    if item['y'] + calc_height > 64:
+                        calc_height = 64 - item['y']
+
                     pixoo_items.append({
-                        "TextId": i + 1, "type": 22, "x": 0, "y": item['y'],
-                        "dir": item['dir'], "font": self.config.lyrics_font, 
-                        "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2,
-                        "TextString": item['text'], "color": font_color
+                        "TextId": i + 1, 
+                        "type": 22, 
+                        "x": 0, 
+                        "y": item['y'],
+                        "dir": item['dir'], 
+                        "font": self.config.lyrics_font, 
+                        "TextWidth": 64, 
+                        "Textheight": calc_height,
+                        "speed": 0,
+                        "align": 2,
+                        "TextString": item['text'], 
+                        "color": font_color
                     })
                 else:
-                    # Clear unused lines
+                    # Clear unused slots by moving them OFF SCREEN
                     pixoo_items.append({
-                        "TextId": i + 1, "type": 22, "x": 0, "y": 0, "dir": 0,
-                        "font": self.config.lyrics_font, "TextWidth": 64, "Textheight": 16,
-                        "speed": 100, "align": 2, "TextString": "", "color": font_color
+                        "TextId": i + 1, 
+                        "type": 22, 
+                        "x": 0, 
+                        "y": 0,
+                        "dir": 0,
+                        "font": self.config.lyrics_font, 
+                        "TextWidth": 64, 
+                        "Textheight": 12, 
+                        "speed": 0,  
+                        "align": 2, 
+                        "TextString": "", 
+                        "color": font_color
                     })
 
+            # Append progress bar if enabled
             progress_items = await self.progress_manager.get_payload_item(self.media_data)
             if progress_items:
                 pixoo_items.extend(progress_items)
             
-            # Send only if hash changed to save bandwidth
+            # Send to Pixoo
+            # We ignore hash check if delay is None (implies a Seek/Jump event) to force update
             current_hash = hash(str(pixoo_items))
-            if current_hash != self.last_text_payload_hash:
+            
+            if current_hash != self.last_text_payload_hash or delay is None:
                 await self.pixoo_device.send_command({
                     "Command": "Draw/SendHttpItemList", 
                     "ItemList": pixoo_items
                 })
                 self.last_text_payload_hash = current_hash
 
-        # 4. Schedule Next Run
+        # Schedule Next Run
         if delay is not None:
             self.run_in(self._timer_callback_wrapper, delay, gen_id=current_gen_id)
         else:
-            # End of song or no lyrics -> Check again in 5 seconds just in case
             self.run_in(self._timer_callback_wrapper, 5, gen_id=current_gen_id)
     
     # ==========================
@@ -3712,11 +3890,22 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
         try:
-            # Progress Bar: Trigger recalculation immediately on Seek
+            # 1. HANDLE POSITION SEEKING
             if attribute == "media_position":
-                self.progress_timer_gen_id += 1 # Invalidate old timer
+                await self.media_data.update(self)
+                
+                # Reset the Progress Bar timer and force an immediate redraw
+                self.progress_timer_gen_id += 1
                 await self._update_progress_bar_loop()
 
+                # If lyrics are on, force the scheduler to jump to the new time
+                if self.lyrics_active_mode:
+                    self.scheduler_generation_id += 1
+                    await self._calculate_and_schedule_next()
+                
+                return
+
+            # 2. STANDARD STATE CHECKS
             if new == old or (await self.get_state(self.config.toggle)) != "on":
                 return 
 
@@ -3726,13 +3915,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 s = await self.get_state(self.config.media_player)
                 current_media_state = str(s).lower() if s else "off"
             
-            # Handle Pause/Idle/Off
+            # 3. HANDLE PAUSE / STOP
             if current_media_state in ["off", "idle", "pause", "paused"]:
-                # STOP SCHEDULER (Invalidates ID)
                 self._stop_lyrics_scheduler()
+                self.progress_timer_gen_id += 1
                 
                 self.last_text_payload_hash = None
-                await asyncio.sleep(6) 
+                await asyncio.sleep(5) 
                 
                 rechecked_state = await self.get_state(self.config.media_player)
                 rechecked_state_str = str(rechecked_state).lower() if rechecked_state else "off"
@@ -3764,7 +3953,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if self.config.wled: await self.control_wled_light('off')
                 return 
 
+            # Full refresh for track change or play state change
             await self.update_attributes(entity, attribute, old, new, kwargs)
+            
         except Exception as e:
             _LOGGER.error(f"Error in state_change_callback: {e}")
 
@@ -3950,7 +4141,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             final_bar_color = self.config.progress_bar_color
             if final_bar_color == 'match':
                 final_bar_color = getattr(media_data, 'lyrics_font_color', font_color_from_image_processing)
-            # ----------------------------
 
             sensor_state = f"{media_data.artist} / {media_data.title}"
             new_attributes = {
@@ -3972,7 +4162,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "lyrics": media_data.lyrics,
                 "progress_bar_active": getattr(media_data, 'show_progress_bar', False),
                 "progress_bar_color": final_bar_color if getattr(media_data, 'show_progress_bar', False) else "inactive"
-                # ------------------------
             }
             
             image_payload = {
@@ -3994,9 +4183,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     spotify_anim_start_time = time.perf_counter()
                     if self.config.special_mode:
                         if self.config.special_mode_spotify_slider:
-                            await self.spotify_service.spotify_album_art_animation(self.pixoo_device, media_data)
+                            await self.spotify_service.spotify_album_art_animation(self.pixoo_device, media_data, self.select_index)
                     else:
-                        await self.spotify_service.spotify_albums_slide(self.pixoo_device, media_data)
+                        await self.spotify_service.spotify_albums_slide(self.pixoo_device, media_data, self.select_index)
 
                     if media_data.spotify_slide_pass:
                         spotify_animation_took_over_display = True
@@ -4007,7 +4196,9 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         new_attributes["process_duration"] = media_data.process_duration
                         new_attributes["spotify_frames"] = media_data.spotify_frames
                     else:
-                        await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4})
+                        # await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4})
+                        # await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": self.select_index})
+                        await self.pixoo_device.send_command({"Command": "Draw/ResetHttpGifId"})
 
             # --- TEXT LAYER CONSTRUCTION ---
             if self.config.force_font_color:
@@ -4086,9 +4277,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
     # =========================================================================
     # HELPERS & UTILITIES
     # =========================================================================
-
-    def compute_opposite_color(self, color: tuple[int,int,int]) -> tuple[int,int,int]:
-        return tuple(255 - c for c in color)
 
     async def control_light(self, action: str, background_color_rgb: Optional[tuple[int, int, int]] = None, is_night: bool = True) -> None:
         if not is_night and self.config.only_at_night:
