@@ -574,10 +574,15 @@ class ImageProcessor:
                 
                 vals = self.img_values(img)
                 
-                if self.config.show_lyrics or self.config.info:
-                    media_data.lyrics_font_color = self.get_optimal_font_color(img)
-                else:
+                # --- FONT COLOR ASSIGNMENT ---
+                if self.config.force_font_color:
+                    media_data.lyrics_font_color = self.config.force_font_color
+                elif vals.get('font_color'):
+                    media_data.lyrics_font_color = vals['font_color']
+                elif vals.get('most_common_color_alternative'):
                     media_data.lyrics_font_color = vals['most_common_color_alternative']
+                else:
+                    media_data.lyrics_font_color = "#FF00FF"
 
                 media_data.color1 = vals['color1']
                 media_data.color2 = vals['color2']
@@ -721,40 +726,67 @@ class ImageProcessor:
             return None
 
     def text_clock_img(self, img: Image.Image, cached_data: dict, media_data: "MediaData") -> Image.Image:
-        if media_data.playing_tv: return img
-
+        
         brightness_lower_part = cached_data.get('brightness_lower_part', 0.5)
 
+        # 1. Apply Lyrics Dimming
         if media_data.lyrics and self.config.show_lyrics and self.config.text_bg and brightness_lower_part != None and not media_data.playing_radio:
             enhancer_lp = ImageEnhance.Brightness(img)
             img = enhancer_lp.enhance(0.55)
             enhancer = ImageEnhance.Contrast(img)
             img = enhancer.enhance(0.5)
-            return img
 
+        # 2. Apply Clock Overlay
         if bool(self.config.show_clock and self.config.text_bg) and not self.config.show_lyrics:
             if self.config.top_text: lpc = (43, 55, 62, 62) if self.config.clock_align == "Right" else (2, 55, 21, 62)
             else: lpc = (43, 2, 62, 9) if self.config.clock_align == "Right" else (2, 2, 21, 9)
             lower_part_img = img.crop(lpc); enhancer_lp = ImageEnhance.Brightness(lower_part_img); lower_part_img = enhancer_lp.enhance(0.3); img.paste(lower_part_img, lpc)
 
+        # 3. Apply Temperature Overlay
         if bool(self.config.temperature and self.config.text_bg) and not self.config.show_lyrics:
             if self.config.top_text: lpc = (2, 55, 18, 62) if self.config.clock_align == "Right" else (47, 55, 63, 62)
             else: lpc = (2, 2, 18, 9) if self.config.clock_align == "Right" else (47, 2, 63, 9)
             lower_part_img = img.crop(lpc); enhancer_lp = ImageEnhance.Brightness(lower_part_img); lower_part_img = enhancer_lp.enhance(0.3); img.paste(lower_part_img, lpc)
 
+        # 4. Apply Text Background
         if self.config.text_bg and self.config.show_text and not self.config.show_lyrics and not media_data.playing_tv:
             if self.config.top_text: lpc = (0, 0, 64, 16)
             else: lpc = (0, 48, 64, 64)
             lower_part_img = img.crop(lpc); enhancer_lp = ImageEnhance.Brightness(lower_part_img); lower_part_img = enhancer_lp.enhance(brightness_lower_part); img.paste(lower_part_img, lpc)
 
+        # 5. Apply Progress Bar
         if getattr(media_data, 'show_progress_bar', False):
-            y_start = self.config.progress_bar_y_offset - 1
+            y_bottom = self.config.progress_bar_y_offset - 1
+            if y_bottom >= 63: y_bottom = 63
+            y_top = y_bottom - 1 
+            
+            # --- Draw Background Overlay (Track) with Gradient ---
+            try:
+                # Top Line (20% Darker -> 0.8 brightness)
+                top_box = (0, y_top, 64, y_top + 1)
+                top_area = img.crop(top_box)
+                top_area = ImageEnhance.Brightness(top_area).enhance(0.8)
+                img.paste(top_area, top_box)
+
+                # Bottom Line (50% Darker -> 0.5 brightness)
+                bottom_box = (0, y_bottom, 64, y_bottom + 1)
+                bottom_area = img.crop(bottom_box)
+                bottom_area = ImageEnhance.Brightness(bottom_area).enhance(0.5)
+                img.paste(bottom_area, bottom_box)
+            except Exception: pass
+
+            # Draw Vibrant Fill
             bar_color_rgb = cached_data.get('most_common_color_alternative_rgb')
+            
+            # Safety check: if bar color is too dark or missing, force a random vibrant color
             if not bar_color_rgb or sum(bar_color_rgb) < 50:
-                bar_color_rgb = (200, 255, 255)
+                fc = cached_data.get('font_color')
+                if fc and fc.startswith('#'):
+                    bar_color_rgb = self._hex_to_rgb(fc)
+                else:
+                    bar_color_rgb = (0, 255, 255)
 
             draw = ImageDraw.Draw(img)
-            draw.rectangle([(0, y_start), (63, y_start+1)], fill=(40, 40, 40))
             
             duration = float(getattr(media_data, 'media_duration', 0) or 0)
             position = float(getattr(media_data, 'media_position', 0) or 0)
@@ -774,7 +806,7 @@ class ImageProcessor:
 
             if bar_width > 0:
                 bar_width = min(bar_width, 64)
-                draw.rectangle([(0, y_start), (bar_width - 1, y_start+1)], fill=bar_color_rgb)
+                draw.rectangle([(0, y_top), (bar_width - 1, y_bottom)], fill=bar_color_rgb)
             
         return img
 
@@ -793,20 +825,43 @@ class ImageProcessor:
         opposite_color_brightness = int(sum(opposite_color) / 3)
         brightness_lower_part = round(1 - opposite_color_brightness / 255, 2) if 0 <= opposite_color_brightness <= 255 else 0
         
+        # Calculate Font Color (High Priority)
         font_color = self.get_optimal_font_color(img)
 
+        # Calculate "Most Common Alternative" (For Progress Bar)
         small_temp_img = full_img.resize((16, 16), Image.Resampling.NEAREST)
         colors_raw_small = small_temp_img.getcolors(maxcolors=256)
+        most_common_colors = []
         if colors_raw_small:
-            most_common_colors = [(c[1], c[0]) for c in colors_raw_small]
-            most_common_colors.sort(key=lambda x: x[1], reverse=True)
-        else:
-            most_common_colors = []
+            # Filter: Only accept colors with some saturation
+            vibrant_candidates = []
+            for c in colors_raw_small:
+                count, rgb = c
+                r, g, b = rgb[:3]
+                h, s, v = colorsys.rgb_to_hsv(r/255, g/255, b/255)
+                if s > 0.15 and v > 0.15: # Ignore Black/Gray/White
+                    vibrant_candidates.append(c)
+            
+            if vibrant_candidates:
+                most_common_colors = sorted([(c[1], c[0]) for c in vibrant_candidates], key=lambda x: x[1], reverse=True)
+            else:
+                most_common_colors = sorted([(c[1], c[0]) for c in colors_raw_small], key=lambda x: x[1], reverse=True)
 
         most_common_color_alternative_rgb = self.most_vibrant_color(most_common_colors)
+        
+        # Final Safety: If still grayscale/black, generate random pastel
+        if sum(most_common_color_alternative_rgb) < 50 or \
+           (max(most_common_color_alternative_rgb) - min(most_common_color_alternative_rgb) < 20):
+             most_common_color_alternative_rgb = (
+                 random.randint(100, 255), 
+                 random.randint(100, 255), 
+                 random.randint(100, 255)
+             )
+
         most_common_color_alternative = f'#{most_common_color_alternative_rgb[0]:02x}{most_common_color_alternative_rgb[1]:02x}{most_common_color_alternative_rgb[2]:02x}'
-        background_color_rgb = self.most_vibrant_color(most_common_colors)
-        background_color = f'#{background_color_rgb[0]:02x}{background_color_rgb[1]:02x}{background_color_rgb[2]:02x}'
+        
+        background_color_rgb = most_common_color_alternative_rgb
+        background_color = most_common_color_alternative
         brightness = int(sum(most_common_color_alternative_rgb) / 3)
 
         if self.config.wled:
@@ -841,6 +896,14 @@ class ImageProcessor:
 
     def rgb_to_hex(self, rgb: tuple) -> str:
         return f'#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
+    
+    def _hex_to_rgb(self, hex_str: str) -> tuple:
+        hex_str = hex_str.lstrip('#')
+        if len(hex_str) == 3: hex_str = ''.join([c*2 for c in hex_str])
+        try:
+            return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
+        except ValueError:
+            return (0, 255, 255)
 
     def is_strong_color(self, color: tuple) -> bool:
         return any(c > 220 for c in color)
@@ -930,21 +993,27 @@ class ImageProcessor:
         return self.rgb_to_hex(selected_colors[0][0]), self.rgb_to_hex(selected_colors[1][0]), self.rgb_to_hex(selected_colors[2][0])
 
     def get_optimal_font_color(self, img: Image.Image) -> str:
-        """Optimized using colorsys."""
+        """
+        UPDATED: Logic now aggressively prefers vibrant colors over Black/White
+        when config.text_bg is False.
+        """
         if self.config.force_font_color:
             return self.config.force_font_color
         
         small_thumb = img.resize((25, 25), Image.Resampling.NEAREST)
         colors_raw = small_thumb.getcolors(maxcolors=625) or []
         
+        # Helper to calculate vibrancy
         def vibrancy_score(item):
             count, rgb = item
             r, g, b = rgb[:3]
             h, s, v = colorsys.rgb_to_hsv(r/255, g/255, b/255)
-            return (s * v) * (math.log(count) + 1)
+            # Give high score to high saturation & medium-high brightness
+            return (s * v * v) * (math.log(count) + 1)
 
         sorted_vibrant = sorted(colors_raw, key=vibrancy_score, reverse=True)
         
+        # Extract the "best" vibrant color found in the image
         chosen_dominant_color = None
         for _, color in sorted_vibrant:
             rgb = color[:3]
@@ -953,12 +1022,14 @@ class ImageProcessor:
                 chosen_dominant_color = rgb
                 break
         
-        if not chosen_dominant_color:
+        if not chosen_dominant_color and colors_raw:
+            # Fallback to most common if no vibrant color found
             for count, color in sorted(colors_raw, key=lambda x: x[0], reverse=True):
                 if sum(color[:3]) > 50:
                     chosen_dominant_color = color[:3]
                     break
 
+        # --- CASE 1: Text Background IS Enabled ---
         if self.config.text_bg:
             if chosen_dominant_color:
                 r, g, b = chosen_dominant_color
@@ -967,25 +1038,34 @@ class ImageProcessor:
                 new_v = 1.0
                 nr, ng, nb = colorsys.hsv_to_rgb(h, new_s, new_v)
                 return f'#{int(nr*255):02x}{int(ng*255):02x}{int(nb*255):02x}'
-            
             return "#00ffff"
 
+        # --- CASE 2: NO Text Background (Need Contrast + COLOR) ---
         else:
             stat = ImageStat.Stat(img)
             avg_bg = tuple(int(x) for x in stat.mean[:3])
             
             candidates = []
+            
+            # 1. Add extracted image colors
             if chosen_dominant_color:
                 candidates.append(chosen_dominant_color)
                 r, g, b = chosen_dominant_color
                 h, s, v = colorsys.rgb_to_hsv(r/255, g/255, b/255)
+                
+                # Add a "boosted" version (100% value)
                 nr, ng, nb = colorsys.hsv_to_rgb(h, s, 1.0)
                 candidates.append((int(nr*255), int(ng*255), int(nb*255)))
+                
+                # Add a complimentary/shifted version
                 h_comp = (h + 0.5) % 1.0
                 nr, ng, nb = colorsys.hsv_to_rgb(h_comp, s, 1.0)
                 candidates.append((int(nr*255), int(ng*255), int(nb*255)))
 
+            # 2. Add Standard Palette
             candidates.extend(COLOR_PALETTE)
+            
+            # 3. Add Black/White (Last resort)
             candidates.append((255, 255, 255))
             candidates.append((0, 0, 0))
 
@@ -994,14 +1074,29 @@ class ImageProcessor:
 
             for color in candidates:
                 contrast = self._contrast_ratio(color, avg_bg)
-                if contrast < 3.5: continue
-
+                
+                # Check properties
                 r, g, b = color
                 h, s, v = colorsys.rgb_to_hsv(r/255, g/255, b/255)
+                is_grayscale = s < 0.1
                 
-                score = contrast * 1.0
-                score += s * 3.0 
+                # Define Minimum Contrast Threshold
+                # We allow lower contrast (2.2) if the color is COLORFUL.
+                # We demand higher contrast (4.0) if the color is Black/White.
+                threshold = 4.0 if is_grayscale else 2.2
                 
+                if contrast < threshold: 
+                    continue
+
+                # --- SCORING ---
+                # Base score is contrast
+                score = contrast
+                
+                # Massive bonus for Saturation (Colorfulness)
+                # This ensures Cyan/Magenta/Yellow win over White even if White has slightly better contrast.
+                score += (s * 25.0) 
+                
+                # Bonus if it matches the dominant color of the album
                 if chosen_dominant_color and self.color_distance(color, chosen_dominant_color) < 30:
                     score += 5.0
                 
@@ -1012,31 +1107,24 @@ class ImageProcessor:
             if best_color:
                 return f'#{best_color[0]:02x}{best_color[1]:02x}{best_color[2]:02x}'
             
+            # Absolute fallback if nothing passed the loop
             white_contrast = self._contrast_ratio((255, 255, 255), avg_bg)
             return '#ffffff' if white_contrast > 3.0 else '#000000'
 
+    # ... [Rest of class (find_content_bounding_box, balance_border, etc.) remains unchanged] ...
+    # Ensure you keep the crop/draw logic from previous successful responses.
     def get_dominant_border_color(self, img: Image.Image) -> tuple:
-        """
-        Fast detection of the background color by sampling the image perimeter.
-        """
         if img.width == 0 or img.height == 0:
             return (0, 0, 0)
             
-        # Ensure RGB
         img_rgb = img if img.mode == "RGB" else img.convert("RGB")
-        
-        # Optimization: Resize to a small thumbnail to smooth out noise
         thumb = img_rgb.resize((64, 64), Image.Resampling.NEAREST)
         
-        # Get the 1px border around the thumbnail
-        # Top/Bottom
         h_border = list(thumb.crop((0, 0, 64, 1)).getdata()) + \
                    list(thumb.crop((0, 63, 64, 64)).getdata())
-        # Left/Right
         v_border = list(thumb.crop((0, 0, 1, 64)).getdata()) + \
                    list(thumb.crop((63, 0, 64, 64)).getdata())
                    
-        # Find most common color in the border pixels
         pixels = h_border + v_border
         if not pixels: return (0,0,0)
         
@@ -1045,27 +1133,15 @@ class ImageProcessor:
 
     def _find_content_bounding_box(self, image_to_scan: Image.Image, border_color_to_detect: tuple, threshold: float) -> Optional[Tuple[int, int, int, int]]:
         try:
-            # Create a solid image of the border color
             bg = Image.new("RGB", image_to_scan.size, border_color_to_detect)
-            
-            # Find the absolute difference
             diff = ImageChops.difference(image_to_scan, bg)
-            
-            # Convert to grayscale to combine channels
             diff = ImageOps.grayscale(diff)
-            
-            # We use a slightly looser threshold (30) to approximate the old Euclidean 50
             diff = diff.point(lambda p: 255 if p > 30 else 0)
-            
-            # getbbox() calculates the box surrounding non-zero pixels in C
             return diff.getbbox()
         except Exception:
             return None
 
     def _balance_border(self, detect: Image.Image, orig: Image.Image, left: int, top: int, size: int, border_color: tuple, thresh: float) -> Image.Image:
-        """
-        Restored original logic but optimized the 'getpixel' calls.
-        """
         orig_width, orig_height = orig.size
         detect_width, detect_height = detect.size 
         eff_detect_left = max(0, left)
@@ -1073,7 +1149,6 @@ class ImageProcessor:
         eff_detect_right = min(left + size, detect_width)
         eff_detect_bottom = min(top + size, detect_height)
         
-        # Fast exit
         if eff_detect_right <= eff_detect_left or eff_detect_bottom <= eff_detect_top:
             final_left_orig = max(0, min(left, orig_width - size))
             final_top_orig = max(0, min(top, orig_height - size))
@@ -1093,11 +1168,9 @@ class ImageProcessor:
             return orig.crop((final_left_orig, final_top_orig, final_left_orig + actual_crop_dim_orig, final_top_orig + actual_crop_dim_orig))
         
         data = list(cropped_detect_window.getdata())
-        
         thresh_sq = thresh * thresh
         
         top_border_rows = 0
-        # Scan top rows
         for y in range(local_size_h):
             is_border_row = True
             row_start = y * local_size_w
@@ -1113,7 +1186,6 @@ class ImageProcessor:
                 break
                 
         bottom_border_rows = 0
-        # Scan bottom rows
         for y in range(local_size_h - 1, -1, -1):
             is_border_row = True
             row_start = y * local_size_w
@@ -1175,94 +1247,56 @@ class ImageProcessor:
         return self._balance_border(detect_img, img_to_crop, left, top, actual_crop_size, border_color, threshold)
 
     def _perform_object_focus_crop(self, img_to_crop: Image.Image) -> Optional[Image.Image]:
-        # 1. Prepare Detection Image
         base_for_detect = img_to_crop.convert("RGB") if img_to_crop.mode != "RGB" else img_to_crop.copy()
         detect_img_processed = base_for_detect.filter(ImageFilter.BoxBlur(5))
         detect_img_processed = ImageEnhance.Brightness(detect_img_processed).enhance(1.95)
-        
-        # 2. Find Initial Content Bounding Box ("Find where object begins")
         threshold_find_bbox_obj = 40
         border_color_for_detect = self.get_dominant_border_color(detect_img_processed) 
         bbox = self._find_content_bounding_box(detect_img_processed, border_color_for_detect, threshold_find_bbox_obj) 
         if bbox is None:
             return None 
-            
         min_x, min_y, max_x, max_y = bbox
-        
-        # 3. Setup Constraints
         img_w, img_h = detect_img_processed.size
-        # The crop can NEVER be larger than the smallest side of the image (prevents lines)
         max_possible_crop = min(img_w, img_h)
-        
         content_w = max_x - min_x + 1
         content_h = max_y - min_y + 1
-        
-        # Start with the object's smallest dimension
         current_crop_size = min(content_w, content_h)
         if current_crop_size < 64: current_crop_size = 64
-        
-        # Center X of the object
         object_center_x = min_x + content_w // 2
-        
-        # 4. "Zoom Out" Loop
         detect_pixels = detect_img_processed.load()
         thresh_sq = threshold_find_bbox_obj * threshold_find_bbox_obj
-        zoom_step = 10
-        
+        zoom_step = 10 
         while current_crop_size < max_possible_crop:
-            # --- TOP-WEIGHTED LOGIC ---
-            # Try to position Top at min_y (Object Start)
-            # Try to position Left centered on Object
-            
             t = max(0, min_y) 
             l = max(0, object_center_x - (current_crop_size // 2))
-            
-            # Constraint: Don't go off bottom or right
             if t + current_crop_size > img_h: t = img_h - current_crop_size
             if l + current_crop_size > img_w: l = img_w - current_crop_size
-            
-            # Re-clamp Top/Left to 0 just in case
             t = max(0, t)
             l = max(0, l)
-            
             r = l + current_crop_size - 1
             b = t + current_crop_size - 1
-            
             corners = [(l, t), (r, t), (l, b), (r, b)]
-            
             is_touching_object = False
             for cx, cy in corners:
                 try:
                     px = detect_pixels[cx, cy]
                     dist_sq = sum((c1 - c2) ** 2 for c1, c2 in zip(px, border_color_for_detect))
-                    # If distance is high, it's Object (not border). We are cutting it.
                     if dist_sq > thresh_sq:
                         is_touching_object = True
                         break
                 except Exception: pass
-            
             if is_touching_object:
                 current_crop_size += zoom_step
             else:
                 break
-
-        # 5. Manual Zoom Out Buffer (Adjust this value to zoom out more/less)
-        current_crop_size += 5 
-
-        # 6. Final Clamp & Coordinate Calculation
+        current_crop_size += 2
         final_crop_size = min(current_crop_size, max_possible_crop)
-        
-        # Apply Top-Weighted Logic one last time for final crop
         top = max(0, min_y)
         left = max(0, object_center_x - (final_crop_size // 2))
-        
-        # Ensure we stay strictly inside image (No Lines Guarantee)
         if top + final_crop_size > img_h: top = img_h - final_crop_size
         if left + final_crop_size > img_w: left = img_w - final_crop_size
         top = max(0, top)
         left = max(0, left)
-        
-        # 7. Execute Crop
         return self._balance_border(detect_img_processed, img_to_crop, left, top, final_crop_size, border_color_for_detect, 60)
 
     def crop_image_borders(self, img: Image.Image, radio_logo: bool) -> Image.Image:
@@ -4197,8 +4231,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                         new_attributes["spotify_frames"] = media_data.spotify_frames
                     else:
                         # await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4})
-                        # await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": self.select_index})
-                        await self.pixoo_device.send_command({"Command": "Draw/ResetHttpGifId"})
+                        await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": self.select_index})
+                        # await self.pixoo_device.send_command({"Command": "Draw/ResetHttpGifId"})
 
             # --- TEXT LAYER CONSTRUCTION ---
             if self.config.force_font_color:
