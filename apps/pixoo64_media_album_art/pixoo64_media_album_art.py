@@ -751,7 +751,7 @@ class ImageProcessor:
             y_start = self.config.progress_bar_y_offset - 1
             bar_color_rgb = cached_data.get('most_common_color_alternative_rgb')
             if not bar_color_rgb or sum(bar_color_rgb) < 50:
-                bar_color_rgb = (255, 255, 255)
+                bar_color_rgb = (200, 255, 255)
 
             draw = ImageDraw.Draw(img)
             draw.rectangle([(0, y_start), (63, y_start+1)], fill=(40, 40, 40))
@@ -1247,7 +1247,7 @@ class ImageProcessor:
                 break
 
         # 5. Manual Zoom Out Buffer (Adjust this value to zoom out more/less)
-        current_crop_size += 20 
+        current_crop_size += 5 
 
         # 6. Final Clamp & Coordinate Calculation
         final_crop_size = min(current_crop_size, max_possible_crop)
