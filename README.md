@@ -773,15 +773,16 @@ progress_bar_color: "#ff00ff"
 
 ## 🔔 Visual & Audio Notifications
 
-The script includes a robust **Notification Manager** that allows you to send visual alerts **and audio buzzers** to the Pixoo64 from Home Assistant. These notifications interrupt the current mode, display the alert, play a sound (optional), and intelligently restore the previous state.
+The script includes a robust **Notification Manager** that allows you to send visual alerts **and audio buzzers** to the Pixoo64 from Home Assistant. These notifications interrupt the current mode, display the alert (static or animated), play a sound (optional), and intelligently restore the previous state.
 
 ### ⚙️ Configuration & Parameters
+
 Trigger a notification by firing the event `pixoo_notify` in Home Assistant.
 
 | Parameter | Description | Default |
-| :--- | :--- | :--- |
+| --- | --- | --- |
 | `message` | The text to display. | **Required** |
-| `type` | The icon/theme to use (e.g., `text`, `washer`, `door`). | `text` |
+| `type` | The icon/theme to use (e.g., `text`, `washer`, `alert`). | `text` |
 | `duration` | How long to show the visual alert (in seconds). | `5` |
 | `color` | Custom HEX color (e.g., `#FF0000`). Overrides the theme color. | Based on Type |
 | `play_buzzer` | Set to `true` to enable the internal buzzer. | `false` |
@@ -794,25 +795,32 @@ Trigger a notification by firing the event `pixoo_notify` in Home Assistant.
 ### 📚 Examples & Usage
 
 <details>
-<summary><b>📷 Visual Layouts & Icons</b></summary>
+<summary><b>📷 Visual Layouts, Icons & Animations</b></summary>
 
-The visual layout changes automatically based on the notification `type`:
+The visual layout changes automatically based on the notification `type`. Certain icons include automatic **animations** (e.g., flashing, wiggling, or spinning) to grab attention.
 
 * **`type: text` (Default):** Max **6 lines**, vertically centered. Best for long messages.
-* **Icon Types:** Max **4 lines**, icon at top, text at bottom.
+* **Icon Types:** Max **4 lines**, icon at top (animated if supported), text at bottom.
 
 **Supported Types:**
-* **General:** `text`, `info`, `success`, `warning`, `error`
-* **Appliances:** `boiler`, `shutter`, `washer`, `trash`
-* **Security:** `door`, `lock`, `fire`, `water`
-* **Lifestyle:** `mail`, `car`, `battery`, `wifi`, `sleep`
 
-**YAML Example (Icon):**
+| Category | Types | Animation Effect |
+| --- | --- | --- |
+| **Alerts** | `alert`, `warning`, `error`, `attack` | **Wiggle** (Alert), **Flash** (Warning/Error/Attack) |
+| **Status** | `success`, `info`, `v` (Bold Check), `x` (Bold Cross) | Static |
+| **Lifestyle** | `phone`, `wifi`, `calendar`, `camera` | **Wiggle** (Phone), **Expand** (WiFi) |
+| **Weather/Time** | `weather`, `sun`, `moon`, `timer`, `time` | **Bobbing** (Weather), **Spinning** (Timer/Time) |
+| **Media** | `music` | **Bobbing** Notes |
+| **Appliances** | `washer`, `boiler`, `trash`, `fire`, `water`, `battery` | Static |
+| **Security** | `door`, `lock`, `car`, `mail` | Static |
+
+**YAML Example (Animated Alert):**
+
 ```yaml
 event: pixoo_notify
 event_data:
-  message: "Laundry Finished"
-  type: "washer"
+  message: "Red Alert!"
+  type: "attack"  # This will flash Red/Yellow
   duration: 10
 
 ```
@@ -831,7 +839,7 @@ Set `buzzer_off` to `0` or keep `active` equal to `total`.
 event: pixoo_notify
 event_data:
   message: "Timer Finished"
-  type: "text"
+  type: "timer"   # Shows spinning clock animation
   play_buzzer: true
   buzzer_active: 3000 # Continuous sound
   buzzer_off: 0
@@ -887,7 +895,6 @@ action:
 ```
 
 </details>
-
 
 ---
 
