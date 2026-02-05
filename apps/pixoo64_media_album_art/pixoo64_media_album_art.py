@@ -775,15 +775,29 @@ class ImageProcessor:
                 img.paste(bottom_area, bottom_box)
             except Exception: pass
 
-            # Draw Vibrant Fill
+            # --- DETERMINE VIBRANT COLOR (NO BLACK/WHITE) ---
             bar_color_rgb = cached_data.get('most_common_color_alternative_rgb')
             
-            # Safety check: if bar color is too dark or missing, force a random vibrant color
-            if not bar_color_rgb or sum(bar_color_rgb) < 50:
-                fc = cached_data.get('font_color')
-                if fc and fc.startswith('#'):
-                    bar_color_rgb = self._hex_to_rgb(fc)
-                else:
+            def is_boring(rgb):
+                """Returns True if color is Black, White, or Grayscale."""
+                if not rgb: return True
+                r, g, b = rgb
+                # Check for extreme darkness or brightness
+                if sum(rgb) < 50: return True   # Too Black
+                if sum(rgb) > 700: return True  # Too White
+                # Check saturation (Grayscale check)
+                if max(rgb) - min(rgb) < 20: return True 
+                return False
+
+            # 1. Check the calculated vibrant color
+            if is_boring(bar_color_rgb):
+                # 2. Try the Font Color
+                fc_hex = cached_data.get('font_color')
+                if fc_hex and fc_hex.startswith('#'):
+                    bar_color_rgb = self._hex_to_rgb(fc_hex)
+                
+                # 3. If Font Color is ALSO boring, force Cyan
+                if is_boring(bar_color_rgb):
                     bar_color_rgb = (0, 255, 255)
 
             draw = ImageDraw.Draw(img)
@@ -1111,8 +1125,6 @@ class ImageProcessor:
             white_contrast = self._contrast_ratio((255, 255, 255), avg_bg)
             return '#ffffff' if white_contrast > 3.0 else '#000000'
 
-    # ... [Rest of class (find_content_bounding_box, balance_border, etc.) remains unchanged] ...
-    # Ensure you keep the crop/draw logic from previous successful responses.
     def get_dominant_border_color(self, img: Image.Image) -> tuple:
         if img.width == 0 or img.height == 0:
             return (0, 0, 0)
@@ -1462,67 +1474,61 @@ class ImageProcessor:
     def _draw_burned_text(self, img: Image.Image, artist: str, title: str) -> Image.Image:
         if not (artist or title):
             return img
-        artist_rgb_text, title_rgb_text = self._pick_two_contrasting_colors(img, 4.5)
-        artist_fill  = (*artist_rgb_text, 255)
-        title_fill   = (*title_rgb_text, 255)
-        def _calculate_perceptual_luminance(rgb_color: tuple) -> float:
-            r, g, b = rgb_color
-            return (0.299 * r + 0.587 * g + 0.114 * b) / 255.0
-        thumb_for_bg_analysis = img.resize((8, 8), Image.Resampling.BICUBIC).convert("RGB")
-        stat = ImageStat.Stat(thumb_for_bg_analysis)
-        avg_img_rgb = tuple(int(x) for x in stat.mean[:3])
-        avg_img_luminance = _calculate_perceptual_luminance(avg_img_rgb)
-        shadow_base_rgb_for_bg: tuple
-        if avg_img_luminance > 0.5:  
-            shadow_base_rgb_for_bg = (0, 0, 0)      
-        else:  
-            shadow_base_rgb_for_bg = (255, 255, 255)  
-        SHADOW_TEXT_MIN_CONTRAST_RATIO = 4.5
-        final_shadow_base_rgb = shadow_base_rgb_for_bg
-        cr_artist_shadow = self._contrast_ratio(final_shadow_base_rgb, artist_rgb_text)
-        cr_title_shadow  = self._contrast_ratio(final_shadow_base_rgb, title_rgb_text)
-        if cr_artist_shadow < SHADOW_TEXT_MIN_CONTRAST_RATIO or cr_title_shadow < SHADOW_TEXT_MIN_CONTRAST_RATIO:
-            flipped_shadow_base_rgb = (0,0,0) if final_shadow_base_rgb == (255,255,255) else (255,255,255)
-            final_shadow_base_rgb = flipped_shadow_base_rgb
-        shadow_alpha = 128  
-        dynamic_shadow_color = (*final_shadow_base_rgb, shadow_alpha) 
-        pad = 2
-        max_h = img.height - 2 * pad
-        max_w = img.width  - 2 * pad
-        spacer_px, inter_px = 4, 2
-        img_copy = img.copy().convert("RGBA") 
-        layer = ImageDraw.Draw(img_copy)
-        base_font = self._default_font
-        artist_b = artist if artist else ""
-        title_b = title if title else ""
-        
-        prelim_artist_lines = self._wrap_text(artist_b, base_font, max_w, layer) if artist_b else []
-        prelim_title_lines  = self._wrap_text(title_b,  base_font, max_w, layer) if title_b  else []
-        if not prelim_artist_lines and not prelim_title_lines: return img.convert("RGB")
 
-        eff_h = max_h - (spacer_px if prelim_artist_lines and prelim_title_lines else 0)
+        # 1. Pick Colors
+        artist_rgb, title_rgb = self._pick_two_contrasting_colors(img, 4.5)
+        artist_fill = (*artist_rgb, 255)
+        title_fill  = (*title_rgb, 255)
+
+        # 2. Calculate Negative Shadows (Inverse of text color) with Alpha
+        inv_artist = tuple(255 - c for c in artist_rgb)
+        inv_title  = tuple(255 - c for c in title_rgb)
+        
+        artist_shadow_fill = (*inv_artist, 180)
+        title_shadow_fill  = (*inv_title, 180)
+
+        # 3. Layout Setup
+        img_copy = img.copy().convert("RGBA")
+        layer = ImageDraw.Draw(img_copy)
         font = self._default_font
-        art_lines = self._wrap_text(artist_b, font, max_w, layer) if artist_b else []
-        tit_lines = self._wrap_text(title_b,  font, max_w, layer) if title_b  else []
-        all_render_lines = art_lines + tit_lines
-        heights = [self._get_text_dimensions(t, font, layer)[1] for t in all_render_lines]
-        num_inter_line_spaces = len(all_render_lines) - 1 if len(all_render_lines) > 0 else 0
-        total_h = sum(heights) + (inter_px * num_inter_line_spaces)
-        if art_lines and tit_lines: total_h += spacer_px
-        y = pad + max(0, (max_h - total_h) // 2)
-        def _blit_text_line_with_shadow(text_line_content, main_text_color_fill, y_current_pos):
-            w, h = self._get_text_dimensions(text_line_content, font, layer)
-            x_current_pos = pad + max(0, (max_w - w) // 2)
-            self._draw_text_with_shadow(draw=layer, xy=(x_current_pos, y_current_pos), text=text_line_content, font=font, text_color=main_text_color_fill, shadow_color=dynamic_shadow_color)
-            return h
-        for i, line_content in enumerate(art_lines):
-            line_height = _blit_text_line_with_shadow(line_content, artist_fill, y)
-            y += line_height + (inter_px if i < len(art_lines) - 1 else 0)
-        if art_lines and tit_lines: y += spacer_px
-        for i, line_content in enumerate(tit_lines):
-            line_height = _blit_text_line_with_shadow(line_content, title_fill, y)
-            y += line_height + (inter_px if i < len(tit_lines) - 1 else 0)
+        pad = 2
+        max_w = img.width - (2 * pad)
+        spacer = 4
+
+        # Wrap Text
+        artist_lines = self._wrap_text(artist, font, max_w, layer) if artist else []
+        title_lines  = self._wrap_text(title,  font, max_w, layer) if title else []
+        
+        if not artist_lines and not title_lines: 
+            return img.convert("RGB")
+
+        # Measure Height
+        line_h = 11
+        total_h = (len(artist_lines) * line_h) + (len(title_lines) * line_h)
+        if artist_lines and title_lines: 
+            total_h += spacer
+
+        # Center Y
+        y = max(pad, (img.height - total_h) // 2)
+
+        # 4. Render using _draw_text_with_shadow
+        for line in artist_lines:
+            w = layer.textlength(line, font=font)
+            x = (img.width - w) // 2
+            self._draw_text_with_shadow(layer, (x, y), line, font, artist_fill, artist_shadow_fill)
+            y += line_h
+        
+        if artist_lines and title_lines:
+            y += spacer
+            
+        for line in title_lines:
+            w = layer.textlength(line, font=font)
+            x = (img.width - w) // 2
+            self._draw_text_with_shadow(layer, (x, y), line, font, title_fill, title_shadow_fill)
+            y += line_h
+
         return img_copy.convert("RGB")
+
 
 class LyricsProvider:
     """Provides lyrics with Smart Scheduling logic (Event Based)."""
