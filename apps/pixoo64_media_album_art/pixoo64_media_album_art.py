@@ -107,7 +107,6 @@ import logging
 import math
 import random
 import re
-import sys
 import time
 import textwrap 
 import colorsys
@@ -121,7 +120,7 @@ from typing import Any, Dict, Optional, Tuple
 from functools import lru_cache
 
 # Third-party library imports
-from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter, ImageStat, ImageChops, ImageOps
+from PIL import Image, ImageDraw, ImageFont, ImageEnhance, ImageFilter, ImageStat, ImageChops, ImageOps, UnidentifiedImageError
 
 try:
     from unidecode import unidecode
@@ -378,12 +377,32 @@ class PixooDevice:
             "Connection": "keep-alive",
             "User-Agent": "PixooClient/1.0"
         }
+        self._last_payload_str: Optional[str] = None
+        self._last_send_time: float = 0.0
 
     async def send_command(self, payload_command: dict, retries: int = 3) -> None: 
         """Sends a command with automatic retries on failure."""
         if self.session.closed:
             return
 
+        try:
+            # Sort keys to ensure {"a":1, "b":2} equals {"b":2, "a":1}
+            current_payload_str = json.dumps(payload_command, sort_keys=True)
+            now = time.monotonic()
+
+            # If EXACT same command and LESS than 1 second passed -> SKIP
+            if (current_payload_str == self._last_payload_str) and (now - self._last_send_time < 1.0):
+                _LOGGER.debug("Ignored duplicate Pixoo command sent within 1s.")
+                return
+
+            # Update the tracker
+            self._last_payload_str = current_payload_str
+            self._last_send_time = now
+            
+        except Exception:
+            pass # Safety pass if json dump fails (unlikely)
+
+        # --- Standard Send Logic ---
         for attempt in range(1, retries + 1):
             try:
                 async with self.session.post(
@@ -396,7 +415,6 @@ class PixooDevice:
                         await asyncio.sleep(0.1)
                         return
                     else:
-                        response_text = await response.text() 
                         _LOGGER.warning(f"Pixoo command failed (Attempt {attempt}/{retries}). Status: {response.status}") 
             
             except (aiohttp.ClientError, asyncio.TimeoutError) as e: 
@@ -549,7 +567,7 @@ class ImageProcessor:
                 img.load() 
                 img = ensure_rgb(img)
                 
-                max_dimension = 640
+                max_dimension = 320
                 if max(img.size) > max_dimension:
                     scale_factor = max_dimension / max(img.size)
                     new_size = (int(img.width * scale_factor), int(img.height * scale_factor))
@@ -1230,100 +1248,152 @@ class ImageProcessor:
             return orig
         return orig.crop((final_left, final_top, final_left + actual_final_dim, final_top + actual_final_dim))
 
-    def _perform_border_crop(self, img_to_crop: Image.Image) -> Optional[Image.Image]:
-        detect_img = img_to_crop.convert("RGB") if img_to_crop.mode != "RGB" else img_to_crop.copy()
-        border_color = self.get_dominant_border_color(detect_img) 
-        threshold = 20
-        bbox = self._find_content_bounding_box(detect_img, border_color, threshold) 
-        if bbox is None:
-            return None 
-        min_x, min_y, max_x, max_y = bbox
-        content_w = max_x - min_x + 1
-        content_h = max_y - min_y + 1
-        crop_dim = max(64, max(content_w, content_h))
-        center_x = min_x + content_w // 2
-        center_y = min_y + content_h // 2
-        half_crop_dim = crop_dim // 2
-        left = max(0, center_x - half_crop_dim)
-        top = max(0, center_y - half_crop_dim)
-        img_width, img_height = detect_img.size
-        if left + crop_dim > img_width:
-            left = img_width - crop_dim
-        if top + crop_dim > img_height:
-            top = img_height - crop_dim
-        left = max(0, left) 
-        top = max(0, top)
-        actual_crop_size = min(crop_dim, img_width - left, img_height - top)
-        if actual_crop_size < 1:
-            return img_to_crop 
-        return self._balance_border(detect_img, img_to_crop, left, top, actual_crop_size, border_color, threshold)
-
     def _perform_object_focus_crop(self, img_to_crop: Image.Image) -> Optional[Image.Image]:
-        base_for_detect = img_to_crop.convert("RGB") if img_to_crop.mode != "RGB" else img_to_crop.copy()
-        detect_img_processed = base_for_detect.filter(ImageFilter.BoxBlur(5))
-        detect_img_processed = ImageEnhance.Brightness(detect_img_processed).enhance(1.95)
-        threshold_find_bbox_obj = 40
-        border_color_for_detect = self.get_dominant_border_color(detect_img_processed) 
-        bbox = self._find_content_bounding_box(detect_img_processed, border_color_for_detect, threshold_find_bbox_obj) 
-        if bbox is None:
-            return None 
-        min_x, min_y, max_x, max_y = bbox
-        img_w, img_h = detect_img_processed.size
-        max_possible_crop = min(img_w, img_h)
-        content_w = max_x - min_x + 1
-        content_h = max_y - min_y + 1
-        current_crop_size = min(content_w, content_h)
-        if current_crop_size < 64: current_crop_size = 64
-        object_center_x = min_x + content_w // 2
-        detect_pixels = detect_img_processed.load()
-        thresh_sq = threshold_find_bbox_obj * threshold_find_bbox_obj
-        zoom_step = 10 
-        while current_crop_size < max_possible_crop:
-            t = max(0, min_y) 
-            l = max(0, object_center_x - (current_crop_size // 2))
-            if t + current_crop_size > img_h: t = img_h - current_crop_size
-            if l + current_crop_size > img_w: l = img_w - current_crop_size
-            t = max(0, t)
+        """
+        Smart Zoom (300px Optimized):
+        Runs your 'Blur & Shrink' logic on a 300px proxy.
+        - Speed: ~10x faster than full resolution.
+        - Accuracy: High (300px retains enough detail for accurate detection).
+        """
+        try:
+            # 1. SETUP PROXY (300px as requested)
+            orig_w, orig_h = img_to_crop.size
+            target_res = 300
+            scale = target_res / max(orig_w, orig_h)
+            
+            proxy_w = int(orig_w * scale)
+            proxy_h = int(orig_h * scale)
+            
+            # Create the 300px copy
+            proxy = img_to_crop.resize((proxy_w, proxy_h), Image.Resampling.BILINEAR)
+
+            # 2. APPLY YOUR FILTERS (Scaled)
+            # We convert proxy to RGB for filter consistency
+            detect_img = proxy.convert("RGB")
+            
+            detect_img = detect_img.filter(ImageFilter.BoxBlur(1))
+            detect_img = ImageEnhance.Brightness(detect_img).enhance(1.95)
+            
+            # 3. DETECTION
+            threshold_find_bbox_obj = 50
+            border_color = self.get_dominant_border_color(detect_img)
+            
+            bbox = self._find_content_bounding_box(detect_img, border_color, threshold_find_bbox_obj)
+            
+            if bbox is None:
+                return None 
+
+            min_x, min_y, max_x, max_y = bbox
+            
+            # 4. SHRINK BBOX (Scaled)
+            # You used -10 pixels on full image. On 300px, that is roughly -3 pixels.
+            expansion_pixels = -3
+            
+            min_x = max(0, min_x - expansion_pixels)
+            min_y = max(0, min_y - expansion_pixels)
+            max_x = min(proxy_w - 1, max_x + expansion_pixels)
+            max_y = min(proxy_h - 1, max_y + expansion_pixels)
+            
+            content_w = max_x - min_x + 1
+            content_h = max_y - min_y + 1
+            
+            if content_w <= 0 or content_h <= 0:
+                return img_to_crop
+
+            # 5. CALCULATE GEOMETRY (On 300px Proxy)
+            # Ensure crop is at least 64px relative size (approx 20px on proxy)
+            min_crop_proxy = int(64 * scale)
+            crop_dim = max(min_crop_proxy, max(content_w, content_h))
+            
+            center_x = min_x + content_w // 2
+            center_y = min_y + content_h // 2
+            
+            half_crop = crop_dim // 2
+            
+            l = max(0, center_x - half_crop)
+            t = max(0, center_y - half_crop)
+            
+            # Boundary checks (Proxy coordinates)
+            if l + crop_dim > proxy_w: l = proxy_w - crop_dim
+            if t + crop_dim > proxy_h: t = proxy_h - crop_dim
             l = max(0, l)
-            r = l + current_crop_size - 1
-            b = t + current_crop_size - 1
-            corners = [(l, t), (r, t), (l, b), (r, b)]
-            is_touching_object = False
-            for cx, cy in corners:
-                try:
-                    px = detect_pixels[cx, cy]
-                    dist_sq = sum((c1 - c2) ** 2 for c1, c2 in zip(px, border_color_for_detect))
-                    if dist_sq > thresh_sq:
-                        is_touching_object = True
-                        break
-                except Exception: pass
-            if is_touching_object:
-                current_crop_size += zoom_step
-            else:
-                break
-        current_crop_size += 2
-        final_crop_size = min(current_crop_size, max_possible_crop)
-        top = max(0, min_y)
-        left = max(0, object_center_x - (final_crop_size // 2))
-        if top + final_crop_size > img_h: top = img_h - final_crop_size
-        if left + final_crop_size > img_w: left = img_w - final_crop_size
-        top = max(0, top)
-        left = max(0, left)
-        return self._balance_border(detect_img_processed, img_to_crop, left, top, final_crop_size, border_color_for_detect, 60)
+            t = max(0, t)
+            
+            actual_size_proxy = min(crop_dim, proxy_w - l, proxy_h - t)
+            
+            # 6. MAP BACK TO FULL RESOLUTION
+            real_left = int(l / scale)
+            real_top = int(t / scale)
+            real_size = int(actual_size_proxy / scale)
+            
+            # 7. FINAL BALANCE
+            return self._balance_border(img_to_crop, img_to_crop, real_left, real_top, real_size, border_color, 60)
+
+        except Exception as e:
+            _LOGGER.error(f"Error in 300px crop: {e}")
+            return img_to_crop
+
+    def _perform_border_crop(self, img_to_crop: Image.Image) -> Optional[Image.Image]:
+        """
+        Standard Crop: Removes black bars/solid borders and centers the image.
+        Optimized to use a 128px proxy for speed.
+        """
+        try:
+            # 1. Setup Proxy (Fast Processing)
+            orig_w, orig_h = img_to_crop.size
+            scale = 128 / max(orig_w, orig_h)
+            proxy_w = int(orig_w * scale)
+            proxy_h = int(orig_h * scale)
+            
+            # Create proxy
+            proxy = img_to_crop.resize((proxy_w, proxy_h), Image.Resampling.BILINEAR)
+
+            # 2. Detect Borders (Instant on proxy)
+            border_color = self.get_dominant_border_color(proxy)
+            bbox = self._find_content_bounding_box(proxy, border_color, threshold=20)
+            
+            if not bbox:
+                return img_to_crop # No borders found, return original
+
+            # 3. Calculate Content Center
+            min_x, min_y, max_x, max_y = bbox
+            content_w = max_x - min_x
+            content_h = max_y - min_y
+            
+            # 4. Determine Square Crop
+            crop_size = min(content_w, content_h)
+            
+            center_x = min_x + content_w // 2
+            center_y = min_y + content_h // 2
+            
+            # 5. Map back to Full Resolution
+            real_size = int(crop_size / scale)
+            real_cx = int(center_x / scale)
+            real_cy = int(center_y / scale)
+            
+            real_left = real_cx - (real_size // 2)
+            real_top = real_cy - (real_size // 2)
+            
+            # 6. Final Polish
+            return self._balance_border(img_to_crop, img_to_crop, real_left, real_top, real_size, border_color, 40)
+
+        except Exception as e:
+            _LOGGER.error(f"Error in normal crop: {e}")
+            return img_to_crop
 
     def crop_image_borders(self, img: Image.Image, radio_logo: bool) -> Image.Image:
+        # 1. Global Switch Check
         if radio_logo or not self.config.crop_borders:
             return img
-        cropped_image: Optional[Image.Image] = None
+
+        # 2. Try Extra Crop (Smart Zoom) if enabled
         if self.config.crop_extra or self.config.special_mode: 
             cropped_image = self._perform_object_focus_crop(img)
-            if cropped_image is None: 
-                cropped_image = self._perform_border_crop(img)
-        else:
-            cropped_image = self._perform_border_crop(img)
-        if cropped_image is None: 
-            return img
-        return cropped_image
+            if cropped_image:
+                return cropped_image
+
+        # 3. Normal Crop (Border Removal)
+        return self._perform_border_crop(img) or img
 
     def _draw_text_with_shadow(self, draw: ImageDraw.ImageDraw, xy: tuple, text: str, font: ImageFont.FreeTypeFont, text_color: tuple, shadow_color: tuple):
         x, y = xy
@@ -1528,7 +1598,6 @@ class ImageProcessor:
             y += line_h
 
         return img_copy.convert("RGB")
-
 
 class LyricsProvider:
     """Provides lyrics with Smart Scheduling logic (Event Based)."""
@@ -1857,6 +1926,10 @@ class MediaData:
         self.session = session
 
         self.lyrics_provider = LyricsProvider(self.config, self.session)
+        self.prev_title = ""
+        self.prev_artist = ""
+        self.track_changed = False # Flag to signal a change
+        
         self.last_group_start_index: int = -1
         self.last_group_end_index: int = -1
         self.last_lyrics_len: int = 0
@@ -2036,6 +2109,16 @@ class MediaData:
                 except Exception: 
                     self.temperature = None
 
+            if self.title != self.prev_title or self.artist != self.prev_artist:
+                self.track_changed = True
+                _LOGGER.debug(f"Track change detected: {self.artist} - {self.title}")
+            else:
+                self.track_changed = False
+
+            # Update history
+            self.prev_title = self.title
+            self.prev_artist = self.artist
+
             return self
 
         except Exception as e: 
@@ -2045,25 +2128,107 @@ class MediaData:
     async def _get_lyrics(self, artist: Optional[str], title: str, album: Optional[str], duration: int) -> list[dict]: 
         return await self.lyrics_provider.get_lyrics(artist, title, album, duration)
 
-    def format_ai_image_prompt(self, artist: Optional[str], title: str) -> str: 
-        if not self.config.pollinations: return 
+    def format_ai_image_prompt(self, artist: Optional[str], title: str) -> Optional[str]: 
+        if not self.config.pollinations: 
+            return None
+
         artist_name = artist if artist else 'Pixoo64' 
+        
+        # 1. Sanitize to prevent URL path errors
+        clean_artist = artist_name.replace("/", "-").replace("\\", "-")
+        clean_title = title.replace("/", "-").replace("\\", "-")
+
         prompts = [
-            f"Album cover art for '{title}' by {artist_name}, highly detailed, digital art style",
-            f"Vibrant album cover for '{title}' by {artist_name}, reflecting the mood of the music",
-            f"Surreal landscape representing the song '{title}' by {artist_name}, bold colors",
-            f"Retro pixel art album cover for '{title}' by {artist_name}, 80s aesthetic",
-            f"Dreamlike scene inspired by '{title}' by {artist_name}, fantasy art",
-            f"Minimalist design for album '{title}' by {artist_name}, elegant",
-            f"Dynamic and energetic cover for '{title}' by {artist_name}, motion and vibrant colors",
-            f"Whimsical illustration for '{title}' by {artist_name}, imaginative elements",
-            f"Dark and moody artwork for '{title}' by {artist_name}, shadows and deep colors",
-            f"Futuristic album cover for '{title}' by {artist_name}, sci-fi elements"
+            # --- CONCEPTUAL & SYMBOLIC (Best for Meaning) ---
+            # 1. Double Exposure (The classic "Artist + Meaning" blend)
+            f"Double exposure album cover blending the face of {clean_artist} with a silhouette scene representing '{clean_title}', high contrast, surreal art",
+
+            # 2. The "Literal Interpretation" (Artist doing the title)
+            f"A high-contrast illustration of {clean_artist} visually acting out the concept of '{clean_title}', bold graphic novel style, expressive pose",
+
+            # 3. Surreal Mindscape (Title inside the head)
+            f"Surreal portrait of {clean_artist} where their mind is opening up to reveal '{clean_title}', vibrant colors, dali-esque dreamscape, digital art",
+
+            # 4. The "Prop" (Holding the meaning)
+            f"Studio portrait of {clean_artist} holding a symbolic object that represents '{clean_title}', dramatic lighting, hyper-realistic, 8k resolution",
+
+            # 5. The "Background Vibe" (Atmosphere matching title)
+            f"A moody portrait of {clean_artist}, surrounded by a weather and atmosphere that matches the song '{clean_title}', cinematic lighting, emotional",
+
+            # --- STYLISTIC & BOLD (Best for LED Readability) ---
+            # 6. Pop Art Symbols
+            f"Pop art portrait of {clean_artist} surrounded by floating icons and symbols of '{clean_title}', Andy Warhol style, bold colors, thick lines",
+
+            # 7. Neon Signage
+            f"Cyberpunk portrait of {clean_artist} illuminated by a neon sign spelling '{clean_title}', dark background, vibrant pink and blue lighting",
+
+            # 8. Tarot Card Style (Very strong symbolic link)
+            f"A mystical Tarot card design featuring {clean_artist} as 'The {clean_title}', art nouveau style, intricate borders, gold and black",
+
+            # 9. Minimalist Metaphor
+            f"Minimalist vector art of {clean_artist}, using negative space to form the shape of '{clean_title}', flat colors, clever graphic design",
+
+            # 10. The "Movie Poster"
+            f"A cinematic movie poster for a film titled '{clean_title}' starring {clean_artist}, dramatic close-up, blockbuster visual style",
+            
+            # --- GENRE SPECIFIC (Vibe matching) ---
+            # 11. 80s Retro (Good for upbeat titles)
+            f"Retro 80s airbrush art of {clean_artist}, galaxy background, chrome typography of '{clean_title}', vintage aesthetic",
+
+            # 12. Dark/Gothic (Good for sad/heavy titles)
+            f"Gothic ink illustration of {clean_artist}, shadows and fog representing the dark themes of '{clean_title}', high contrast, etching style",
+
+            # 13. Abstract Collage
+            f"Mixed media collage portrait of {clean_artist}, ripped paper textures, chaotic elements representing '{clean_title}', punk rock aesthetic",
+
+            # 14. Sticker Art (Clean shapes)
+            f"Die-cut sticker design of {clean_artist} with elements of '{clean_title}', white border, vibrant vector graphics, simple shading",
+
+            # 15. The "Vision" (Eyes reflecting the title)
+            f"Extreme close-up of {clean_artist}'s eyes, with the reflection of '{clean_title}' visible in the iris, macro photography, intense detail"
         ]
-        selected_prompt = random.choice(prompts); encoded_prompt = urllib.parse.quote(selected_prompt)
-        model = self.config.ai_fallback if self.config.ai_fallback else "flux"; seed = random.randint(0, 100000)
-        url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?model={model}&width=1024&height=1024&nologo=true&seed={seed}&key={self.config.pollinations}"
-        return url
+        
+        selected_prompt = random.choice(prompts)
+        encoded_prompt = urllib.parse.quote(selected_prompt, safe='')
+        
+        valid_image_models = {
+            "flux", "flux-klein", "flux-klein-9b", 
+            "zimage", "z-image", "z-image-turbo", 
+            "klein", "klein-9b", "klein-large", 
+            "nanobanana", "nanobanana-pro", 
+            "kontext", "seedream", "seedream-pro", 
+            "gptimage", "gptimage-large", "gpt-image", 
+            "gpt-image-1-mini", "gpt-image-1.5", "gpt-image-large"
+        }
+
+        user_pref = str(self.config.ai_fallback).lower().strip() if self.config.ai_fallback else "flux"
+
+        if user_pref == "turbo":
+            # Explicit mapping per request
+            model = "zimage"
+        elif user_pref in valid_image_models:
+            # User picked a specific valid model (e.g. "z-image-turbo" or "flux")
+            model = user_pref
+        else:
+            # Fallback for typos, invalid names, or video models
+            _LOGGER.warning(f"AI Model '{user_pref}' is invalid or not an image model. Defaulting to 'zimage'.")
+            model = "zimage"
+        
+        seed = random.randint(1, 2147483647)
+        
+        # 3. Standard Dimensions (1024x1024 is native for these models)
+        width = 1024
+        height = 1024
+        
+        base_url = "https://gen.pollinations.ai/image/"
+        url_params = f"?model={model}&width={width}&height={height}&seed={seed}"
+
+        # 4. Key Check (Only append if key looks valid)
+        api_key = str(self.config.pollinations)
+        if len(api_key) > 10:
+            url_params += f"&key={api_key}"
+        
+        return f"{base_url}{encoded_prompt}{url_params}"
 
     def clean_title(self, title: str) -> str: 
         if not title: return title
@@ -2224,20 +2389,34 @@ class FallbackService:
     async def _try_ai_generation(self, media_data):
         ai_url = media_data.format_ai_image_prompt(media_data.artist, media_data.title)
         if not ai_url: return None
-        try:
-            result = await asyncio.wait_for(
-                self.image_processor.get_image(ai_url, media_data, media_data.spotify_slide_pass),
-                timeout=20
-            )
-            if result:
-                _LOGGER.info("Successfully generated AI album art.") 
-                media_data.pic_url = ai_url
-                media_data.pic_source = "AI"
-                return result
-        except asyncio.TimeoutError:
-            _LOGGER.warning("AI image generation timed out.") 
-        except Exception as e: 
-            _LOGGER.error(f"AI image generation failed: {e}") 
+        
+        # --- RETRY LOGIC ADDED HERE ---
+        max_retries = 2
+        for attempt in range(max_retries + 1):
+            try:
+                # We use a slightly longer timeout for the request itself
+                result = await asyncio.wait_for(
+                    self.image_processor.get_image(ai_url, media_data, media_data.spotify_slide_pass),
+                    timeout=25
+                )
+                
+                if result:
+                    _LOGGER.info("Successfully generated AI album art.") 
+                    media_data.pic_url = ai_url
+                    media_data.pic_source = "AI"
+                    return result
+                    
+            except asyncio.TimeoutError:
+                _LOGGER.warning(f"AI generation timed out (Attempt {attempt+1}/{max_retries+1})")
+            except Exception as e:
+                # If it's a 502/503 error, we log it and retry. 
+                # If it's the last attempt, we let it fail.
+                _LOGGER.warning(f"AI generation failed: {e} (Attempt {attempt+1}/{max_retries+1})")
+            
+            # Wait briefly before retrying if we haven't run out of attempts
+            if attempt < max_retries:
+                await asyncio.sleep(1.5)
+                
         return None
 
     def _get_fallback_black_image_data(self) -> dict: 
@@ -3905,13 +4084,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if self.debounce_task and not self.debounce_task.done():
             self.debounce_task.cancel()
         
+        # Cancel any image processing currently running
         if self.current_image_task and not self.current_image_task.done():
             self.current_image_task.cancel()
         
-        self.debounce_task = asyncio.create_task(
-            self._run_debounced_callback(entity, attribute, old, new, kwargs)
-        )
-        
+        # Start ONE new task
         self.debounce_task = asyncio.create_task(
             self._run_debounced_callback(entity, attribute, old, new, kwargs)
         )
@@ -3933,17 +4110,18 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             # 1. HANDLE POSITION SEEKING
             if attribute == "media_position":
                 await self.media_data.update(self)
-                
-                # Reset the Progress Bar timer and force an immediate redraw
-                self.progress_timer_gen_id += 1
-                await self._update_progress_bar_loop()
 
-                # If lyrics are on, force the scheduler to jump to the new time
-                if self.lyrics_active_mode:
-                    self.scheduler_generation_id += 1
-                    await self._calculate_and_schedule_next()
+                if not self.media_data.track_changed:
+                    # Normal seek within same song -> Just update progress bar
+                    self.progress_timer_gen_id += 1
+                    await self._update_progress_bar_loop()
+
+                    if self.lyrics_active_mode:
+                        self.scheduler_generation_id += 1
+                        await self._calculate_and_schedule_next()
+                    
+                    return
                 
-                return
 
             # 2. STANDARD STATE CHECKS
             if new == old or (await self.get_state(self.config.toggle)) != "on":
@@ -4074,7 +4252,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             text_items_for_display_list.append(day_item)
 
             current_text_id += 1
-            clock_item_special = { "TextId": current_text_id, "type": 5, "x": 0, "y": 1, "dir": 0, "font": 18, "TextWidth": 64, "Textheight": 6, "speed": 100, "align": 2, "color": bg_color}
+            clock_item_special = { "TextId": current_text_id, "type": 5, "x": 1, "y": 1, "dir": 0, "font": 18, "TextWidth": 63, "Textheight": 6, "speed": 100, "align": 2, "color": bg_color}
             text_items_for_display_list.append(clock_item_special)
 
             current_text_id += 1
