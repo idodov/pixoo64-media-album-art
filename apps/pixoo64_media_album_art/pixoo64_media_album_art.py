@@ -98,7 +98,6 @@ pixoo64_media_album_art:
     color: "match"                               # "match" (auto-contrast) or any hex "#FF0000"
 
 """
-
 import aiohttp
 import asyncio
 import base64
@@ -137,8 +136,6 @@ except ImportError:
 _LOGGER = logging.getLogger(__name__)
 
 # --- CONSTANTS & REGEX ---
-
-# Regex patterns for RTL text detection
 HEBREW = r"\u0590-\u05FF"
 ARABIC = r"\u0600-\u06FF|\u0750-\u077F|\u08A0-\u08FF|\uFB50-\uFDFF|\uFE70-\uFEFF|\u0621-\u06FF"
 SYRIAC = r"\u0700-\u074F"
@@ -153,14 +150,13 @@ SAMARITAN = r"\u0800-\u08FF"
 BIDI_REGEX_PATTERN = f"[{HEBREW}|{ARABIC}|{SYRIAC}|{THAANA}|{NKOO}|{RUMI}|{ARABIC_MATH}|{SYMBOLS}|{OLD_PERSIAN_PHAISTOS}|{SAMARITAN}]"
 BIDI_REGEX = re.compile(BIDI_REGEX_PATTERN)
 
-# High-visibility colors
 COLOR_PALETTE = [
-    (255, 51, 51), (255, 99, 71), (255, 140, 0),    # Bright Reds/Oranges
-    (255, 215, 0), (255, 255, 0),                   # Golds/Yellows
-    (173, 255, 47), (127, 255, 0), (50, 205, 50),   # Bright Greens
-    (0, 255, 255), (0, 191, 255), (30, 144, 255),   # Cyans/Light Blues
-    (238, 130, 238), (255, 0, 255), (255, 20, 147), # Magentas/Pinks
-    (255, 255, 255)                                 # White
+    (255, 51, 51), (255, 99, 71), (255, 140, 0),    
+    (255, 215, 0), (255, 255, 0),                   
+    (173, 255, 47), (127, 255, 0), (50, 205, 50),   
+    (0, 255, 255), (0, 191, 255), (30, 144, 255),   
+    (238, 130, 238), (255, 0, 255), (255, 20, 147), 
+    (255, 255, 255)                                 
 ]
 
 # --- HELPERS ---
@@ -277,7 +273,7 @@ class Config:
         },
         'progress_bar': {
             'progress_bar_enabled': ('enabled', False),
-            'progress_bar_entity': ('entity', 'input_boolean.pixoo64_progress_bar'),
+            'progress_bar_entity': ('entity', 'input_boolean.' + SENSOR_NAME + '_progress_bar'),
             'progress_bar_character': ('character', '-'),
             'progress_bar_font': ('font', 190),
             'progress_bar_resolution': ('resolution', 21),
@@ -290,16 +286,14 @@ class Config:
     NESTED_YAML_STRUCTURE_MAP: Dict[str, str] = {
         'show_text': 'pixoo',
         'crop_borders': 'pixoo',
-        'progress_bar': 'pixoo64_media_album_art' # Fallback mapping
+        'progress_bar': 'pixoo64_media_album_art'
     }
 
     def __init__(self, app_args: Dict[str, Any]):
         for section_key_in_defaults, defaults_for_section in self.SECTION_DEFAULTS.items():
             user_data_for_this_section = {}
-            # Try to find config in nested structure or root
             parent_yaml_key = self.NESTED_YAML_STRUCTURE_MAP.get(section_key_in_defaults)
             
-            # Special handling for progress_bar to allow it at root or inside pixoo
             if section_key_in_defaults == 'progress_bar':
                 user_data_for_this_section = app_args.get('progress_bar', {})
             elif parent_yaml_key:
@@ -322,7 +316,6 @@ class Config:
         self._fix_config_args(getattr(self, 'url', None))
         self._validate_config()
 
-        # Store originals
         self.original_crop_borders = self.crop_borders
         self.original_crop_extra = self.crop_extra
         self.original_show_lyrics = self.show_lyrics
@@ -386,23 +379,15 @@ class PixooDevice:
             return
 
         try:
-            # Sort keys to ensure {"a":1, "b":2} equals {"b":2, "a":1}
             current_payload_str = json.dumps(payload_command, sort_keys=True)
             now = time.monotonic()
-
-            # If EXACT same command and LESS than 1 second passed -> SKIP
             if (current_payload_str == self._last_payload_str) and (now - self._last_send_time < 1.0):
-                _LOGGER.debug("Ignored duplicate Pixoo command sent within 1s.")
                 return
-
-            # Update the tracker
             self._last_payload_str = current_payload_str
             self._last_send_time = now
-            
         except Exception:
-            pass # Safety pass if json dump fails (unlikely)
+            pass 
 
-        # --- Standard Send Logic ---
         for attempt in range(1, retries + 1):
             try:
                 async with self.session.post(
@@ -454,15 +439,11 @@ class ImageProcessor:
         self.session = session
         self.image_cache: OrderedDict[str, dict] = OrderedDict()
         self.cache_size: int = config.images_cache
-        
         self._current_cache_memory: int = 0
-        
         self._executor = ThreadPoolExecutor(max_workers=15, thread_name_prefix="PixooImageProc")
-        
         self._default_font = ImageFont.load_default()
 
     def shutdown(self):
-        """Clean up resources."""
         self._executor.shutdown(wait=False)
         
     @property
@@ -503,17 +484,14 @@ class ImageProcessor:
         if use_cache and cache_key in self.image_cache:
             self.image_cache.move_to_end(cache_key)
             cached_data = self.image_cache[cache_key]
-            
             media_data.image_cache_memory = format_memory_size(self._current_cache_memory)
             media_data.image_cache_count = self._cache_size
-            
         else:
             try:
                 url = picture if picture.startswith('http') else f"{self.config.ha_url}{picture}"
                 async with self.session.get(url, timeout=30) as response:
                     response.raise_for_status()
                     image_data = await response.read()
-                    
                     cached_data = await self.process_image_data(image_data, media_data)
                     
                     if cached_data and not spotify_slide:
@@ -534,8 +512,6 @@ class ImageProcessor:
             return None
 
         final_img = cached_data['pil_image'].copy()
-        
-        # Pass full cached_data for colorful bars
         final_img = self.text_clock_img(final_img, cached_data, media_data)
         
         if self.config.info:
@@ -592,7 +568,6 @@ class ImageProcessor:
                 
                 vals = self.img_values(img)
                 
-                # --- FONT COLOR ASSIGNMENT ---
                 if self.config.force_font_color:
                     media_data.lyrics_font_color = self.config.force_font_color
                 elif vals.get('font_color'):
@@ -609,6 +584,8 @@ class ImageProcessor:
                 return {
                     'pil_image': img, 
                     'font_color': vals['font_color'],
+                    'clock_color': vals['clock_color'],
+                    'temp_color': vals['temp_color'],
                     'brightness': vals['brightness'],
                     'brightness_lower_part': vals['brightness_lower_part'],
                     'background_color': vals['background_color'],
@@ -623,6 +600,150 @@ class ImageProcessor:
         except Exception as e:
             _LOGGER.error(f"Error processing image: {e}")
             return None
+
+    def img_values(self, img: Image.Image) -> dict:
+        """
+        Orchestrates color analysis.
+        OPTIMIZATION: Creates a single small proxy image (50x50) and passes it to helpers
+        to avoid repeated resizing operations.
+        """
+        full_img = img
+        
+        # --- OPTIMIZATION START: Create Single Analysis Proxy ---
+        # 50x50 is large enough for palette/vibrancy, small enough for speed.
+        analysis_img = full_img.resize((50, 50), Image.Resampling.NEAREST)
+        # --- OPTIMIZATION END ---
+
+        palette = self.get_image_palette(analysis_img) # Pass small image
+        
+        if self.config.top_text:
+            text_box = (0, 0, 64, 16)
+            info_y_start = 56
+        else:
+            text_box = (0, 48, 64, 64)
+            info_y_start = 0
+
+        if self.config.clock_align == "Right":
+            clock_box = (32, info_y_start, 64, info_y_start + 12)
+            temp_box = (0, info_y_start, 32, info_y_start + 12)
+        else:
+            clock_box = (0, info_y_start, 32, info_y_start + 12)
+            temp_box = (32, info_y_start, 64, info_y_start + 12)
+
+        if self.config.text_bg:
+             prime_color = palette[0] if palette else (255, 255, 0)
+             h, s, v = colorsys.rgb_to_hsv(prime_color[0]/255, prime_color[1]/255, prime_color[2]/255)
+             r, g, b = colorsys.hsv_to_rgb(h, max(0.5, s), 1.0)
+             hex_color = f'#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}'
+             
+             text_c = hex_color
+             clock_c = hex_color
+             temp_c = hex_color
+             
+             most_common_color_alternative_rgb = prime_color
+             most_common_color_alternative = hex_color
+        else:
+             # get_best_color_for_zone MUST use full_img because of specific crop coordinates
+             text_c = self.get_best_color_for_zone(full_img, text_box, palette)
+             clock_c = self.get_best_color_for_zone(full_img, clock_box, palette)
+             temp_c = self.get_best_color_for_zone(full_img, temp_box, palette)
+             
+             most_common_color_alternative_rgb = palette[0] if palette else (0,0,0)
+             most_common_color_alternative = text_c
+
+        background_color_rgb = most_common_color_alternative_rgb
+        background_color = most_common_color_alternative
+        brightness = int(sum(most_common_color_alternative_rgb) / 3)
+        brightness_lower_part = round(1 - brightness / 255, 2) if 0 <= brightness <= 255 else 0
+        
+        # Calculate Font Color (Pass small image)
+        font_color = self.get_optimal_font_color(analysis_img)
+
+        # Calculate WLED Colors (Pass small image)
+        if self.config.wled:
+            color1_hex, color2_hex, color3_hex = self.most_vibrant_colors_wled(analysis_img)
+        else:
+            color1_hex = most_common_color_alternative
+            color2_hex = most_common_color_alternative
+            color3_hex = most_common_color_alternative
+
+        return {
+            'font_color': font_color, # Use the optimized calculation
+            'clock_color': clock_c,
+            'temp_color': temp_c,
+            'brightness': brightness,
+            'brightness_lower_part': brightness_lower_part,
+            'background_color': background_color,
+            'background_color_rgb': background_color_rgb,
+            'most_common_color_alternative_rgb': most_common_color_alternative_rgb,
+            'most_common_color_alternative': most_common_color_alternative,
+            'color1': color1_hex,
+            'color2': color2_hex,
+            'color3': color3_hex
+        }
+
+    def get_image_palette(self, img: Image.Image) -> list:
+        # Optimization: Input is already small (50x50), no need to resize again
+        quantized = img.quantize(colors=16, method=2)
+        palette = quantized.getpalette()
+        
+        candidates = []
+        if palette:
+            raw_colors = [tuple(palette[i:i+3]) for i in range(0, len(palette)//3 * 3, 3)]
+            for rgb in raw_colors:
+                r, g, b = rgb
+                h, s, v = colorsys.rgb_to_hsv(r/255.0, g/255.0, b/255.0)
+                if s > 0.2 and v > 0.15:
+                    candidates.append(rgb)
+
+        neons = [(0, 255, 255), (255, 0, 255), (50, 255, 50), (255, 255, 0), (255, 140, 0)]
+        if len(candidates) < 3:
+            candidates.extend(neons)
+            
+        return candidates
+
+    def get_best_color_for_zone(self, img: Image.Image, box: tuple, candidates: list) -> str:
+        # Needs full image for cropping
+        zone = img.crop(box)
+        stat = ImageStat.Stat(zone)
+        
+        try:
+            r, g, b = stat.mean[:3]
+            bg_lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+        except:
+            bg_lum = 0.5
+
+        best_color = None
+        max_score = -100
+        is_bg_dark = bg_lum < 0.5
+
+        for rgb in candidates:
+            r, g, b = rgb
+            text_lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255.0
+            
+            l1 = max(text_lum, bg_lum)
+            l2 = min(text_lum, bg_lum)
+            contrast = (l1 + 0.05) / (l2 + 0.05)
+            
+            h, s, v = colorsys.rgb_to_hsv(r/255.0, g/255.0, b/255.0)
+            score = contrast * 2.0
+            score += (s * 5.0)
+            
+            if is_bg_dark:
+                score += (v * 3.0) 
+                if text_lum < 0.3: score -= 20
+            else:
+                score += ((1.0 - v) * 3.0)
+                if text_lum > 0.7: score -= 20
+
+            if score > max_score:
+                max_score = score
+                best_color = rgb
+
+        if not best_color:
+            best_color = (0, 255, 255) if is_bg_dark else (0, 0, 255)
+
+        return f'#{best_color[0]:02x}{best_color[1]:02x}{best_color[2]:02x}'
 
     async def process_slide_image(self, image_data: bytes, show_lyrics_is_on: bool, playing_radio_is_on: bool) -> Optional[str]:
         loop = asyncio.get_event_loop()
@@ -686,10 +807,10 @@ class ImageProcessor:
             img = ImageEnhance.Sharpness(img).enhance(4.0)
         if self.config.kernel:
             kernel_5x5 = [-2,  0, -1,  0,  0,
-                        0, -2, -1,  0,  0,
-                        -1, -1,  1,  1,  1,
-                        0,  0,  1,  2,  0,
-                        0,  0,  1,  0,  2]
+                          0, -2, -1,  0,  0,
+                          -1, -1,  1,  1,  1,
+                          0,  0,  1,  2,  0,
+                          0,  0,  1,  0,  2]
             img = img.filter(ImageFilter.Kernel((5, 5), kernel_5x5, 1, 0))
         
         if img.size != (64, 64):
@@ -716,7 +837,6 @@ class ImageProcessor:
             right_color = (150, 150, 150)
 
         if album_size == (34, 34):
-            # Gradient Optimization
             gradient_source = Image.new("RGB", (2, 1))
             gradient_source.putpixel((0, 0), left_color)
             gradient_source.putpixel((1, 0), right_color)
@@ -744,35 +864,30 @@ class ImageProcessor:
             return None
 
     def text_clock_img(self, img: Image.Image, cached_data: dict, media_data: "MediaData") -> Image.Image:
-        
         brightness_lower_part = cached_data.get('brightness_lower_part', 0.5)
 
-        # 1. Apply Lyrics Dimming
         if media_data.lyrics and self.config.show_lyrics and self.config.text_bg and brightness_lower_part != None and not media_data.playing_radio:
             enhancer_lp = ImageEnhance.Brightness(img)
             img = enhancer_lp.enhance(0.55)
             enhancer = ImageEnhance.Contrast(img)
             img = enhancer.enhance(0.5)
 
-        # 2. Apply Clock Overlay
         if bool(self.config.show_clock and self.config.text_bg) and not self.config.show_lyrics:
             if self.config.top_text: lpc = (43, 55, 62, 62) if self.config.clock_align == "Right" else (2, 55, 21, 62)
             else: lpc = (43, 2, 62, 9) if self.config.clock_align == "Right" else (2, 2, 21, 9)
             lower_part_img = img.crop(lpc); enhancer_lp = ImageEnhance.Brightness(lower_part_img); lower_part_img = enhancer_lp.enhance(0.3); img.paste(lower_part_img, lpc)
 
-        # 3. Apply Temperature Overlay
         if bool(self.config.temperature and self.config.text_bg) and not self.config.show_lyrics:
             if self.config.top_text: lpc = (2, 55, 18, 62) if self.config.clock_align == "Right" else (47, 55, 63, 62)
             else: lpc = (2, 2, 18, 9) if self.config.clock_align == "Right" else (47, 2, 63, 9)
             lower_part_img = img.crop(lpc); enhancer_lp = ImageEnhance.Brightness(lower_part_img); lower_part_img = enhancer_lp.enhance(0.3); img.paste(lower_part_img, lpc)
 
-        # 4. Apply Text Background
         if self.config.text_bg and self.config.show_text and not self.config.show_lyrics and not media_data.playing_tv:
             if self.config.top_text: lpc = (0, 0, 64, 16)
             else: lpc = (0, 48, 64, 64)
             lower_part_img = img.crop(lpc); enhancer_lp = ImageEnhance.Brightness(lower_part_img); lower_part_img = enhancer_lp.enhance(brightness_lower_part); img.paste(lower_part_img, lpc)
 
-        # 5. Apply Progress Bar
+        # Apply Progress Bar (Background Dimming Only - NO PIXEL DRAWING)
         if getattr(media_data, 'show_progress_bar', False):
             y_bottom = self.config.progress_bar_y_offset - 1
             if y_bottom >= 63: y_bottom = 63
@@ -792,143 +907,12 @@ class ImageProcessor:
                 bottom_area = ImageEnhance.Brightness(bottom_area).enhance(0.5)
                 img.paste(bottom_area, bottom_box)
             except Exception: pass
-
-            # --- DETERMINE VIBRANT COLOR (NO BLACK/WHITE) ---
-            bar_color_rgb = cached_data.get('most_common_color_alternative_rgb')
-            
-            def is_boring(rgb):
-                """Returns True if color is Black, White, or Grayscale."""
-                if not rgb: return True
-                r, g, b = rgb
-                # Check for extreme darkness or brightness
-                if sum(rgb) < 50: return True   # Too Black
-                if sum(rgb) > 700: return True  # Too White
-                # Check saturation (Grayscale check)
-                if max(rgb) - min(rgb) < 20: return True 
-                return False
-
-            # 1. Check the calculated vibrant color
-            if is_boring(bar_color_rgb):
-                # 2. Try the Font Color
-                fc_hex = cached_data.get('font_color')
-                if fc_hex and fc_hex.startswith('#'):
-                    bar_color_rgb = self._hex_to_rgb(fc_hex)
-                
-                # 3. If Font Color is ALSO boring, force Cyan
-                if is_boring(bar_color_rgb):
-                    bar_color_rgb = (0, 255, 255)
-
-            draw = ImageDraw.Draw(img)
-            
-            duration = float(getattr(media_data, 'media_duration', 0) or 0)
-            position = float(getattr(media_data, 'media_position', 0) or 0)
-            
-            bar_width = 0
-            if duration > 0:
-                remaining = duration - position
-                if remaining <= 10:
-                    bar_width = 64
-                else:
-                    pct = position / duration
-                    bar_width = int(64 * pct)
-                    if position > 0 and bar_width < 2:
-                        bar_width = 2
-            else:
-                bar_width = 64
-
-            if bar_width > 0:
-                bar_width = min(bar_width, 64)
-                draw.rectangle([(0, y_top), (bar_width - 1, y_bottom)], fill=bar_color_rgb)
             
         return img
 
-    def img_values(self, img: Image.Image) -> dict:
-        full_img = img
-        lower_part = img.crop((3, 48, 61, 61))
-        
-        colors_raw = lower_part.getcolors(maxcolors=1024)
-        if colors_raw:
-            most_common_colors_lower_part = sorted([(c[1], c[0]) for c in colors_raw], key=lambda x: x[1], reverse=True)
-        else:
-            most_common_colors_lower_part = []
-
-        most_common_color = self.most_vibrant_color(most_common_colors_lower_part)
-        opposite_color = tuple(255 - i for i in most_common_color)
-        opposite_color_brightness = int(sum(opposite_color) / 3)
-        brightness_lower_part = round(1 - opposite_color_brightness / 255, 2) if 0 <= opposite_color_brightness <= 255 else 0
-        
-        # Calculate Font Color (High Priority)
-        font_color = self.get_optimal_font_color(img)
-
-        # Calculate "Most Common Alternative" (For Progress Bar)
-        small_temp_img = full_img.resize((16, 16), Image.Resampling.NEAREST)
-        colors_raw_small = small_temp_img.getcolors(maxcolors=256)
-        most_common_colors = []
-        if colors_raw_small:
-            # Filter: Only accept colors with some saturation
-            vibrant_candidates = []
-            for c in colors_raw_small:
-                count, rgb = c
-                r, g, b = rgb[:3]
-                h, s, v = colorsys.rgb_to_hsv(r/255, g/255, b/255)
-                if s > 0.15 and v > 0.15: # Ignore Black/Gray/White
-                    vibrant_candidates.append(c)
-            
-            if vibrant_candidates:
-                most_common_colors = sorted([(c[1], c[0]) for c in vibrant_candidates], key=lambda x: x[1], reverse=True)
-            else:
-                most_common_colors = sorted([(c[1], c[0]) for c in colors_raw_small], key=lambda x: x[1], reverse=True)
-
-        most_common_color_alternative_rgb = self.most_vibrant_color(most_common_colors)
-        
-        # Final Safety: If still grayscale/black, generate random pastel
-        if sum(most_common_color_alternative_rgb) < 50 or \
-           (max(most_common_color_alternative_rgb) - min(most_common_color_alternative_rgb) < 20):
-             most_common_color_alternative_rgb = (
-                 random.randint(100, 255), 
-                 random.randint(100, 255), 
-                 random.randint(100, 255)
-             )
-
-        most_common_color_alternative = f'#{most_common_color_alternative_rgb[0]:02x}{most_common_color_alternative_rgb[1]:02x}{most_common_color_alternative_rgb[2]:02x}'
-        
-        background_color_rgb = most_common_color_alternative_rgb
-        background_color = most_common_color_alternative
-        brightness = int(sum(most_common_color_alternative_rgb) / 3)
-
-        if self.config.wled:
-            color1_hex, color2_hex, color3_hex = self.most_vibrant_colors_wled(small_temp_img)
-        else:
-            color1_hex = most_common_color_alternative
-            color2_hex = most_common_color_alternative
-            color3_hex = most_common_color_alternative
-
-        return {
-            'font_color': font_color,
-            'brightness': brightness,
-            'brightness_lower_part': brightness_lower_part,
-            'background_color': background_color,
-            'background_color_rgb': background_color_rgb,
-            'most_common_color_alternative_rgb': most_common_color_alternative_rgb,
-            'most_common_color_alternative': most_common_color_alternative,
-            'color1': color1_hex, 
-            'color2': color2_hex, 
-            'color3': color3_hex
-        }
-
-    def most_vibrant_color(self, most_common_colors: list) -> tuple:
-        """Optimized using colorsys to check saturation/value."""
-        for color, count in most_common_colors:
-            r, g, b = color
-            h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
-            if s < 0.2 or v < 0.2: continue
-            if v > 0.9 and s < 0.3: continue
-            return color
-        return tuple(random.randint(100, 200) for _ in range(3))
-
     def rgb_to_hex(self, rgb: tuple) -> str:
         return f'#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
-    
+     
     def _hex_to_rgb(self, hex_str: str) -> tuple:
         hex_str = hex_str.lstrip('#')
         if len(hex_str) == 3: hex_str = ''.join([c*2 for c in hex_str])
@@ -944,7 +928,6 @@ class ImageProcessor:
         return math.sqrt(sum((c1 - c2) ** 2 for c1, c2 in zip(color1, color2)))
 
     def is_vibrant_color(self, r: int, g: int, b: int) -> bool:
-        """Optimized using colorsys."""
         h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
         return s > 0.2 and v > 0.2
 
@@ -973,13 +956,13 @@ class ImageProcessor:
         return (random.randint(50, 200), random.randint(50, 200), random.randint(50, 200))
 
     def color_score(self, color_count: tuple) -> float:
-        """Optimized using colorsys."""
         color, count = color_count
         r, g, b = color
         h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
         return count * s
 
     def most_vibrant_colors_wled(self, full_img: Image.Image) -> tuple:
+        # Optimization: Use the small analysis image (already resized)
         enhancer = ImageEnhance.Contrast(full_img)
         full_img = enhancer.enhance(2.0)
         enhancer = ImageEnhance.Color(full_img)
@@ -1025,27 +1008,21 @@ class ImageProcessor:
         return self.rgb_to_hex(selected_colors[0][0]), self.rgb_to_hex(selected_colors[1][0]), self.rgb_to_hex(selected_colors[2][0])
 
     def get_optimal_font_color(self, img: Image.Image) -> str:
-        """
-        UPDATED: Logic now aggressively prefers vibrant colors over Black/White
-        when config.text_bg is False.
-        """
         if self.config.force_font_color:
             return self.config.force_font_color
         
+        # Optimization: Input is already small (50x50), maybe resize to 25x25 for speed
         small_thumb = img.resize((25, 25), Image.Resampling.NEAREST)
         colors_raw = small_thumb.getcolors(maxcolors=625) or []
         
-        # Helper to calculate vibrancy
         def vibrancy_score(item):
             count, rgb = item
             r, g, b = rgb[:3]
             h, s, v = colorsys.rgb_to_hsv(r/255, g/255, b/255)
-            # Give high score to high saturation & medium-high brightness
             return (s * v * v) * (math.log(count) + 1)
 
         sorted_vibrant = sorted(colors_raw, key=vibrancy_score, reverse=True)
         
-        # Extract the "best" vibrant color found in the image
         chosen_dominant_color = None
         for _, color in sorted_vibrant:
             rgb = color[:3]
@@ -1055,13 +1032,11 @@ class ImageProcessor:
                 break
         
         if not chosen_dominant_color and colors_raw:
-            # Fallback to most common if no vibrant color found
             for count, color in sorted(colors_raw, key=lambda x: x[0], reverse=True):
                 if sum(color[:3]) > 50:
                     chosen_dominant_color = color[:3]
                     break
 
-        # --- CASE 1: Text Background IS Enabled ---
         if self.config.text_bg:
             if chosen_dominant_color:
                 r, g, b = chosen_dominant_color
@@ -1072,32 +1047,25 @@ class ImageProcessor:
                 return f'#{int(nr*255):02x}{int(ng*255):02x}{int(nb*255):02x}'
             return "#00ffff"
 
-        # --- CASE 2: NO Text Background (Need Contrast + COLOR) ---
         else:
             stat = ImageStat.Stat(img)
             avg_bg = tuple(int(x) for x in stat.mean[:3])
             
             candidates = []
             
-            # 1. Add extracted image colors
             if chosen_dominant_color:
                 candidates.append(chosen_dominant_color)
                 r, g, b = chosen_dominant_color
                 h, s, v = colorsys.rgb_to_hsv(r/255, g/255, b/255)
                 
-                # Add a "boosted" version (100% value)
                 nr, ng, nb = colorsys.hsv_to_rgb(h, s, 1.0)
                 candidates.append((int(nr*255), int(ng*255), int(nb*255)))
                 
-                # Add a complimentary/shifted version
                 h_comp = (h + 0.5) % 1.0
                 nr, ng, nb = colorsys.hsv_to_rgb(h_comp, s, 1.0)
                 candidates.append((int(nr*255), int(ng*255), int(nb*255)))
 
-            # 2. Add Standard Palette
             candidates.extend(COLOR_PALETTE)
-            
-            # 3. Add Black/White (Last resort)
             candidates.append((255, 255, 255))
             candidates.append((0, 0, 0))
 
@@ -1107,28 +1075,18 @@ class ImageProcessor:
             for color in candidates:
                 contrast = self._contrast_ratio(color, avg_bg)
                 
-                # Check properties
                 r, g, b = color
                 h, s, v = colorsys.rgb_to_hsv(r/255, g/255, b/255)
                 is_grayscale = s < 0.1
                 
-                # Define Minimum Contrast Threshold
-                # We allow lower contrast (2.2) if the color is COLORFUL.
-                # We demand higher contrast (4.0) if the color is Black/White.
                 threshold = 4.0 if is_grayscale else 2.2
                 
                 if contrast < threshold: 
                     continue
 
-                # --- SCORING ---
-                # Base score is contrast
                 score = contrast
-                
-                # Massive bonus for Saturation (Colorfulness)
-                # This ensures Cyan/Magenta/Yellow win over White even if White has slightly better contrast.
                 score += (s * 25.0) 
                 
-                # Bonus if it matches the dominant color of the album
                 if chosen_dominant_color and self.color_distance(color, chosen_dominant_color) < 30:
                     score += 5.0
                 
@@ -1139,10 +1097,11 @@ class ImageProcessor:
             if best_color:
                 return f'#{best_color[0]:02x}{best_color[1]:02x}{best_color[2]:02x}'
             
-            # Absolute fallback if nothing passed the loop
             white_contrast = self._contrast_ratio((255, 255, 255), avg_bg)
             return '#ffffff' if white_contrast > 3.0 else '#000000'
 
+    # ... [Rest of the class methods (get_dominant_border_color, crops, etc.) remain as is] ...
+    # Ensure all helper methods from your original script are present here.
     def get_dominant_border_color(self, img: Image.Image) -> tuple:
         if img.width == 0 or img.height == 0:
             return (0, 0, 0)
@@ -1249,14 +1208,7 @@ class ImageProcessor:
         return orig.crop((final_left, final_top, final_left + actual_final_dim, final_top + actual_final_dim))
 
     def _perform_object_focus_crop(self, img_to_crop: Image.Image) -> Optional[Image.Image]:
-        """
-        Smart Zoom (300px Optimized):
-        Runs your 'Blur & Shrink' logic on a 300px proxy.
-        - Speed: ~10x faster than full resolution.
-        - Accuracy: High (300px retains enough detail for accurate detection).
-        """
         try:
-            # 1. SETUP PROXY (300px as requested)
             orig_w, orig_h = img_to_crop.size
             target_res = 300
             scale = target_res / max(orig_w, orig_h)
@@ -1264,17 +1216,12 @@ class ImageProcessor:
             proxy_w = int(orig_w * scale)
             proxy_h = int(orig_h * scale)
             
-            # Create the 300px copy
             proxy = img_to_crop.resize((proxy_w, proxy_h), Image.Resampling.BILINEAR)
 
-            # 2. APPLY YOUR FILTERS (Scaled)
-            # We convert proxy to RGB for filter consistency
             detect_img = proxy.convert("RGB")
-            
             detect_img = detect_img.filter(ImageFilter.BoxBlur(1))
             detect_img = ImageEnhance.Brightness(detect_img).enhance(1.95)
             
-            # 3. DETECTION
             threshold_find_bbox_obj = 50
             border_color = self.get_dominant_border_color(detect_img)
             
@@ -1284,9 +1231,6 @@ class ImageProcessor:
                 return None 
 
             min_x, min_y, max_x, max_y = bbox
-            
-            # 4. SHRINK BBOX (Scaled)
-            # You used -10 pixels on full image. On 300px, that is roughly -3 pixels.
             expansion_pixels = -3
             
             min_x = max(0, min_x - expansion_pixels)
@@ -1300,8 +1244,6 @@ class ImageProcessor:
             if content_w <= 0 or content_h <= 0:
                 return img_to_crop
 
-            # 5. CALCULATE GEOMETRY (On 300px Proxy)
-            # Ensure crop is at least 64px relative size (approx 20px on proxy)
             min_crop_proxy = int(64 * scale)
             crop_dim = max(min_crop_proxy, max(content_w, content_h))
             
@@ -1313,7 +1255,6 @@ class ImageProcessor:
             l = max(0, center_x - half_crop)
             t = max(0, center_y - half_crop)
             
-            # Boundary checks (Proxy coordinates)
             if l + crop_dim > proxy_w: l = proxy_w - crop_dim
             if t + crop_dim > proxy_h: t = proxy_h - crop_dim
             l = max(0, l)
@@ -1321,12 +1262,10 @@ class ImageProcessor:
             
             actual_size_proxy = min(crop_dim, proxy_w - l, proxy_h - t)
             
-            # 6. MAP BACK TO FULL RESOLUTION
             real_left = int(l / scale)
             real_top = int(t / scale)
             real_size = int(actual_size_proxy / scale)
             
-            # 7. FINAL BALANCE
             return self._balance_border(img_to_crop, img_to_crop, real_left, real_top, real_size, border_color, 60)
 
         except Exception as e:
@@ -1334,39 +1273,29 @@ class ImageProcessor:
             return img_to_crop
 
     def _perform_border_crop(self, img_to_crop: Image.Image) -> Optional[Image.Image]:
-        """
-        Standard Crop: Removes black bars/solid borders and centers the image.
-        Optimized to use a 128px proxy for speed.
-        """
         try:
-            # 1. Setup Proxy (Fast Processing)
             orig_w, orig_h = img_to_crop.size
             scale = 128 / max(orig_w, orig_h)
             proxy_w = int(orig_w * scale)
             proxy_h = int(orig_h * scale)
             
-            # Create proxy
             proxy = img_to_crop.resize((proxy_w, proxy_h), Image.Resampling.BILINEAR)
 
-            # 2. Detect Borders (Instant on proxy)
             border_color = self.get_dominant_border_color(proxy)
             bbox = self._find_content_bounding_box(proxy, border_color, threshold=20)
             
             if not bbox:
-                return img_to_crop # No borders found, return original
+                return img_to_crop 
 
-            # 3. Calculate Content Center
             min_x, min_y, max_x, max_y = bbox
             content_w = max_x - min_x
             content_h = max_y - min_y
             
-            # 4. Determine Square Crop
             crop_size = min(content_w, content_h)
             
             center_x = min_x + content_w // 2
             center_y = min_y + content_h // 2
             
-            # 5. Map back to Full Resolution
             real_size = int(crop_size / scale)
             real_cx = int(center_x / scale)
             real_cy = int(center_y / scale)
@@ -1374,7 +1303,6 @@ class ImageProcessor:
             real_left = real_cx - (real_size // 2)
             real_top = real_cy - (real_size // 2)
             
-            # 6. Final Polish
             return self._balance_border(img_to_crop, img_to_crop, real_left, real_top, real_size, border_color, 40)
 
         except Exception as e:
@@ -1382,17 +1310,14 @@ class ImageProcessor:
             return img_to_crop
 
     def crop_image_borders(self, img: Image.Image, radio_logo: bool) -> Image.Image:
-        # 1. Global Switch Check
         if radio_logo or not self.config.crop_borders:
             return img
 
-        # 2. Try Extra Crop (Smart Zoom) if enabled
         if self.config.crop_extra or self.config.special_mode: 
             cropped_image = self._perform_object_focus_crop(img)
             if cropped_image:
                 return cropped_image
 
-        # 3. Normal Crop (Border Removal)
         return self._perform_border_crop(img) or img
 
     def _draw_text_with_shadow(self, draw: ImageDraw.ImageDraw, xy: tuple, text: str, font: ImageFont.FreeTypeFont, text_color: tuple, shadow_color: tuple):
@@ -1534,7 +1459,7 @@ class ImageProcessor:
             if self.color_distance(cand, first) > 80:
                 second = cand
                 break
-        if first is None:                      
+        if first is None:                       
             first = (255, 255, 255) if self._contrast_ratio((255, 255, 255), bg) >= self._contrast_ratio((0, 0, 0), bg) else (0, 0, 0)
         if second is None:
             alt = (0, 0, 0) if first == (255, 255, 255) else (255, 255, 255)
@@ -1545,19 +1470,16 @@ class ImageProcessor:
         if not (artist or title):
             return img
 
-        # 1. Pick Colors
         artist_rgb, title_rgb = self._pick_two_contrasting_colors(img, 4.5)
         artist_fill = (*artist_rgb, 255)
         title_fill  = (*title_rgb, 255)
 
-        # 2. Calculate Negative Shadows (Inverse of text color) with Alpha
         inv_artist = tuple(255 - c for c in artist_rgb)
         inv_title  = tuple(255 - c for c in title_rgb)
         
         artist_shadow_fill = (*inv_artist, 180)
         title_shadow_fill  = (*inv_title, 180)
 
-        # 3. Layout Setup
         img_copy = img.copy().convert("RGBA")
         layer = ImageDraw.Draw(img_copy)
         font = self._default_font
@@ -1565,23 +1487,19 @@ class ImageProcessor:
         max_w = img.width - (2 * pad)
         spacer = 4
 
-        # Wrap Text
         artist_lines = self._wrap_text(artist, font, max_w, layer) if artist else []
         title_lines  = self._wrap_text(title,  font, max_w, layer) if title else []
         
         if not artist_lines and not title_lines: 
             return img.convert("RGB")
 
-        # Measure Height
         line_h = 11
         total_h = (len(artist_lines) * line_h) + (len(title_lines) * line_h)
         if artist_lines and title_lines: 
             total_h += spacer
 
-        # Center Y
         y = max(pad, (img.height - total_h) // 2)
 
-        # 4. Render using _draw_text_with_shadow
         for line in artist_lines:
             w = layer.textlength(line, font=font)
             x = (img.width - w) // 2
@@ -1600,7 +1518,7 @@ class ImageProcessor:
         return img_copy.convert("RGB")
 
 class LyricsProvider:
-    """Provides lyrics with Smart Scheduling logic (Event Based)."""
+    """Provides lyrics with Smart Scheduling logic (Event Based) and Fuzzy Matching."""
 
     def __init__(self, config: "Config", session: aiohttp.ClientSession):
         self.config = config
@@ -1643,6 +1561,7 @@ class LyricsProvider:
         if album: params['album_name'] = album
         if duration: params['duration'] = str(int(duration))
 
+        # 1. Try Exact Match First
         try:
             async with self.session.get(base_url_get, params=params, timeout=10) as response:
                 if response.status == 200:
@@ -1652,6 +1571,7 @@ class LyricsProvider:
         except Exception:
             pass
 
+        # 2. Fuzzy Search Fallback
         if not fetched_lyrics:
             try:
                 base_url_search = "https://lrclib.net/api/search"
@@ -1661,13 +1581,30 @@ class LyricsProvider:
                         results = await response.json()
                         if results and isinstance(results, list):
                             target_dur = float(duration) if duration else 0
+                            
+                            best_candidate = None
+                            best_score = 0
+                            
                             for item in results:
                                 if not item.get('syncedLyrics'): continue
-                                if abs(item.get('duration', 0) - target_dur) < 15:
-                                    fetched_lyrics = self._parse_lrc(item['syncedLyrics'])
-                                    break
-            except Exception:
-                pass
+                                
+                                # Score this result
+                                score = self._calculate_fuzzy_score(
+                                    artist, title, target_dur,
+                                    item.get('artistName'), item.get('trackName'), item.get('duration')
+                                )
+                                
+                                # We only accept "good" matches (score > 60)
+                                if score > 60 and score > best_score:
+                                    best_score = score
+                                    best_candidate = item
+
+                            if best_candidate:
+                                fetched_lyrics = self._parse_lrc(best_candidate['syncedLyrics'])
+                                _LOGGER.debug(f"Fuzzy Match Selected: {best_candidate.get('trackName')} (Score: {best_score})")
+                            
+            except Exception as e:
+                _LOGGER.debug(f"Lyrics search failed: {e}")
 
         if len(self.lyrics_cache) >= self.cache_limit:
             self.lyrics_cache.popitem(last=False)
@@ -1676,6 +1613,33 @@ class LyricsProvider:
         self._build_visual_timeline(fetched_lyrics)
         
         return fetched_lyrics
+
+    def _calculate_fuzzy_score(self, src_artist, src_title, src_dur, tgt_artist, tgt_title, tgt_dur):
+        """Returns a score 0-100 based on text similarity and duration accuracy."""
+        import difflib # Imported here to ensure it's available without global changes
+        
+        if not tgt_artist or not tgt_title: return 0
+
+        # 1. Duration Check (Heavy penalty for large mismatch)
+        dur_diff = abs(src_dur - (tgt_dur or 0))
+        if src_dur > 0 and dur_diff > 20: 
+            return 0 # Automatic fail if duration is way off
+        
+        # 2. Text Similarity
+        def norm(s): return str(s).lower().strip()
+        
+        # Weight Title slightly higher (0.6) than Artist (0.4)
+        seq_a = difflib.SequenceMatcher(None, norm(src_artist), norm(tgt_artist))
+        seq_t = difflib.SequenceMatcher(None, norm(src_title), norm(tgt_title))
+        
+        similarity = (seq_a.ratio() * 0.4) + (seq_t.ratio() * 0.6)
+        base_score = similarity * 100
+        
+        # 3. Apply Penalties/Bonuses
+        # Subtract 2 points for every second of duration difference
+        final_score = base_score - (dur_diff * 2)
+        
+        return final_score
 
     def _reset_state(self):
         self.visual_timeline = []
@@ -3046,6 +3010,14 @@ class ProgressBarManager:
         self.hass = hass
         self.current_bar_str = ""
         self.ensure_entity_exists()
+        
+        # State tracking for the "Delayed Bold" effect
+        # False = First update (Normal/Thin), True = Subsequent updates (Bold)
+        self.is_bold_active = False
+
+    def reset_bold_state(self):
+        """Resets the bar to non-bold (call this when a new track starts)."""
+        self.is_bold_active = False
 
     def ensure_entity_exists(self):
         """Checks if the control input_boolean exists. Creates or updates it."""
@@ -3079,19 +3051,19 @@ class ProgressBarManager:
         max_chars = self.config.progress_bar_resolution
         remaining = duration - position
         
-        # --- LOGIC 1: Force Full Bar if within last 10 seconds ---
-        if remaining <= 10:
+        # --- LOGIC 1: Force Full Bar if within last 5 seconds ---
+        if remaining <= 5:
             chars_needed = max_chars
             self.current_bar_str = self.config.progress_bar_character * chars_needed
-            return self.current_bar_str, None # Stop updating, we stay full until end
+            return self.current_bar_str, None 
 
         # Standard calculation
         ratio = position / duration
         if ratio > 1: ratio = 1
         chars_needed = int(ratio * max_chars)
 
-        # --- LOGIC 2: Force at least 1 char if track started ---
-        if position > 0 and chars_needed < 1:
+        # --- LOGIC 2: Force at least 1 char (Fix for 0:00 start) ---
+        if chars_needed < 1:
             chars_needed = 1
 
         self.current_bar_str = self.config.progress_bar_character * chars_needed
@@ -3105,11 +3077,11 @@ class ProgressBarManager:
             delay = target_time - position
             if delay < 0.2: delay = 0.2 
 
-        # --- LOGIC 3: Schedule update for the 10-second mark ---
-        time_until_ten_seconds_left = remaining - 10
-        if time_until_ten_seconds_left > 0:
-            if delay is None or delay > time_until_ten_seconds_left:
-                delay = time_until_ten_seconds_left
+        # --- LOGIC 3: Schedule exact update for the 5-second mark ---
+        time_until_five_seconds_left = remaining - 5
+        if time_until_five_seconds_left > 0:
+            if delay is None or delay > time_until_five_seconds_left:
+                delay = time_until_five_seconds_left
 
         return self.current_bar_str, delay
 
@@ -3128,12 +3100,11 @@ class ProgressBarManager:
         # --- COLOR LOGIC ---
         color = self.config.progress_bar_color
         if color == 'match':
-            # This relies on ImageProcessor setting 'lyrics_font_color' to the vibrant color
             color = media_data.lyrics_font_color 
         
         items = []
 
-        # Layer 1
+        # Layer 1 (Base Layer - Always shown)
         items.append({
             "TextId": 20, "type": 22, 
             "x": 0,
@@ -3143,15 +3114,20 @@ class ProgressBarManager:
             "TextString": text_to_send, "color": color
         })
 
-        # Layer 2 (Pseudo-Bold)
-        items.append({
-            "TextId": 21, "type": 22, 
-            "x": 2, 
-            "y": self.config.progress_bar_y_offset-7,
-            "dir": 0, "font": self.config.progress_bar_font, 
-            "TextWidth": 64, "Textheight": 10, "speed": 100, "align": 1,
-            "TextString": text_to_send, "color": color
-        })
+        # Layer 2 (Pseudo-Bold Layer) - Only show if active
+        if self.is_bold_active:
+            items.append({
+                "TextId": 21, "type": 22, 
+                "x": 1, # Slight offset for bold effect
+                "y": self.config.progress_bar_y_offset-7,
+                "dir": 0, "font": self.config.progress_bar_font, 
+                "TextWidth": 64, "Textheight": 10, "speed": 100, "align": 1,
+                "TextString": text_to_send, "color": color
+            })
+        else:
+            # We are currently in "Not Bold" state (first update).
+            # We set the flag so the NEXT update (via the timer) will include it.
+            self.is_bold_active = True
 
         return items
 
@@ -3594,29 +3570,26 @@ class NotificationManager:
             return (255, 255, 255)
 
 class Pixoo64_Media_Album_Art(hass.Hass):
-    """AppDaemon app to display album art on Divoom Pixoo64 and control related features."""
-
     def __init__(self, *args, **kwargs):
-        """Initialize Pixoo64_Media_Album_Art app."""
         super().__init__(*args, **kwargs)
         self.clear_timer_task: Optional[asyncio.Task[None]] = None
         self.callback_timeout: int = 20
         self.current_image_task: Optional[asyncio.Task[None]] = None
         self.debounce_task = None
         self._last_wled_payload = None
-        self.last_text_payload_hash = None
         
-        # Scheduler variables
+        # State Tracking
+        self.last_text_payload_hash = None
+        self.last_progress_str = "" 
+        self.cached_static_items = []
+        
         self.lyrics_active_mode = False 
         self.scheduler_generation_id = 0 
         
-        # Progress Bar variables
         self.progress_manager = None
         self.progress_timer_gen_id = 0
 
     async def initialize(self):
-        _LOGGER.info("Initializing Pixoo64 Album Art Display AppDaemon app…")
-        
         self.config = Config(self.args)
         
         self.websession = aiohttp.ClientSession()
@@ -3640,15 +3613,12 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         try:
             initial_index = await self.pixoo_device.get_current_channel_index()
             if initial_index == 4:
-                _LOGGER.info("Pixoo initialized on Fallback Screen (4). Defaulting internal state to Channel 0.")
                 self.select_index = 0
                 self.last_valid_index = 0
             else:
                 self.select_index = initial_index
                 self.last_valid_index = initial_index
-                _LOGGER.info(f"Pixoo initialized on Channel {initial_index}.")
-        except Exception as e:
-            _LOGGER.error(f"Failed to fetch initial channel index: {e}. Defaulting to 0.")
+        except Exception:
             self.select_index = 0
             self.last_valid_index = 0
 
@@ -3656,55 +3626,32 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         try:
             await self._apply_mode_settings()
-        except Exception as e:
-            _LOGGER.error(f"Error applying Mode Settings: {e}")
-
-        try:
             await self._apply_crop_settings()
-        except Exception as e:
-            _LOGGER.error(f"Error applying Crop Settings: {e}")
+        except Exception:
+            pass
 
         if self.entity_exists(self.config.lyrics_sync_entity):
             self.config.lyrics_sync = (await self.get_state(self.config.lyrics_sync_entity)) or self.config.lyrics_sync
             self.listen_state(self._lyrics_sync_changed, self.config.lyrics_sync_entity, attribute="state")
 
-        # --- Progress Bar Init ---
         self.progress_manager = ProgressBarManager(self.config, self)
         self.listen_state(self._progress_bar_toggle_changed, self.config.progress_bar_entity)
 
-        # *** KICKSTART LOOP IF PLAYING ***
         current_state = await self.get_state(self.config.media_player)
         if current_state in ["playing", "on"]:
             self.progress_timer_gen_id += 1
             await self._update_progress_bar_loop()
 
-        _LOGGER.info("Initialization complete.")
-
     async def terminate(self):
         self._stop_lyrics_scheduler()
-    
-        # Properly shutdown the thread pool executor
-        if hasattr(self, 'image_processor'):
-            self.image_processor.shutdown()
-
-        if self.current_image_task and not self.current_image_task.done():
-            self.current_image_task.cancel()
-            
-        if self.debounce_task and not self.debounce_task.done():
-            self.debounce_task.cancel()
-
-        if hasattr(self, 'websession') and self.websession and not self.websession.closed:
-            await self.websession.close()
-
-    # =========================================================================
-    # SETTINGS & CONFIG HANDLERS
-    # =========================================================================
+        if hasattr(self, 'image_processor'): self.image_processor.shutdown()
+        if self.current_image_task and not self.current_image_task.done(): self.current_image_task.cancel()
+        if self.debounce_task and not self.debounce_task.done(): self.debounce_task.cancel()
+        if hasattr(self, 'websession') and not self.websession.closed: await self.websession.close()
 
     async def _lyrics_sync_changed(self, entity, attribute, old, new, kwargs):
         await self._apply_lyrics_sync()
-        # Trigger resync if active
-        if self.lyrics_active_mode:
-            await self._calculate_and_schedule_next()
+        if self.lyrics_active_mode: await self._calculate_and_schedule_next()
 
     async def _apply_lyrics_sync(self):
         self.config.lyrics_sync = (await self.get_state(self.config.lyrics_sync_entity))
@@ -3714,50 +3661,20 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
     async def _apply_crop_settings(self):
         options = ["Default", "No Crop", "Crop", "Extra Crop"]
-        default = options[0]
-
         try:
-            # 1. Handle Entity Creation/Options
             if not self.entity_exists(self.config.crop_entity):
                 await self.set_state(self.config.crop_entity, state=options[0], attributes={"options": options})
-                try:
-                    await self.call_service("input_select/set_options", entity_id=self.config.crop_entity, options=options)
-                except Exception:
-                    pass 
-            else:
-                try:
-                    await self.call_service("input_select/set_options", entity_id=self.config.crop_entity, options=options)
-                except Exception:
-                    pass
-
-            # 2. Apply Logic
-            mode = (await self.get_state(self.config.crop_entity)) or default
+            mode = (await self.get_state(self.config.crop_entity)) or options[0]
             m = mode.lower()
-            
-            if m == "no crop":
-                self.config.crop_borders = False
-                self.config.crop_extra = False
-            elif m == "crop":
-                self.config.crop_borders = True
-                self.config.crop_extra = False
-            elif m == "extra crop":
-                self.config.crop_borders = True
-                self.config.crop_extra = True
-            elif m == "default":
-                self.config.crop_borders = self.config.original_crop_borders
-                self.config.crop_extra = self.config.original_crop_extra
-            
-            # 3. Clear Cache so the image is forced to re-process with new settings
+            if m == "no crop": self.config.crop_borders, self.config.crop_extra = False, False
+            elif m == "crop": self.config.crop_borders, self.config.crop_extra = True, False
+            elif m == "extra crop": self.config.crop_borders, self.config.crop_extra = True, True
+            elif m == "default": self.config.crop_borders, self.config.crop_extra = self.config.original_crop_borders, self.config.original_crop_extra
             self.image_processor.image_cache.clear()
-            
-            # 4. FORCE REFRESH 
             current_state = await self.get_state(self.config.media_player)
             if current_state in ["playing", "on"]:
-                # Trigger the main callback manually to redraw the screen immediately
                 await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
-            
-        except Exception as e:
-            _LOGGER.error(f"Failed to apply crop settings: {e}", exc_info=True)
+        except Exception: pass
 
     async def _mode_changed(self, entity, attribute, old, new, kwargs):
         await self._apply_mode_settings()
@@ -3771,7 +3688,6 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "Lyrics", "Lyrics (Background)", "Temperature", "Temperature (Background)",
                 "Temperature | Text", "Temperature | Text (Background)", "Special Mode", "Special Mode | Text"
                 ]
-        default = options[0]
         spotify_api = bool(self.config.spotify_client_id and self.config.spotify_client_secret)
         if spotify_api:
             options.append("Spotify Slider (beta)")
@@ -3779,289 +3695,112 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
         try:
             if not self.entity_exists(self.config.mode_entity):
-                await self.set_state(self.config.mode_entity, state=options[0], attributes={"options": options})
-                mode = "Default"
-            else:
-                mode = (await self.get_state(self.config.mode_entity)) or default
-
-            try:
-                await self.call_service("input_select/set_options", entity_id=self.config.mode_entity, options=options)
-            except Exception:
-                pass
-
-            if mode:
-                m = mode.lower()
-                if not m == "default" and not m == "clean":
-                    self.config.show_lyrics      = ("lyrics" in m) if m else False
-                    self.config.spotify_slide    = ("slider" in m) if m else False
-                    self.config.special_mode     = ("special" in m) if m else False
-                    self.config.show_clock       = ("clock" in m) if m else False
-                    self.config.temperature      = ("temperature" in m) if m else False
-                    self.config.show_text        = ("text" in m) if m else False
-                    self.config.text_bg          = ("background" in m) if m else False
-                    self.config.force_ai         = ("ai" in m) if m else False
-                    self.config.burned           = ("burned" in m) if m else False
-
-                    if self.config.force_ai:
-                        if "turbo" in m: self.config.ai_fallback = "turbo"
-                        elif "flux" in m: self.config.ai_fallback = "flux"
-
-                    self.config.special_mode_spotify_slider = bool(self.config.spotify_slide and self.config.special_mode and self.config.show_text)
-
-                elif m == "clean":
-                    self.config.show_lyrics = False
-                    self.config.spotify_slide = False
-                    self.config.special_mode = False
-                    self.config.show_clock = False
-                    self.config.temperature = False
-                    self.config.show_text = False
-                    self.config.text_bg = False
-                    self.config.force_ai = False
-                    self.config.ai_fallback = False
-                    self.config.special_mode_spotify_slider = False
-                    self.config.burned = False
-
-                elif m == "default":
-                    self.config.show_lyrics = self.config.original_show_lyrics
-                    self.config.spotify_slide = self.config.original_spotify_slide
-                    self.config.special_mode = self.config.original_special_mode
-                    self.config.show_clock = self.config.original_show_clock
-                    self.config.temperature = self.config.original_temperature
-                    self.config.show_text = self.config.original_show_text
-                    self.config.text_bg = self.config.original_text_bg
-                    self.config.force_ai = self.config.original_force_ai
-                    self.config.ai_fallback = self.config.original_ai_fallback
-                    self.config.burned = self.config.original_burned
-                    self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
-                
-                self.image_processor.image_cache.clear()
-                
-                # Check mode change
-                await self._start_or_stop_lyrics_scheduler()
-                
-                # Refresh display if playing
-                current_state = await self.get_state(self.config.media_player)
-                if current_state in ["playing", "on"]:
-                    await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
-        
-        except Exception as e:
-            _LOGGER.warning(f"Error checking mode entity: {e}")
-
-    # =========================================================================
-    # LYRICS SCHEDULER
-    # =========================================================================
+                await self.set_state(self.config.mode_entity, state="Default", attributes={"options": options})
+            mode = (await self.get_state(self.config.mode_entity)) or "Default"
+            m = mode.lower()
+            if not m == "default" and not m == "clean":
+                self.config.show_lyrics, self.config.spotify_slide = ("lyrics" in m), ("slider" in m)
+                self.config.special_mode, self.config.show_clock = ("special" in m), ("clock" in m)
+                self.config.temperature, self.config.show_text = ("temperature" in m), ("text" in m)
+                self.config.text_bg, self.config.force_ai, self.config.burned = ("background" in m), ("ai" in m), ("burned" in m)
+                if self.config.force_ai: self.config.ai_fallback = "turbo" if "turbo" in m else "flux"
+                self.config.special_mode_spotify_slider = bool(self.config.spotify_slide and self.config.special_mode and self.config.show_text)
+            elif m == "clean":
+                self.config.show_lyrics = self.config.spotify_slide = self.config.special_mode = self.config.show_clock = self.config.temperature = self.config.show_text = self.config.text_bg = self.config.force_ai = self.config.burned = False
+            elif m == "default":
+                self.config.show_lyrics, self.config.spotify_slide = self.config.original_show_lyrics, self.config.original_spotify_slide
+                self.config.special_mode, self.config.show_clock = self.config.original_special_mode, self.config.original_show_clock
+                self.config.temperature, self.config.show_text = self.config.original_temperature, self.config.original_show_text
+                self.config.text_bg, self.config.force_ai = self.config.original_text_bg, self.config.original_force_ai
+                self.config.ai_fallback, self.config.burned = self.config.original_ai_fallback, self.config.original_burned
+                self.config.special_mode_spotify_slider = self.config.original_special_mode_spotify_slider
+            
+            self.image_processor.image_cache.clear()
+            await self._start_or_stop_lyrics_scheduler()
+            current_state = await self.get_state(self.config.media_player)
+            if current_state in ["playing", "on"]:
+                await self.safe_state_change_callback(self.config.media_player, "state", None, "playing", {})
+        except Exception: pass
 
     def _stop_lyrics_scheduler(self):
-        """Disables the lyrics scheduler."""
         self.lyrics_active_mode = False
-        self.scheduler_generation_id += 1 # Invalidate any pending timers
+        self.scheduler_generation_id += 1
 
     async def _start_or_stop_lyrics_scheduler(self):
-        """Decides whether to Start or Stop based on ALL conditions."""
-        
-        # 1. Validation
-        should_run = True
-        
-        if not self.config.show_lyrics:
-            should_run = False
-        
-        if not self.media_data.lyrics:
-            should_run = False
-            
         state = await self.get_state(self.config.media_player)
-        if str(state).lower() not in ["playing", "on"]:
-            should_run = False
-
-        # 2. Action
-        if should_run:
+        if self.config.show_lyrics and self.media_data.lyrics and str(state).lower() in ["playing", "on"]:
             self.lyrics_active_mode = True
             await self._calculate_and_schedule_next()
         else:
             self._stop_lyrics_scheduler()
 
     async def _timer_callback_wrapper(self, kwargs):
-        gen_id = kwargs.get('gen_id')
-        if gen_id != self.scheduler_generation_id:
-            return
-        await self._calculate_and_schedule_next()
+        if kwargs.get('gen_id') == self.scheduler_generation_id: await self._calculate_and_schedule_next()
 
     async def _calculate_and_schedule_next(self):
-        # Gatekeeper
-        if hasattr(self, 'notification_manager') and self.notification_manager.is_active:
-            return
-        if not self.lyrics_active_mode:
-            return
-
+        if (hasattr(self, 'notification_manager') and self.notification_manager.is_active) or not self.lyrics_active_mode: return
         self.scheduler_generation_id += 1
         current_gen_id = self.scheduler_generation_id
-
-        # Calculate precise position
         if not self.media_data.media_position_updated_at:
             current_track_pos = self.media_data.media_position 
         else:
             now_utc = datetime.now(timezone.utc)
             elapsed = (now_utc - self.media_data.media_position_updated_at).total_seconds()
-            sync_offset = float(self.config.lyrics_sync) if self.config.lyrics_sync else 0.0
-            current_track_pos = self.media_data.media_position + elapsed - sync_offset
-
-        # Get Plan from Provider
+            current_track_pos = self.media_data.media_position + elapsed - (float(self.config.lyrics_sync) or 0.0)
+        
         layout_items, delay = self.media_data.lyrics_provider.get_refresh_plan(current_track_pos)
-
-        # Execute Plan
         if layout_items is not None:
             pixoo_items = []
             font_color = self.media_data.lyrics_font_color
-            
             for i in range(6):
                 if i < len(layout_items):
                     item = layout_items[i]
-                    
-                    # Boundary check
-                    calc_height = item['h']
-                    if item['y'] + calc_height > 64:
-                        calc_height = 64 - item['y']
-
-                    pixoo_items.append({
-                        "TextId": i + 1, 
-                        "type": 22, 
-                        "x": 0, 
-                        "y": item['y'],
-                        "dir": item['dir'], 
-                        "font": self.config.lyrics_font, 
-                        "TextWidth": 64, 
-                        "Textheight": calc_height,
-                        "speed": 0,
-                        "align": 2,
-                        "TextString": item['text'], 
-                        "color": font_color
-                    })
+                    h = item['h'] if item['y'] + item['h'] <= 64 else 64 - item['y']
+                    pixoo_items.append({"TextId": i + 10, "type": 22, "x": 0, "y": item['y'], "dir": item['dir'], "font": self.config.lyrics_font, "TextWidth": 64, "Textheight": h, "speed": 0, "align": 2, "TextString": item['text'], "color": font_color})
                 else:
-                    # Clear unused slots by moving them OFF SCREEN
-                    pixoo_items.append({
-                        "TextId": i + 1, 
-                        "type": 22, 
-                        "x": 0, 
-                        "y": 0,
-                        "dir": 0,
-                        "font": self.config.lyrics_font, 
-                        "TextWidth": 64, 
-                        "Textheight": 12, 
-                        "speed": 0,  
-                        "align": 2, 
-                        "TextString": "", 
-                        "color": font_color
-                    })
-
-            # Append progress bar if enabled
+                    pixoo_items.append({"TextId": i + 10, "type": 22, "x": 0, "y": 0, "dir": 0, "font": self.config.lyrics_font, "TextWidth": 64, "Textheight": 12, "speed": 0, "align": 2, "TextString": "", "color": font_color})
+            
             progress_items = await self.progress_manager.get_payload_item(self.media_data)
-            if progress_items:
-                pixoo_items.extend(progress_items)
+            if progress_items: pixoo_items.extend(progress_items)
             
-            # Send to Pixoo
-            # We ignore hash check if delay is None (implies a Seek/Jump event) to force update
             current_hash = hash(str(pixoo_items))
-            
             if current_hash != self.last_text_payload_hash or delay is None:
-                await self.pixoo_device.send_command({
-                    "Command": "Draw/SendHttpItemList", 
-                    "ItemList": pixoo_items
-                })
+                await self.pixoo_device.send_command({"Command": "Draw/SendHttpItemList", "ItemList": pixoo_items})
                 self.last_text_payload_hash = current_hash
-
-        # Schedule Next Run
-        if delay is not None:
-            self.run_in(self._timer_callback_wrapper, delay, gen_id=current_gen_id)
-        else:
-            self.run_in(self._timer_callback_wrapper, 5, gen_id=current_gen_id)
-    
-    # ==========================
-    # PROGRESS BAR LOGIC
-    # ==========================
+        
+        self.run_in(self._timer_callback_wrapper, delay if delay is not None else 5, gen_id=current_gen_id)
 
     async def _progress_bar_toggle_changed(self, entity, attribute, old, new, kwargs):
-        """Handle manual toggle of progress bar."""
-        # 1. Update the loop (start or stop timers)
         await self._update_progress_bar_loop()
-        
-        # 2. Check if media is currently playing
         state = await self.get_state(self.config.media_player)
-        
-        if state in ["playing", "on"]:
-            # 3. Force Full Refresh
-            # Send old=None to bypass the "if new == old" check and force a refresh
-            await self.state_change_callback(self.config.media_player, "state", None, state, {})
-
-
-        state = await self.get_state(self.config.media_player)
-        if state not in ["playing", "on"]: return
-
-        if self.config.progress_bar_enabled:
-            pb_state = await self.get_state(self.config.progress_bar_entity)
-            if str(pb_state).lower() != 'on':
-                return 
-
-        current_mode = await self.get_state(self.config.mode_entity)
-        if current_mode in self.config.progress_bar_exclude_modes: return
-
-        if not self.media_data.media_position_updated_at:
-            current_pos = self.media_data.media_position
-        else:
-            now = datetime.now(timezone.utc)
-            elapsed = (now - self.media_data.media_position_updated_at).total_seconds()
-            current_pos = self.media_data.media_position + elapsed
-
-        bar_str, delay = self.progress_manager.calculate(current_pos, self.media_data.media_duration)
-
-        if self.is_art_visible:
-            await self._rebuild_and_send_text_layer()
-
-        if delay:
-            self.progress_timer_gen_id += 1
-            self.run_in(self._progress_bar_timer_callback, delay, gen_id=self.progress_timer_gen_id)
+        if state in ["playing", "on"]: await self.state_change_callback(self.config.media_player, "state", None, state, {})
 
     async def _progress_bar_timer_callback(self, kwargs):
-        if kwargs.get('gen_id') != self.progress_timer_gen_id: return
-        await self._update_progress_bar_loop()
+        if kwargs.get('gen_id') == self.progress_timer_gen_id: await self._update_progress_bar_loop()
 
     async def _update_progress_bar_loop(self):
-        # Guard clause for notifications
-        if hasattr(self, 'notification_manager') and self.notification_manager.is_active:
-            return 
-
+        if (hasattr(self, 'notification_manager') and self.notification_manager.is_active): return 
         state = await self.get_state(self.config.media_player)
         if state not in ["playing", "on"]: return
+        if self.config.progress_bar_enabled and str(await self.get_state(self.config.progress_bar_entity)).lower() != 'on': return
+        if await self.get_state(self.config.mode_entity) in self.config.progress_bar_exclude_modes: return
 
-        if self.config.progress_bar_enabled:
-            pb_state = await self.get_state(self.config.progress_bar_entity)
-            if str(pb_state).lower() != 'on':
-                return 
-
-        current_mode = await self.get_state(self.config.mode_entity)
-        if current_mode in self.config.progress_bar_exclude_modes: return
-
-        if not self.media_data.media_position_updated_at:
-            current_pos = self.media_data.media_position
-        else:
-            now = datetime.now(timezone.utc)
-            elapsed = (now - self.media_data.media_position_updated_at).total_seconds()
-            current_pos = self.media_data.media_position + elapsed
-
+        elapsed = (datetime.now(timezone.utc) - self.media_data.media_position_updated_at).total_seconds() if self.media_data.media_position_updated_at else 0
+        current_pos = self.media_data.media_position + elapsed
         bar_str, delay = self.progress_manager.calculate(current_pos, self.media_data.media_duration)
 
-        # Update the screen if needed
-        if self.is_art_visible:
+        # REDRAW PROTECTION: Only resend if the visual string of the bar changed
+        if self.is_art_visible and bar_str != self.last_progress_str:
+            self.last_progress_str = bar_str
             await self._rebuild_and_send_text_layer()
 
-        # Schedule next update
         if delay:
             self.progress_timer_gen_id += 1
             self.run_in(self._progress_bar_timer_callback, delay, gen_id=self.progress_timer_gen_id)
 
     async def _rebuild_and_send_text_layer(self):
-        """Re-sends the text list including the progress bar without reprocessing image."""
-        if hasattr(self, 'notification_manager') and self.notification_manager.is_active:
-            return
-            
+        if hasattr(self, 'notification_manager') and self.notification_manager.is_active: return
+        
         font_color = self.media_data.lyrics_font_color
         bg_color = getattr(self.media_data, 'background_color', '#000000') 
 
@@ -4074,292 +3813,206 @@ class Pixoo64_Media_Album_Art(hass.Hass):
             if current_hash != self.last_text_payload_hash:
                 await self.pixoo_device.send_command(payload)
                 self.last_text_payload_hash = current_hash
-        
-    # =========================================================================
-    # STATE CALLBACKS & DEBOUNCING
-    # =========================================================================
 
-    async def safe_state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
-        # Cancel existing debounce
-        if self.debounce_task and not self.debounce_task.done():
-            self.debounce_task.cancel()
-        
-        # Cancel any image processing currently running
-        if self.current_image_task and not self.current_image_task.done():
-            self.current_image_task.cancel()
-        
-        # Start ONE new task
-        self.debounce_task = asyncio.create_task(
-            self._run_debounced_callback(entity, attribute, old, new, kwargs)
-        )
+    async def safe_state_change_callback(self, entity, attribute, old, new, kwargs):
+        if self.debounce_task and not self.debounce_task.done(): self.debounce_task.cancel()
+        if self.current_image_task and not self.current_image_task.done(): self.current_image_task.cancel()
+        self.debounce_task = asyncio.create_task(self._run_debounced_callback(entity, attribute, old, new, kwargs))
 
     async def _run_debounced_callback(self, entity, attribute, old, new, kwargs):
         try:
             await asyncio.sleep(0.5)
-            async with asyncio.timeout(self.callback_timeout):
-                await self.state_change_callback(entity, attribute, old, new, kwargs)
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Callback timed out after %s seconds.", self.callback_timeout)
-        except asyncio.CancelledError:
-            pass 
-        except Exception as e:
-            _LOGGER.error(f"Error in debounced callback: {e}")
+            async with asyncio.timeout(self.callback_timeout): await self.state_change_callback(entity, attribute, old, new, kwargs)
+        except (asyncio.TimeoutError, asyncio.CancelledError): pass
+        except Exception: pass
 
-    async def state_change_callback(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
+    async def state_change_callback(self, entity, attribute, old, new, kwargs):
         try:
-            # 1. HANDLE POSITION SEEKING
             if attribute == "media_position":
                 await self.media_data.update(self)
+                
+                if self.media_data.track_changed:
+                    self.progress_manager.reset_bold_state()
 
-                if not self.media_data.track_changed:
-                    # Normal seek within same song -> Just update progress bar
+                # Fetch current state to see if we are actually playing
+                s = await self.get_state(self.config.media_player)
+                current_state_check = str(s).lower()
+
+                # ONLY return early if the track matches AND we are actively playing.
+                if not self.media_data.track_changed and current_state_check in ["playing", "on"]:
                     self.progress_timer_gen_id += 1
                     await self._update_progress_bar_loop()
-
                     if self.lyrics_active_mode:
                         self.scheduler_generation_id += 1
                         await self._calculate_and_schedule_next()
-                    
-                    return
-                
-
-            # 2. STANDARD STATE CHECKS
-            if new == old or (await self.get_state(self.config.toggle)) != "on":
-                return 
-
-            if attribute == "state":
-                current_media_state = str(new).lower()
-            else:
-                s = await self.get_state(self.config.media_player)
-                current_media_state = str(s).lower() if s else "off"
+                    return 
             
-            # 3. HANDLE PAUSE / STOP
+            if new == old or (await self.get_state(self.config.toggle)) != "on": return 
+            s = await self.get_state(self.config.media_player)
+            current_media_state = str(new).lower() if attribute == "state" else str(s).lower()
+            
+            # --- SHUTDOWN LOGIC ---
             if current_media_state in ["off", "idle", "pause", "paused"]:
                 self._stop_lyrics_scheduler()
                 self.progress_timer_gen_id += 1
-                
                 self.last_text_payload_hash = None
+                self.last_progress_str = ""
+                
                 await asyncio.sleep(5) 
                 
-                rechecked_state = await self.get_state(self.config.media_player)
-                rechecked_state_str = str(rechecked_state).lower() if rechecked_state else "off"
+                rechecked = await self.get_state(self.config.media_player)
+                if str(rechecked).lower() in ["playing", "on"]: return
                 
-                if rechecked_state_str in ["playing", "on"]:
-                    return
-                
-                if self.config.full_control:
-                    await self.pixoo_device.send_command({
-                        "Command": "Draw/CommandList",
-                        "CommandList": [
-                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index},
-                            {"Command": "Channel/OnOffScreen", "OnOff": 0}
-                        ]
-                    })
-                else:
-                    await self.pixoo_device.send_command({
-                        "Command": "Draw/CommandList",
-                        "CommandList": [
-                            {"Command": "Draw/ClearHttpText"},
-                            {"Command": "Draw/ResetHttpGifId"},
-                            {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
-                        ]
-                    })
-                self.last_text_payload_hash = None
+                cmd = {"Command": "Draw/CommandList", "CommandList": [{"Command": "Channel/SetIndex", "SelectIndex": self.select_index}]}
+                if self.config.full_control: cmd["CommandList"].append({"Command": "Channel/OnOffScreen", "OnOff": 0})
+                else: cmd["CommandList"].extend([{"Command": "Draw/ClearHttpText"}, {"Command": "Draw/ResetHttpGifId"}])
+                await self.pixoo_device.send_command(cmd)
                 self.is_art_visible = False
                 await self.set_state(self.media_data_sensor, state="off")
                 if self.config.light: await self.control_light('off')
                 if self.config.wled: await self.control_wled_light('off')
                 return 
 
-            # Full refresh for track change or play state change
             await self.update_attributes(entity, attribute, old, new, kwargs)
-            
-        except Exception as e:
-            _LOGGER.error(f"Error in state_change_callback: {e}")
+        except Exception: pass
 
-    async def update_attributes(self, entity: str, attribute: str, old: Any, new: Any, kwargs: Dict[str, Any]) -> None:
-        if hasattr(self, 'notification_manager') and self.notification_manager.is_active:
-            return
+    async def update_attributes(self, entity, attribute, old, new, kwargs):
+        if hasattr(self, 'notification_manager') and self.notification_manager.is_active: return
         try:
-            media_state_str = await self.get_state(self.config.media_player)
-            media_state = media_state_str if media_state_str else "off"
-            
-            if media_state not in ["playing", "on"]:
+            media_state = await self.get_state(self.config.media_player) or "off"
+            if str(media_state).lower() not in ["playing", "on"]:
                 self._stop_lyrics_scheduler()
                 if self.config.light: await self.control_light('off')
                 if self.config.wled: await self.control_wled_light('off')
                 return 
-
-            # Update Media Data
             media_data = await self.media_data.update(self)
-            
-            # Re-evaluate scheduling (handles new track, seek, etc)
             await self._start_or_stop_lyrics_scheduler()
-
-            # *** KICKSTART PROGRESS BAR LOOP ***
             self.progress_timer_gen_id += 1
             await self._update_progress_bar_loop()
-            
-            if not media_data:
-                return
+            if media_data: await self.pixoo_run(str(media_state), media_data)
+        except Exception: pass
 
-            await self.pixoo_run(media_state, media_data)
-        except Exception as e:
-            _LOGGER.error(f"Error in update_attributes: {e}", exc_info=True)
-
-    # =========================================================================
-    # PIXOO DISPLAY LOGIC
-    # =========================================================================
-
-    async def pixoo_run(self, media_state: str, media_data: "MediaData") -> None:
-        if hasattr(self, 'notification_manager') and self.notification_manager.is_active:
-                return
+    async def pixoo_run(self, media_state, media_data):
+        if hasattr(self, 'notification_manager') and self.notification_manager.is_active: return
         try:
             async with asyncio.timeout(self.callback_timeout):
-                # Ensure we are on the correct channel
-                current_device_channel = await self.pixoo_device.get_current_channel_index()
-                if current_device_channel != 4:
-                    self.select_index = current_device_channel
-                    self.last_valid_index = current_device_channel
-                else:
-                    if hasattr(self, 'last_valid_index') and self.last_valid_index != 4:
-                        self.select_index = self.last_valid_index
-                    else:
-                        self.select_index = 0
-
-                if media_state in ["playing", "on"]:
-                    if self.current_image_task:
-                        self.current_image_task.cancel()
-                        self.current_image_task = None 
-
+                curr = await self.pixoo_device.get_current_channel_index()
+                if curr != 4: self.select_index = self.last_valid_index = curr
+                else: self.select_index = getattr(self, 'last_valid_index', 0)
+                if media_state.lower() in ["playing", "on"]:
+                    if self.current_image_task: self.current_image_task.cancel()
                     self.current_image_task = asyncio.create_task(self._process_and_display_image(media_data))
-        except asyncio.TimeoutError:
-            _LOGGER.warning("Pixoo run timed out after %s seconds.", self.callback_timeout)
-        except Exception as e:
-            _LOGGER.error(f"Error in pixoo_run: {e}", exc_info=True)
-        finally:
-            await asyncio.sleep(0.10)
+        except Exception: pass
 
-    async def _build_text_items_list(self, media_data: "MediaData", font_color: str, bg_color: str) -> list:
-        """Helper function that constructs the list of text elements."""
-        text_items_for_display_list = []
-        current_text_id = 0
+    def get_opposite_color(self, hex_color):
+        hex_color = hex_color.lstrip('#')
+        rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        inverted_rgb = tuple(255 - value for value in rgb)
+        opposite_hex = '#{:02x}{:02x}{:02x}'.format(*inverted_rgb)
+    
+        return opposite_hex
+
+    async def _build_text_items_list(self, media_data, font_color, bg_color, scope="all"):
+        text_items = []
+        clock_c = getattr(media_data, 'clock_color', font_color) or font_color
+        temp_c = getattr(media_data, 'temp_color', font_color) or font_color
         
-        # 1. Special Mode Logic
-        if self.config.special_mode:
-            current_text_id += 1
-            day_item = { "TextId": current_text_id, "type": 14, "x": 3, "y": 1, "dir": 0, "font": 18, "TextWidth": 33, "Textheight": 6, "speed": 100, "align": 1, "color": font_color}
-            text_items_for_display_list.append(day_item)
+        if scope in ["all", "static"]:
+            # --- FIX: SPECIAL MODE LOGIC ---
+            if self.config.special_mode:
+                font_color_2 = self.get_opposite_color(bg_color)
+                text_items.append({"TextId": 1, "type": 14, "x": 3, "y": 1, "dir": 0, "font": 18, "TextWidth": 33, "Textheight": 6, "speed": 100, "align": 1, "color": font_color})
+                text_items.append({"TextId": 2, "type": 5, "x": 1, "y": 1, "dir": 0, "font": 18, "TextWidth": 63, "Textheight": 6, "speed": 100, "align": 2, "color": font_color})
+                t_type = 22 if media_data.temperature else 17
+                text_items.append({"TextId": 3, "type": t_type, "x": 48, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color, "TextString": media_data.temperature or ""})
+                
+                if (self.config.show_text and not media_data.playing_tv) or (media_data.spotify_slide_pass and self.config.spotify_slide):
+                    # ARTIST (Top Line)
+                    a_rtl = 1 if has_bidi(media_data.artist) else 0
+                    text_items.append({"TextId": 4, "type": 22, "x": 0, "y": 42, "dir": a_rtl, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": get_bidi(media_data.artist) if a_rtl else media_data.artist, "color": font_color})
+                    
+                    # TITLE (Bottom Line) - FIX: Use font_color instead of bg_color
+                    t_rtl = 1 if has_bidi(media_data.title) else 0
+                    text_items.append({"TextId": 5, "type": 22, "x": 0, "y": 52, "dir": t_rtl, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": get_bidi(media_data.title) if t_rtl else media_data.title, "color": font_color})
 
-            current_text_id += 1
-            clock_item_special = { "TextId": current_text_id, "type": 5, "x": 1, "y": 1, "dir": 0, "font": 18, "TextWidth": 63, "Textheight": 6, "speed": 100, "align": 2, "color": bg_color}
-            text_items_for_display_list.append(clock_item_special)
+            # --- STANDARD MODE LOGIC ---
+            elif (self.config.show_text or self.config.show_clock or self.config.temperature) and not (self.config.show_lyrics or self.config.spotify_slide):
+                y_text, y_info = (0, 56) if self.config.top_text else (48, 3)
+                txt = (media_data.artist + " - " + media_data.title)
+                if len(txt) > 14: txt += "        "
+                rtl = 1 if has_bidi(txt) else 0
+                
+                # Check Progress Bar Length to hide text if needed
+                pb_len = len(self.progress_manager.current_bar_str) if self.progress_manager else 0
+                
+                should_show_text = True
+                # If progress bar is enabled and has grown beyond 2 chars (approx 5-10% of song), hide text
+                if self.config.progress_bar_enabled and pb_len > 2:
+                    should_show_text = False
 
-            current_text_id += 1
-            if media_data.temperature:
-                temp_item_special = {"TextId": current_text_id, "type": 22, "x": 42, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color, "TextString": media_data.temperature}
-            else:
-                temp_item_special = {"TextId": current_text_id, "type": 17, "x": 42, "y": 1, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 3, "color": font_color}
-            text_items_for_display_list.append(temp_item_special)
-
-            if (self.config.show_text and not media_data.playing_tv) or (media_data.spotify_slide_pass and self.config.spotify_slide):
-                dir_rtl_artist = 1 if has_bidi(media_data.artist) else 0
-                text_artist_bidi = get_bidi(media_data.artist) if dir_rtl_artist == 1 else media_data.artist
-                current_text_id += 1
-                artist_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 42, "dir": dir_rtl_artist, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_artist_bidi, "color": font_color}
-                text_items_for_display_list.append(artist_item)
-
-                dir_rtl_title = 1 if has_bidi(media_data.title) else 0
-                text_title_bidi = get_bidi(media_data.title) if dir_rtl_title == 1 else media_data.title
-                current_text_id += 1
-                title_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": 52, "dir": dir_rtl_title, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_title_bidi, "color": bg_color}
-                text_items_for_display_list.append(title_item)
+                if should_show_text and self.config.show_text and not media_data.radio_logo and not media_data.playing_tv:
+                    text_items.append({"TextId": 4, "type": 22, "x": 0, "y": y_text, "dir": rtl, "font": 2, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": get_bidi(txt) if rtl else txt, "color": font_color})
+                
+                if self.config.show_clock:
+                    x_c = 44 if self.config.clock_align == "Right" else 3
+                    text_items.append({"TextId": 2, "type": 5, "x": x_c, "y": y_info, "dir": 0, "font": 18, "TextWidth": 32, "Textheight": 16, "speed": 100, "align": 1, "color": clock_c})
+                if self.config.temperature:
+                    x_t = 3 if self.config.clock_align == "Right" else 40
+                    t_type = 22 if media_data.temperature else 17
+                    text_items.append({"TextId": 3, "type": t_type, "x": x_t, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": temp_c, "TextString": media_data.temperature or ""})
         
-        # 2. Standard Mode Logic
-        elif (self.config.show_text or self.config.show_clock or self.config.temperature) and not (self.config.show_lyrics or self.config.spotify_slide):
-            if self.config.top_text:
-                y_text = 0
-                y_info = 56
-            else:
-                y_text = 48
-                y_info = 3
-
-            text_track = (media_data.artist + " - " + media_data.title)
-            if len(text_track) > 14: text_track = text_track + "        "
-            text_string_bidi = get_bidi(text_track) if media_data.artist else get_bidi(media_data.title)
-            dir_rtl = 1 if has_bidi(text_string_bidi) else 0
-
-            if text_string_bidi and self.config.show_text and not media_data.radio_logo and not media_data.playing_tv:
-                current_text_id += 1
-                text_item = { "TextId": current_text_id, "type": 22, "x": 0, "y": y_text, "dir": dir_rtl, "font": 2, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": text_string_bidi, "color": font_color}
-                text_items_for_display_list.append(text_item)
-
-            if self.config.show_clock:
-                current_text_id += 1
-                x_clock = 44 if self.config.clock_align == "Right" else 3
-                clock_item_normal = { "TextId": current_text_id, "type": 5, "x": x_clock, "y": y_info, "dir": 0, "font": 18, "TextWidth": 32, "Textheight": 16, "speed": 100, "align": 1, "color": font_color}
-                text_items_for_display_list.append(clock_item_normal)
-
-            if self.config.temperature:
-                current_text_id += 1
-                x_temp = 3 if self.config.clock_align == "Right" else 40
-                if media_data.temperature:
-                    temp_item_normal = {"TextId": current_text_id, "type": 22, "x": x_temp, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color, "TextString": media_data.temperature}
-                else:
-                    temp_item_normal = {"TextId": current_text_id, "type": 17, "x": x_temp, "y": y_info, "dir": 0, "font": 18, "TextWidth": 20, "Textheight": 6, "speed": 100, "align": 1, "color": font_color}
-                text_items_for_display_list.append(temp_item_normal)
-
-        progress_items_list = await self.progress_manager.get_payload_item(media_data)
-        if progress_items_list:
-            text_items_for_display_list.extend(progress_items_list)
-
-        return text_items_for_display_list
+        if scope in ["all", "progress"]:
+            pb = await self.progress_manager.get_payload_item(media_data)
+            if pb: text_items.extend(pb)
+        
+        return text_items
 
     async def _process_and_display_image(self, media_data: "MediaData") -> None:
         if media_data.picture == "TV_IS_ON":
-            payload = {"Command": "Channel/SetIndex", "SelectIndex": self.select_index}
-            await self.pixoo_device.send_command(payload)
-                
+            await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": self.select_index})
             if self.config.light: await self.control_light('off')
             if self.config.wled: await self.control_wled_light('off')
-                
             self.last_text_payload_hash = None
+            self.last_progress_str = ""
+            self.cached_static_items = []
             self.is_art_visible = False
             return 
 
         try:
             start_time = time.perf_counter()
-            processed_data = await self.fallback_service.get_final_url(media_data.picture, media_data)
-
-            if not processed_data:
-                processed_data = self.fallback_service._get_fallback_black_image_data()
-
+            processed_data = await self.fallback_service.get_final_url(media_data.picture, media_data) or self.fallback_service._get_fallback_black_image_data()
+            
             media_data.spotify_frames = 0
             base64_image = processed_data.get('base64_image')
+            
+            # --- Extract Colors & Info for Attributes (Restored) ---
             font_color_from_image_processing = processed_data.get('font_color')
             brightness = processed_data.get('brightness')
             background_color_str = processed_data.get('background_color')
             background_color_rgb = processed_data.get('background_color_rgb')
             most_common_color_alternative_rgb_str = processed_data.get('most_common_color_alternative_rgb')
             most_common_color_alternative_str = processed_data.get('most_common_color_alternative')
+            color1 = processed_data.get('color1')
+            color2 = processed_data.get('color2')
+            color3 = processed_data.get('color3')
 
-            if self.config.light and not media_data.playing_tv:
+            # 1. Control Lights
+            if self.config.light and not media_data.playing_tv: 
                 await self.control_light('on', background_color_rgb, media_data.is_night)
             
-            if self.config.wled and not media_data.playing_tv:
-                color1 = processed_data.get('color1')
-                color2 = processed_data.get('color2')
-                color3 = processed_data.get('color3')
+            if self.config.wled and not media_data.playing_tv: 
                 await self.control_wled_light('on', color1, color2, color3, media_data.is_night)
             
             if media_data.playing_tv:
                 if self.config.light: await self.control_light('off')
                 if self.config.wled: await self.control_wled_light('off')
 
+            # 2. Determine Bar Color for Attributes
             final_bar_color = self.config.progress_bar_color
             if final_bar_color == 'match':
                 final_bar_color = getattr(media_data, 'lyrics_font_color', font_color_from_image_processing)
 
+            # 3. Construct Sensor State & Attributes
             sensor_state = f"{media_data.artist} / {media_data.title}"
             new_attributes = {
                 "artist": media_data.artist,
@@ -4372,7 +4025,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "color_alternative": most_common_color_alternative_rgb_str,
                 "images_in_cache": media_data.image_cache_count,
                 "image_memory_cache": media_data.image_cache_memory,
-                "process_duration": media_data.process_duration,
+                "process_duration": "0.00", # Placeholder, updated at end
                 "spotify_frames": media_data.spotify_frames,
                 "pixoo64_channel": self.select_index if self.select_index != 0 else "0",
                 "image_source": media_data.pic_source,
@@ -4381,115 +4034,104 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 "progress_bar_active": getattr(media_data, 'show_progress_bar', False),
                 "progress_bar_color": final_bar_color if getattr(media_data, 'show_progress_bar', False) else "inactive"
             }
-            
-            image_payload = {
-                "Command": "Draw/CommandList",
-                "CommandList": [
-                    {"Command": "Channel/OnOffScreen", "OnOff": 1},
-                #    {"Command": "Draw/ClearHttpText"},
-                    {"Command": "Draw/ResetHttpGifId"},
-                    {"Command": "Draw/SendHttpGif",
-                        "PicNum": 1, "PicWidth": 64, "PicOffset": 0,
-                        "PicID": 0, "PicSpeed": 10000, "PicData": base64_image}]}
 
-            spotify_animation_took_over_display = False
+            # 4. Construct Image Command
+            image_cmd = {
+                "Command": "Draw/CommandList", 
+                "CommandList": [
+                    {"Command": "Channel/OnOffScreen", "OnOff": 1}, 
+                    {"Command": "Draw/ResetHttpGifId"}, 
+                    {"Command": "Draw/SendHttpGif", "PicNum": 1, "PicWidth": 64, "PicOffset": 0, "PicID": 0, "PicSpeed": 10000, "PicData": base64_image}
+                ]
+            }
             
-            # Spotify Slide Logic
+            # 5. Handle Spotify Slide / Animation
+            took_over = False
+            spotify_animation_took_over_display = False
+
             if self.config.spotify_slide and not media_data.radio_logo and not media_data.playing_tv:
                 self.spotify_service.spotify_data = await self.spotify_service.get_spotify_json(media_data.artist, media_data.title)
                 if self.spotify_service.spotify_data:
                     spotify_anim_start_time = time.perf_counter()
                     if self.config.special_mode:
-                        if self.config.special_mode_spotify_slider:
+                        if self.config.special_mode_spotify_slider: 
                             await self.spotify_service.spotify_album_art_animation(self.pixoo_device, media_data, self.select_index)
-                    else:
+                    else: 
                         await self.spotify_service.spotify_albums_slide(self.pixoo_device, media_data, self.select_index)
-
+                    
                     if media_data.spotify_slide_pass:
+                        took_over = True
                         spotify_animation_took_over_display = True
                         self.is_art_visible = True
-                        spotify_anim_end_time = time.perf_counter()
-                        duration = spotify_anim_end_time - spotify_anim_start_time
+                        
+                        duration = time.perf_counter() - spotify_anim_start_time
                         media_data.process_duration = f"{duration:.2f} seconds (Spotify)"
                         new_attributes["process_duration"] = media_data.process_duration
                         new_attributes["spotify_frames"] = media_data.spotify_frames
                     else:
-                        # await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": 4})
                         await self.pixoo_device.send_command({"Command": "Channel/SetIndex", "SelectIndex": self.select_index})
-                        # await self.pixoo_device.send_command({"Command": "Draw/ResetHttpGifId"})
 
-            # --- TEXT LAYER CONSTRUCTION ---
-            if self.config.force_font_color:
-                text_overlay_font_color = self.config.force_font_color
-            elif font_color_from_image_processing:
-                text_overlay_font_color = font_color_from_image_processing
-            else:
-                text_overlay_font_color = '#ffff00'
-
+            # 6. Text Layer Construction
+            f_color = self.config.force_font_color or font_color_from_image_processing or '#ffff00'
+            media_data.lyrics_font_color = f_color
             media_data.background_color = background_color_str
-            media_data.lyrics_font_color = text_overlay_font_color 
+
+            self.cached_static_items = await self._build_text_items_list(media_data, f_color, background_color_str, scope="static")
             
-            text_items_for_display_list = await self._build_text_items_list(
-                media_data, 
-                text_overlay_font_color, 
-                background_color_str
-            )
+            # Get Progress Bar items immediately
+            pb_items = []
+            if self.config.progress_bar_enabled:
+                pb_items = await self.progress_manager.get_payload_item(media_data)
             
-            if not spotify_animation_took_over_display:
-                await self.pixoo_device.send_command(image_payload)
+            full_text_items = list(self.cached_static_items) + pb_items
+
+            # 7. Send Commands (Image first, then Text)
+            if not took_over:
+                await self.pixoo_device.send_command(image_cmd)
+                
                 self.is_art_visible = True
                 self.last_text_payload_hash = None 
-
-                if text_items_for_display_list:
-                    txt_payload = ({ "Command": "Draw/SendHttpItemList", "ItemList": text_items_for_display_list })
-                    current_payload_hash = str(txt_payload)
+                self.last_progress_str = "" 
                 
-                    if current_payload_hash != self.last_text_payload_hash:
-                        await asyncio.sleep(0.10)
-                        await self.pixoo_device.send_command(txt_payload)
-                        self.last_text_payload_hash = current_payload_hash
+                if full_text_items:
+                    await asyncio.sleep(0.1) 
+                    
+                    txt_payload = {"Command": "Draw/SendHttpItemList", "ItemList": full_text_items}
+                    await self.pixoo_device.send_command(txt_payload)
+                    self.last_text_payload_hash = str(txt_payload)
 
-            elif spotify_animation_took_over_display and self.config.special_mode and text_items_for_display_list:
-                await self.pixoo_device.send_command({ "Command": "Draw/SendHttpItemList", "ItemList": text_items_for_display_list })
-            
-            end_time = time.perf_counter()
+            elif spotify_animation_took_over_display and self.config.special_mode and full_text_items:
+                await self.pixoo_device.send_command({ "Command": "Draw/SendHttpItemList", "ItemList": full_text_items })
+
+            # 8. Update Sensor with final duration
             if not spotify_animation_took_over_display:
-                duration = end_time - start_time
+                duration = time.perf_counter() - start_time
                 media_data.process_duration = f"{duration:.2f} seconds"
-            new_attributes["process_duration"] = media_data.process_duration
-            new_attributes["spotify_frames"] = media_data.spotify_frames
+                new_attributes["process_duration"] = media_data.process_duration
             
-            # Update Sensor
             await self.set_state(self.media_data_sensor, state=sensor_state, attributes=new_attributes)
 
-            # Fallback Failure Logic
+            # 9. Fallback Failure Logic
             if self.fallback_service.fail_txt and self.fallback_service.fallback:
                 black_img = self.fallback_service.create_black_screen()
                 black_pic = self.image_processor.gbase64(black_img)
-                payload_fail_commands = {
-                    "Command": "Draw/CommandList",
-                    "CommandList": [
-                        {"Command": "Channel/OnOffScreen", "OnOff": 1},
-                        {"Command": "Draw/ResetHttpGifId"},
-                    ]
-                }
-                await self.pixoo_device.send_command(payload_fail_commands)
+                
                 await self.pixoo_device.send_command({
-                    "Command": "Draw/SendHttpGif",
-                    "PicNum": 1, "PicWidth": 64,
-                    "PicOffset": 0, "PicID": 0,
-                    "PicSpeed": 1000, "PicData": black_pic
+                    "Command": "Draw/CommandList", 
+                    "CommandList": [
+                        {"Command": "Channel/OnOffScreen", "OnOff": 1}, 
+                        {"Command": "Draw/ResetHttpGifId"},
+                        {"Command": "Draw/SendHttpGif", "PicNum": 1, "PicWidth": 64, "PicOffset": 0, "PicID": 0, "PicSpeed": 1000, "PicData": black_pic}
+                    ]
                 })
+                
                 payloads_text_fail = self.create_payloads(media_data.artist, media_data.title, 11)
                 await self.pixoo_device.send_command(payloads_text_fail)
                 self.is_art_visible = True
-                return
 
-        except asyncio.CancelledError:
-            pass
         except Exception as e:
             _LOGGER.error(f"Error in _process_and_display_image: {e}", exc_info=True)
-        finally:
+        finally: 
             self.current_image_task = None
 
     # =========================================================================
@@ -4606,3 +4248,4 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     {"Command": "Channel/SetIndex", "SelectIndex": previous_channel}
                 ]
             })
+            
