@@ -3840,6 +3840,11 @@ class Pixoo64_Media_Album_Art(hass.Hass):
 
                 # ONLY return early if the track matches AND we are actively playing.
                 if not self.media_data.track_changed and current_state_check in ["playing", "on"]:
+                    if not self.is_art_visible:
+                        # If track is resumed from midway when album art is not showing do a full update so album art starts showing.
+                        await self.update_attributes(entity, attribute, old, new, kwargs)
+                        return
+
                     self.progress_timer_gen_id += 1
                     await self._update_progress_bar_loop()
                     if self.lyrics_active_mode:
