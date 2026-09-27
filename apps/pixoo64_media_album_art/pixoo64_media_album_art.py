@@ -53,7 +53,7 @@ pixoo64_media_album_art:
     # tidal_client_secret: "YOUR_SECRET"
     # last.fm: "YOUR_API_KEY"
     # discogs: "YOUR_TOKEN"
-    # pollinations: "YOUR_API_KEY" # Optional for AI art
+    pollinations: "YOUR_API_KEY" # Required for AI art. Get a free key at https://enter.pollinations.ai/keys
 
   # --- Pixoo Device Configuration ---
   pixoo:
@@ -107,7 +107,7 @@ import math
 import random
 import re
 import time
-import textwrap 
+import textwrap
 import colorsys
 import urllib.parse
 from appdaemon.plugins.hass import hassapi as hass
@@ -199,7 +199,8 @@ def _resize_image_sync(image_data: bytes) -> Optional[Image.Image]:
         img.load() 
         if img.mode != "RGB":
             img = img.convert("RGB")
-        img = img.resize((34, 34), Image.Resampling.BICUBIC)
+        # CPU OPTIMIZATION: Using BILINEAR instead of BICUBIC
+        img = img.resize((34, 34), Image.Resampling.BILINEAR)
         return img
     except Exception:
         return None
@@ -218,7 +219,7 @@ class Config:
             'temperature_sensor': None,
             'light': None,
             'force_ai': False,
-            'ai_fallback': 'turbo',
+            'ai_fallback': 'flux',
             'musicbrainz': True,
             'spotify_client_id': None,
             'spotify_client_secret': None,
@@ -267,7 +268,7 @@ class Config:
             'effect': 38,
             'effect_speed': 60,
             'effect_intensity': 128,
-            'only_at_night': False,
+            'only_at_night': True,
             'palette': 0,
             'sound_effect': 0,
         },
@@ -338,9 +339,6 @@ class Config:
             self.pixoo_url: str = f"{pixoo_url}:80/post" if not pixoo_url.endswith(':80/post') else pixoo_url
         else:
             self.pixoo_url = None
-
-        if self.ai_fallback not in ["flux", "turbo"]:
-            self.ai_fallback = "turbo"
 
     def _validate_config(self):
         if not self.pixoo_url:
@@ -547,7 +545,8 @@ class ImageProcessor:
                 if max(img.size) > max_dimension:
                     scale_factor = max_dimension / max(img.size)
                     new_size = (int(img.width * scale_factor), int(img.height * scale_factor))
-                    img = img.resize(new_size, Image.Resampling.BICUBIC)
+                    # CPU OPTIMIZATION: Using BILINEAR
+                    img = img.resize(new_size, Image.Resampling.BILINEAR)
 
                 if (self.config.crop_borders or self.config.special_mode) and not media_data.radio_logo:
                     img = self.crop_image_borders(img, media_data.radio_logo)
@@ -555,7 +554,8 @@ class ImageProcessor:
                 img = self.fixed_size(img)
 
                 if img.width > 64 or img.height > 64:
-                    img = img.resize((64, 64), Image.Resampling.BICUBIC)
+                    # CPU OPTIMIZATION: Using BILINEAR
+                    img = img.resize((64, 64), Image.Resampling.BILINEAR)
 
                 if self.config.contrast or self.config.sharpness or self.config.colors or self.config.kernel or self.config.limit_color:
                     img = self.filter_image(img)
@@ -762,7 +762,8 @@ class ImageProcessor:
             with Image.open(BytesIO(image_data)) as img:
                 img = ensure_rgb(img)
                 img = self.fixed_size(img)
-                img = img.resize((64, 64), Image.Resampling.BICUBIC)
+                # CPU OPTIMIZATION: Using BILINEAR
+                img = img.resize((64, 64), Image.Resampling.BILINEAR)
 
                 if self.config.special_mode:
                     img = self.special_mode(img)
@@ -814,6 +815,7 @@ class ImageProcessor:
             img = img.filter(ImageFilter.Kernel((5, 5), kernel_5x5, 1, 0))
         
         if img.size != (64, 64):
+            # CPU OPTIMIZATION: Using BILINEAR
             img = img.resize((64, 64), Image.Resampling.BILINEAR)
 
         target_colors = int(self.config.limit_color) if self.config.limit_color else 64
@@ -827,7 +829,8 @@ class ImageProcessor:
         output_size = (64, 64)
         album_size = (34, 34) if self.config.show_text else (56, 56)
         
-        album_art = img.resize(album_size, Image.Resampling.BICUBIC)
+        # CPU OPTIMIZATION: Using BILINEAR
+        album_art = img.resize(album_size, Image.Resampling.BILINEAR)
 
         try:
             left_color = album_art.getpixel((0, album_size[1] // 2))
@@ -840,7 +843,8 @@ class ImageProcessor:
             gradient_source = Image.new("RGB", (2, 1))
             gradient_source.putpixel((0, 0), left_color)
             gradient_source.putpixel((1, 0), right_color)
-            background = gradient_source.resize(output_size, Image.Resampling.BICUBIC)
+            # CPU OPTIMIZATION: Using BILINEAR
+            background = gradient_source.resize(output_size, Image.Resampling.BILINEAR)
         else:
             dark_background_color = (
                 min(left_color[0], right_color[0]) // 2,
@@ -909,17 +913,6 @@ class ImageProcessor:
             except Exception: pass
             
         return img
-
-    def rgb_to_hex(self, rgb: tuple) -> str:
-        return f'#{rgb[0]:02x}{rgb[1]:02x}{rgb[2]:02x}'
-     
-    def _hex_to_rgb(self, hex_str: str) -> tuple:
-        hex_str = hex_str.lstrip('#')
-        if len(hex_str) == 3: hex_str = ''.join([c*2 for c in hex_str])
-        try:
-            return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
-        except ValueError:
-            return (0, 255, 255)
 
     def is_strong_color(self, color: tuple) -> bool:
         return any(c > 220 for c in color)
@@ -1100,8 +1093,6 @@ class ImageProcessor:
             white_contrast = self._contrast_ratio((255, 255, 255), avg_bg)
             return '#ffffff' if white_contrast > 3.0 else '#000000'
 
-    # ... [Rest of the class methods (get_dominant_border_color, crops, etc.) remain as is] ...
-    # Ensure all helper methods from your original script are present here.
     def get_dominant_border_color(self, img: Image.Image) -> tuple:
         if img.width == 0 or img.height == 0:
             return (0, 0, 0)
@@ -1216,6 +1207,7 @@ class ImageProcessor:
             proxy_w = int(orig_w * scale)
             proxy_h = int(orig_h * scale)
             
+            # CPU OPTIMIZATION: Using BILINEAR
             proxy = img_to_crop.resize((proxy_w, proxy_h), Image.Resampling.BILINEAR)
 
             detect_img = proxy.convert("RGB")
@@ -1279,6 +1271,7 @@ class ImageProcessor:
             proxy_w = int(orig_w * scale)
             proxy_h = int(orig_h * scale)
             
+            # CPU OPTIMIZATION: Using BILINEAR
             proxy = img_to_crop.resize((proxy_w, proxy_h), Image.Resampling.BILINEAR)
 
             border_color = self.get_dominant_border_color(proxy)
@@ -1996,7 +1989,11 @@ class MediaData:
             # --- LOGIC: SHOW PROGRESS BAR? ---
             if self.config.progress_bar_enabled:
                 pb_state = await hass.get_state(self.config.progress_bar_entity)
-                is_toggled_on = (str(pb_state).lower() == 'on') or (pb_state is True)
+                
+                if pb_state is None:
+                    is_toggled_on = True
+                else:
+                    is_toggled_on = str(pb_state).lower() in ['on', 'true']
                 
                 if is_toggled_on and self.media_duration > 0:
                     self.show_progress_bar = True
@@ -2094,6 +2091,7 @@ class MediaData:
 
     def format_ai_image_prompt(self, artist: Optional[str], title: str) -> Optional[str]: 
         if not self.config.pollinations: 
+            _LOGGER.info("Skipping AI Art generation: 'pollinations' API key is missing in apps.yaml.")
             return None
 
         artist_name = artist if artist else 'Pixoo64' 
@@ -2156,27 +2154,40 @@ class MediaData:
         encoded_prompt = urllib.parse.quote(selected_prompt, safe='')
         
         valid_image_models = {
-            "flux", "flux-klein", "flux-klein-9b", 
-            "zimage", "z-image", "z-image-turbo", 
-            "klein", "klein-9b", "klein-large", 
-            "nanobanana", "nanobanana-pro", 
-            "kontext", "seedream", "seedream-pro", 
-            "gptimage", "gptimage-large", "gpt-image", 
-            "gpt-image-1-mini", "gpt-image-1.5", "gpt-image-large"
+            "flux", "krea/krea-2-medium", "lykon/dreamshaper-8-lcm", 
+            "black-forest-labs/flux.1-kontext-pro", "black-forest-labs/flux.1.1-pro", 
+            "black-forest-labs/flux.2-pro", "black-forest-labs/flux.2-flex", 
+            "black-forest-labs/flux.2-max", "microsoft/mai-image-2.5-flash", 
+            "microsoft/mai-image-2.6-flash", "microsoft/mai-image-2.6", 
+            "google/gemini-2.5-flash-image", "google/gemini-3.1-flash-image", 
+            "google/gemini-3.1-flash-lite-image", "google/gemini-3-pro-image", 
+            "bytedance/seedream-5.0-lite", "bytedance/seedream-5.0-pro", 
+            "bytedance/seedream-4.0", "bytedance/seedream-4.5", 
+            "ideogram-ai/ideogram-v4-turbo", "ideogram-ai/ideogram-v4-balanced", 
+            "ideogram-ai/ideogram-v4-quality", "openai/gpt-image-1-mini", 
+            "openai/gpt-image-1.5", "openai/gpt-image-2", "openai/gpt-image-2.5-flare", 
+            "openai/gpt-image-2.5-sunburst", "black-forest-labs/flux.1-schnell", 
+            "tongyi-mai/z-image-turbo", "alibaba/wan-2.7-image", 
+            "alibaba/wan-2.7-image-pro", "qwen/qwen-image", "qwen/qwen-image-2.1", 
+            "qwen/qwen-image-3", "x-ai/grok-imagine-image", 
+            "x-ai/grok-imagine-image-quality", "x-ai/grok-imagine-image-2.0", 
+            "recraft/recraft-v4.1-vector", "recraft/recraft-v4.1-flash", 
+            "black-forest-labs/flux.2-klein-4b", "prunaai/p-image", 
+            "prunaai/p-image-edit", "amazon/nova-canvas-v1"
         }
 
         user_pref = str(self.config.ai_fallback).lower().strip() if self.config.ai_fallback else "flux"
 
         if user_pref == "turbo":
-            # Explicit mapping per request
-            model = "zimage"
+            # Explicit mapping per request (Legacy alias handler)
+            model = "tongyi-mai/z-image-turbo"
         elif user_pref in valid_image_models:
-            # User picked a specific valid model (e.g. "z-image-turbo" or "flux")
+            # User picked a specific valid model (e.g. "openai/gpt-image-1.5" or "flux")
             model = user_pref
         else:
             # Fallback for typos, invalid names, or video models
-            _LOGGER.warning(f"AI Model '{user_pref}' is invalid or not an image model. Defaulting to 'zimage'.")
-            model = "zimage"
+            _LOGGER.warning(f"AI Model '{user_pref}' is invalid or not an image model. Defaulting to 'flux'.")
+            model = "flux"
         
         seed = random.randint(1, 2147483647)
         
@@ -2188,9 +2199,9 @@ class MediaData:
         url_params = f"?model={model}&width={width}&height={height}&seed={seed}"
 
         # 4. Key Check (Only append if key looks valid)
-        api_key = str(self.config.pollinations)
-        if len(api_key) > 10:
-            url_params += f"&key={api_key}"
+        api_key = self.config.pollinations
+        if api_key and isinstance(api_key, str) and len(api_key) > 5:
+            url_params += f"&key={api_key.strip()}"
         
         return f"{base_url}{encoded_prompt}{url_params}"
 
@@ -2592,7 +2603,8 @@ class FallbackService:
             (tv_body_rect[0], tv_body_rect[1], tv_body_rect[0], tv_body_rect[1] + 20),
             fill=highlight_color, width=highlight_thickness
         )
-        image = image.resize((final_width, final_height), Image.Resampling.BICUBIC)
+        # CPU OPTIMIZATION: Using BILINEAR
+        image = image.resize((final_width, final_height), Image.Resampling.BILINEAR)
         return image
 
 class SpotifyService:
@@ -2951,7 +2963,9 @@ class SpotifyService:
                 try:
                     img = Image.open(BytesIO(raw_data))
                     img.load()
-                    img = img.convert("RGB").resize((34, 34), Image.Resampling.BICUBIC)
+                    img = img.convert("RGB")
+                    # CPU OPTIMIZATION: Using BILINEAR
+                    img = img.resize((34, 34), Image.Resampling.BILINEAR)
                     active = img.copy()
                     draw = ImageDraw.Draw(active); draw.rectangle([0, 0, 33, 33], outline="black", width=1)
                     inactive = img.filter(ImageFilter.GaussianBlur(2))
@@ -3012,7 +3026,6 @@ class ProgressBarManager:
         self.ensure_entity_exists()
         
         # State tracking for the "Delayed Bold" effect
-        # False = First update (Normal/Thin), True = Subsequent updates (Bold)
         self.is_bold_active = False
 
     def reset_bold_state(self):
@@ -3020,9 +3033,11 @@ class ProgressBarManager:
         self.is_bold_active = False
 
     def ensure_entity_exists(self):
-        """Checks if the control input_boolean exists. Creates or updates it."""
+        """
+        Checks if the control input_boolean exists. 
+        Logs a warning if not, instead of creating a un-toggleable ghost entity.
+        """
         entity_id = self.config.progress_bar_entity
-        
         attributes = {
             "friendly_name": "Pixoo64 Progress Bar",
             "icon": "mdi:progress-clock",
@@ -3038,6 +3053,8 @@ class ProgressBarManager:
 
         if not self.hass.entity_exists(entity_id):
             self.hass.set_state(entity_id, state=default_state, attributes=attributes)
+            self.hass.log(f"WARNING: The helper '{entity_id}' did not exist, creating a temporary state. "
+                          f"For the UI toggle to actually work without snapping back, please go to Settings -> Devices & Services -> Helpers and create a Toggle with this entity ID.", level="WARNING")
         else:
             current_state = self.hass.get_state(entity_id)
             if str(current_state).lower() not in ['on', 'off']:
@@ -3782,7 +3799,13 @@ class Pixoo64_Media_Album_Art(hass.Hass):
         if (hasattr(self, 'notification_manager') and self.notification_manager.is_active): return 
         state = await self.get_state(self.config.media_player)
         if state not in ["playing", "on"]: return
-        if self.config.progress_bar_enabled and str(await self.get_state(self.config.progress_bar_entity)).lower() != 'on': return
+        if not self.config.progress_bar_enabled: return
+        
+        # FIX: Check if the entity is actually created and explicitly turned off by the user
+        pb_state = await self.get_state(self.config.progress_bar_entity)
+        if pb_state is not None and str(pb_state).lower() not in ['on', 'true']:
+            return
+            
         if await self.get_state(self.config.mode_entity) in self.config.progress_bar_exclude_modes: return
 
         elapsed = (datetime.now(timezone.utc) - self.media_data.media_position_updated_at).total_seconds() if self.media_data.media_position_updated_at else 0
@@ -3935,7 +3958,7 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     a_rtl = 1 if has_bidi(media_data.artist) else 0
                     text_items.append({"TextId": 4, "type": 22, "x": 0, "y": 42, "dir": a_rtl, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": get_bidi(media_data.artist) if a_rtl else media_data.artist, "color": font_color})
                     
-                    # TITLE (Bottom Line) - FIX: Use font_color instead of bg_color
+                    # TITLE (Bottom Line)
                     t_rtl = 1 if has_bidi(media_data.title) else 0
                     text_items.append({"TextId": 5, "type": 22, "x": 0, "y": 52, "dir": t_rtl, "font": 190, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": get_bidi(media_data.title) if t_rtl else media_data.title, "color": font_color})
 
@@ -3946,15 +3969,8 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                 if len(txt) > 14: txt += "        "
                 rtl = 1 if has_bidi(txt) else 0
                 
-                # Check Progress Bar Length to hide text if needed
-                pb_len = len(self.progress_manager.current_bar_str) if self.progress_manager else 0
-                
-                should_show_text = True
-                # If progress bar is enabled and has grown beyond 2 chars (approx 5-10% of song), hide text
-                if self.config.progress_bar_enabled and pb_len > 2:
-                    should_show_text = False
-
-                if should_show_text and self.config.show_text and not media_data.radio_logo and not media_data.playing_tv:
+                # FIXED: Text is no longer hidden when progress bar is active
+                if self.config.show_text and not media_data.radio_logo and not media_data.playing_tv:
                     text_items.append({"TextId": 4, "type": 22, "x": 0, "y": y_text, "dir": rtl, "font": 2, "TextWidth": 64, "Textheight": 16, "speed": 100, "align": 2, "TextString": get_bidi(txt) if rtl else txt, "color": font_color})
                 
                 if self.config.show_clock:
@@ -4252,4 +4268,3 @@ class Pixoo64_Media_Album_Art(hass.Hass):
                     {"Command": "Channel/SetIndex", "SelectIndex": previous_channel}
                 ]
             })
-            
