@@ -1,3 +1,15 @@
+> [!NOTE]
+> ## Pixoo64 Art — Home Assistant Custom Component
+> The script is now also available as a **custom component for Home Assistant**, offering
+> additional features and improved integration that make the project even better.
+>
+> 🔗 https://github.com/idodov/pixoo64_art
+
+
+---
+
+If you want, I can also format this as a release note, README section, announcement post, or anything else you need.
+
 # 🎨 Pixoo64 Media Album Art for Home Assistant
 
 [![Current Version](https://img.shields.io/badge/version-1.0.0-blue.svg?style=for-the-badge)](https://github.com/idodov/pixoo64_art)
